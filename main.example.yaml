@@ -1,0 +1,151 @@
+# Doppel reference configuration.
+# Copy to main.yaml and adjust; main.yaml is git-ignored.
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  workers: 4  # tokio runtime worker threads; default is available parallelism
+
+logging:
+  level: info   # trace | debug | info | warn | error
+  format: json  # json | text
+
+control:
+  socket: /tmp/doppel.sock  # `doppel config reload` talks to this socket
+
+templates:
+  dir: ./templates  # uploaded template files are materialized here
+
+admin:
+  host: "0.0.0.0"
+  port: 8081
+  workers: 1
+  auth:
+    header: X-Proxy-Authorization  # expects "Bearer {token}"
+  tokens:
+    - name: user1
+      group: admin  # admin and user are predefined; custom group names allowed
+      token: c0a721e2-90ff-40f0-a230-c1ab83d751d8
+    - name: user2
+      group: user
+      token: e14887ef-4025-42d0-81db-a72a2cb3cb76
+  access:  # public, a single token or group name, or a list of them
+    list: public
+    read: public
+    create: ["admin"]
+    update: user1
+    delete: admin
+    upload: admin
+  upload:
+    limit: 1M
+
+proxies:
+  - name: proxy1
+    type: http
+    url: "https://external-service.com/api/v1/"
+    timeout: 60
+    resolve:
+      type: default
+    access:  # per-proxy override; read, update, delete, upload only
+      read: ["user1", "user2"]
+      update: user1
+    headers:
+      Authorization: "Bearer 1234567890"
+    loss:
+      percentage: 0.1  # drop 10 percent of requests
+      status: 503
+    latency:
+      percentage: 0.45  # delay 45 percent of requests
+      min: 0.05         # seconds
+      max: 0.2
+    replace: 1.0  # serve mocks for 100 percent of matching requests
+    mocks:
+      - name: mock1
+        request:
+          method: GET
+          url: /api/v1/resource/
+        response:
+          status: 200
+          body: '{"message": "Success"}'
+          headers:
+            Content-Type: application/json
+
+      - name: mock2
+        request:
+          method: POST
+          url: /api/v1/resource/
+          body:
+            resourceName: .name
+            resourceDescription: .description
+            resourceItems: .content.items
+          query:
+            filter: .filter
+            sort: .sort
+        response:
+          status: 201
+          json: '{"message": "Resource created", "name": "{{ resourceName }}", "description": "{{ resourceDescription }}", "items": {{ resourceItems | length }}}'
+          headers:
+            Content-Type: application/json
+
+      - name: mock3
+        request:
+          method: GET
+          url: /api/v1/resource/42/
+        response:
+          status: 200
+          json: '{"message": "Success"}'
+        proxy:  # per-mock override of the proxy fault settings
+          replace: 0.5
+          latency:
+            percentage: 0.5
+            min: 0.1
+            max: 0.3
+
+      - name: mock4
+        request:
+          method: GET
+          url: /api/v1/resource/(?P<resourceId>\d+)/
+          headers:
+            requestId: X-Request-ID
+        response:
+          status: 200
+          json: '{"message": "Success", "id": "{{ resourceId }}"}'
+          headers:
+            X-Resource-ID: "{{ resourceId }}"
+            X-Request-ID: "{{ requestId }}"
+
+      - name: mock5
+        request:
+          method: DELETE
+          url: /api/v1/resource/(?P<resourceId>\d+)/
+          headers:
+            requestId: X-Request-ID
+        response:
+          status: 204  # 204 forbids a body, so none is declared
+          headers:
+            X-Resource-ID: "{{ resourceId }}"
+
+      - name: mock6
+        request:
+          method: PUT
+          url: /api/v1/resource/(?P<resourceId>\d+)/
+          body:
+            resourceName: .name
+            resourceDescription: .description
+            resourceItems: .content.items
+        response:
+          status: 200
+          template: put.json.j2
+          headers:
+            Content-Type: application/json
+        proxy:
+          loss:
+            percentage: 0.0
+            status: 503
+
+  - name: proxy2
+    type: http
+    url: "https://other-service.com/"
+    resolve:
+      type: header
+      header: X-Proxy-Name  # the header value names the proxy
