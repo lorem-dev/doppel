@@ -14,7 +14,6 @@ doppel-core = { path = "../doppel-core" }
 doppel-proxy = { path = "../doppel-proxy" }
 doppel-telemetry = { path = "../doppel-telemetry" }
 anyhow.workspace = true
-arc-swap.workspace = true
 clap.workspace = true
 reqwest.workspace = true
 serde.workspace = true
@@ -25,7 +24,6 @@ tracing.workspace = true
 
 [dev-dependencies]
 reqwest = { workspace = true, features = ["blocking"] }
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]
