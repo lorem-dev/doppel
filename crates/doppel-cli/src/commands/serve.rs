@@ -70,9 +70,10 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     let control_task = tokio::spawn({
         let holder = Arc::clone(&holder);
         let store = Arc::clone(&store);
+        let startup_config = Arc::clone(&config);
         async move {
             control
-                .run(holder, store, async {
+                .run(holder, store, startup_config, async {
                     let _ = control_rx.await;
                 })
                 .await;

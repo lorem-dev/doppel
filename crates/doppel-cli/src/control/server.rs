@@ -125,10 +125,18 @@ impl ControlServer {
     }
 
     /// Serve until `shutdown` resolves, then remove the socket file.
+    ///
+    /// `startup_config` is the configuration the process was actually
+    /// launched under -- captured once, before the first `Runtime` was even
+    /// compiled -- and is held for the life of the control channel so every
+    /// reload's unapplied-section report can compare against it. See
+    /// `reload` below for why that has to be the fixed startup value rather
+    /// than whatever the last reload compiled.
     pub async fn run(
         self,
         holder: Arc<RuntimeHolder>,
         store: Arc<dyn ConfigStore>,
+        startup_config: Arc<Config>,
         shutdown: impl Future<Output = ()> + Send,
     ) {
         tracing::info!(path = %self.path().display(), "control channel listening");
@@ -146,10 +154,12 @@ impl ControlServer {
                     Ok((stream, _)) => {
                         let holder = Arc::clone(&holder);
                         let store = Arc::clone(&store);
+                        let startup_config = Arc::clone(&startup_config);
                         let reload_lock = Arc::clone(&reload_lock);
                         tokio::spawn(async move {
                             if let Err(err) =
-                                serve_connection(stream, holder, store, reload_lock).await
+                                serve_connection(stream, holder, store, startup_config, reload_lock)
+                                    .await
                             {
                                 tracing::warn!(error = %err, "control connection failed");
                             }
@@ -262,6 +272,7 @@ async fn serve_connection(
     stream: UnixStream,
     holder: Arc<RuntimeHolder>,
     store: Arc<dyn ConfigStore>,
+    startup_config: Arc<Config>,
     reload_lock: Arc<Mutex<()>>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.take(MAX_REQUEST_LINE_BYTES));
@@ -276,7 +287,7 @@ async fn serve_connection(
             // the whole "load, validate, compile, swap, respond" sequence
             // for one reload finishes before the next one starts.
             let _guard = reload_lock.lock().await;
-            let response = reload(&holder, store.as_ref()).await;
+            let response = reload(&holder, store.as_ref(), &startup_config).await;
             write_response(reader, &response).await
         }
         Err(_) => {
@@ -307,7 +318,11 @@ async fn write_response(
 /// harmlessly; the swap itself cannot fail. Callers reload concurrently only
 /// while holding `reload_lock` (see `run`), so this function does not need
 /// one of its own.
-async fn reload(holder: &RuntimeHolder, store: &dyn ConfigStore) -> ControlResponse {
+async fn reload(
+    holder: &RuntimeHolder,
+    store: &dyn ConfigStore,
+    startup_config: &Config,
+) -> ControlResponse {
     let (config, revision) = match store.load().await {
         Ok(loaded) => loaded,
         Err(StoreError::Invalid(errors)) => {
@@ -327,12 +342,18 @@ async fn reload(holder: &RuntimeHolder, store: &dyn ConfigStore) -> ControlRespo
     // `Runtime::compile` reads only `config.proxies` (see `runtime.rs`), so
     // every other top-level section is validated and counted into the new
     // revision but has no effect on the running process until it is
-    // restarted. Compare against the config the currently installed
-    // `Runtime` was built from -- before the swap below replaces it -- so an
-    // operator who also edited one of those sections is told so, rather than
-    // being left to discover it the hard way.
-    let previous_config = Arc::clone(&holder.load().config);
-    let unapplied = unapplied_sections(&previous_config, &config);
+    // restarted. Compare against `startup_config` -- the configuration the
+    // process actually started under -- not `holder.load().config` (the last
+    // *compiled* config): `Runtime::compile` never reads those sections, so
+    // once one of them has drifted from what the process is running under,
+    // it stays drifted through every subsequent reload regardless of what
+    // else that reload touches. Comparing against the last compiled config
+    // would find it unchanged from itself on a later reload and wrongly go
+    // silent, even though the running process still does not match the
+    // file. Comparing against the fixed startup value instead makes the
+    // warning level-triggered (it fires for as long as the drift exists)
+    // rather than edge-triggered (only on the reload that introduced it).
+    let unapplied = unapplied_sections(startup_config, &config);
     if !unapplied.is_empty() {
         tracing::warn!(
             sections = ?unapplied,
@@ -449,8 +470,9 @@ proxies:
             dir.path().join("templates"),
         ));
         let (config, revision) = store.load().await.unwrap();
+        let startup_config = Arc::new(config);
         let holder = Arc::new(RuntimeHolder::new(
-            Runtime::compile(Arc::new(config), revision).unwrap(),
+            Runtime::compile(Arc::clone(&startup_config), revision).unwrap(),
         ));
 
         let server = ControlServer::bind(&socket).unwrap();
@@ -458,7 +480,7 @@ proxies:
         let run_holder = Arc::clone(&holder);
         tokio::spawn(async move {
             server
-                .run(run_holder, store, async {
+                .run(run_holder, store, startup_config, async {
                     let _ = rx.await;
                 })
                 .await;
@@ -666,8 +688,9 @@ proxies:
 
         let inner = FileStore::new(config_path.clone(), dir.path().join("templates"));
         let (config, revision) = inner.load().await.unwrap();
+        let startup_config = Arc::new(config);
         let holder = Arc::new(RuntimeHolder::new(
-            Runtime::compile(Arc::new(config), revision).unwrap(),
+            Runtime::compile(Arc::clone(&startup_config), revision).unwrap(),
         ));
 
         let enter_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -683,7 +706,7 @@ proxies:
         let run_holder = Arc::clone(&holder);
         tokio::spawn(async move {
             server
-                .run(run_holder, store, async {
+                .run(run_holder, store, startup_config, async {
                     let _ = rx.await;
                 })
                 .await;
@@ -788,6 +811,60 @@ proxies:
             panic!("expected an ok response, got {response:?}");
         };
         assert_eq!(unapplied, vec!["logging".to_owned()]);
+        let _ = h.shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn a_second_reload_still_names_a_section_unapplied_since_startup() {
+        // The comparison baseline must be the configuration the process
+        // actually started under, not the last *compiled* config:
+        // `Runtime::compile` never reads `logging`, so after the first
+        // reload below the running logger is still at its startup level
+        // even though the *compiled* config the `Runtime` now holds has
+        // moved on to `debug`. Comparing against that compiled config on
+        // the second reload would find `logging` unchanged (debug vs.
+        // debug) and wrongly go silent, even though the process is still
+        // not running under it.
+        let h = harness().await;
+
+        std::fs::write(
+            &h.config_path,
+            GOOD.replace("port: 8080", "port: 8080\nlogging:\n  level: debug"),
+        )
+        .unwrap();
+        let first = client::send(&h.socket, ControlRequest::Reload)
+            .await
+            .unwrap();
+        let ControlResponse::Ok {
+            unapplied: first_unapplied,
+            ..
+        } = first
+        else {
+            panic!("expected an ok response, got {first:?}");
+        };
+        assert_eq!(first_unapplied, vec!["logging".to_owned()]);
+
+        std::fs::write(
+            &h.config_path,
+            GOOD.replace("port: 8080", "port: 8080\nlogging:\n  level: debug")
+                .replace("  - name: p1", "  - name: p1\n    timeout: 5"),
+        )
+        .unwrap();
+        let second = client::send(&h.socket, ControlRequest::Reload)
+            .await
+            .unwrap();
+        let ControlResponse::Ok {
+            unapplied: second_unapplied,
+            ..
+        } = second
+        else {
+            panic!("expected an ok response, got {second:?}");
+        };
+        assert_eq!(
+            second_unapplied,
+            vec!["logging".to_owned()],
+            "logging is still unapplied since startup even though this reload only touched a proxy"
+        );
         let _ = h.shutdown.send(());
     }
 
