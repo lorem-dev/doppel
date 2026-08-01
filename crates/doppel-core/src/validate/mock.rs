@@ -244,6 +244,26 @@ proxies:
     }
 
     #[test]
+    fn v19_capture_groups_must_not_collide_with_declared_query_variables() {
+        let text = good().replace("filter: .filter", "id: .filter");
+        assert_violation(
+            &text,
+            "proxies[0].mocks[0].request.query.id",
+            "collides with a capture group",
+        );
+    }
+
+    #[test]
+    fn v19_capture_groups_must_not_collide_with_declared_body_variables() {
+        let text = good().replace("itemName: .content.name", "id: .content.name");
+        assert_violation(
+            &text,
+            "proxies[0].mocks[0].request.body.id",
+            "collides with a capture group",
+        );
+    }
+
+    #[test]
     fn v20_at_most_one_body_source() {
         let text = good().replace(
             r#"          json: '{"id": "{{ id }}"}'"#,
@@ -338,6 +358,24 @@ proxies:
     fn v30_bodiless_status_without_a_body_passes() {
         let text = good()
             .replace("status: 200", "status: 204")
+            .replace(r#"          json: '{"id": "{{ id }}"}'"#, "");
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
+    }
+
+    #[test]
+    fn v30_304_must_declare_no_body() {
+        let text = good().replace("status: 200", "status: 304");
+        assert_violation(
+            &text,
+            "proxies[0].mocks[0].response",
+            "status 304 forbids a body",
+        );
+    }
+
+    #[test]
+    fn v30_304_without_a_body_passes() {
+        let text = good()
+            .replace("status: 200", "status: 304")
             .replace(r#"          json: '{"id": "{{ id }}"}'"#, "");
         assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
     }
