@@ -323,6 +323,7 @@ name = "doppel-telemetry"
 version = "0.1.0"
 dependencies = [
  "doppel-core",
+ "thiserror",
  "tracing",
  "tracing-subscriber",
 ]
