@@ -1,0 +1,28 @@
+[package]
+name = "doppel-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "doppel"
+path = "src/main.rs"
+
+[dependencies]
+doppel-core = { path = "../doppel-core" }
+doppel-proxy = { path = "../doppel-proxy" }
+doppel-telemetry = { path = "../doppel-telemetry" }
+anyhow.workspace = true
+arc-swap.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+reqwest.workspace = true
+
+[lints]
+workspace = true

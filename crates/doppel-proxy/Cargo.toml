@@ -1,0 +1,23 @@
+[package]
+name = "doppel-proxy"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+doppel-core = { path = "../doppel-core" }
+axum.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http-body-util.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true
