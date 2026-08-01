@@ -483,6 +483,32 @@ mod tests {
     }
 
     #[test]
+    fn a_percent_encoded_backslash_is_forwarded_unchanged_not_treated_as_a_separator() {
+        // `%5C` decodes to a literal backslash, but it is not a raw `\` byte
+        // in the request target itself, so neither the backslash filter
+        // (which only rejects a literal `\`) nor `Url::set_path`'s
+        // separator handling (which only treats an actual `\` byte as a
+        // separator for special schemes) has any reason to touch it. A
+        // future "hardening" that widened the backslash filter to a
+        // `contains` check on the raw text would start refusing this valid,
+        // non-traversing path.
+        let joined = join_upstream(&url("https://host/api/v1/"), "/x%5Cy", None).unwrap();
+        assert_eq!(joined.as_str(), "https://host/api/v1/x%5Cy");
+    }
+
+    #[test]
+    fn a_double_encoded_dot_is_not_a_dot_segment_and_is_forwarded_unchanged() {
+        // `%252e` decodes once to `%2e`, and only reaches `.` on a *second*
+        // decoding pass -- but nothing here, and nothing in `Url::set_path`,
+        // ever double-decodes. It must be treated as an ordinary,
+        // non-traversing segment, not rejected as a disguised `.`. A future
+        // "hardening" of the decoded-segment filter into a `contains` check
+        // would start refusing this valid path too.
+        let joined = join_upstream(&url("https://host/api/v1/"), "/%252e/admin", None).unwrap();
+        assert_eq!(joined.as_str(), "https://host/api/v1/%252e/admin");
+    }
+
+    #[test]
     fn a_filename_containing_literal_dots_is_not_mistaken_for_a_dot_segment() {
         let joined = join_upstream(&url("https://host/api/v1/"), "/file..name.json", None).unwrap();
         assert_eq!(joined.as_str(), "https://host/api/v1/file..name.json");

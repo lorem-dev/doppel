@@ -143,6 +143,17 @@ proxies:
     }
 
     #[test]
+    fn an_empty_header_value_falls_back_to_the_default_rather_than_matching() {
+        // `X-Proxy-Name: ""` is a header that is present but names no
+        // proxy: `proxy_by_name("")` finds nothing (no proxy is named the
+        // empty string), so this must fall back to the default exactly as
+        // an unknown name does, not match anything or panic.
+        let rt = runtime(CONFIG);
+        let proxy = resolve(&rt, &headers(&[("x-proxy-name", "")])).unwrap();
+        assert_eq!(proxy.name, "fallback");
+    }
+
+    #[test]
     fn a_non_ascii_header_value_does_not_panic() {
         let rt = runtime(CONFIG);
         let mut map = HeaderMap::new();

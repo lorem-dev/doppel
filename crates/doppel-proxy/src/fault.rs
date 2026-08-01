@@ -196,6 +196,20 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "SequenceSampler exhausted")]
+    fn exhausting_the_sequence_sampler_panics_rather_than_returning_a_default() {
+        // Several tests above (e.g. `loss_short_circuits_latency`) rely on
+        // this panic to turn "the code under test drew more samples than
+        // the test expected" into a failure. If `sample`'s `expect` were
+        // ever replaced with, say, `unwrap_or(0.0)`, every one of those
+        // tests would keep passing for the wrong reason -- this is the one
+        // that pins the panic itself.
+        let s = SequenceSampler::new(vec![0.5]);
+        assert!((s.sample() - 0.5).abs() < f64::EPSILON);
+        s.sample();
+    }
+
+    #[test]
     fn os_sampler_stays_in_range() {
         let s = OsSampler;
         for _ in 0..1000 {
