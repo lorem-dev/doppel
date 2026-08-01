@@ -2,7 +2,6 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{ConfigStore, Revision, StoreError, TemplateFile, name::sanitize};
 use crate::config::{self, Config, ConfigError};
@@ -11,7 +10,6 @@ use crate::validate::validate;
 pub struct FileStore {
     config_path: PathBuf,
     templates_dir: PathBuf,
-    revision: AtomicU64,
 }
 
 impl FileStore {
@@ -21,7 +19,6 @@ impl FileStore {
         Self {
             config_path: config_path.into(),
             templates_dir: templates_dir.into(),
-            revision: AtomicU64::new(0),
         }
     }
 
@@ -33,6 +30,52 @@ impl FileStore {
     #[must_use]
     pub fn templates_dir(&self) -> &Path {
         &self.templates_dir
+    }
+
+    /// The dedicated sibling file `save` takes its cross-process lock on.
+    ///
+    /// This is deliberately not `self.config_path` itself. `save` writes the
+    /// new content to a temporary file and `rename`s it into place, and
+    /// `rename` replaces the directory entry's inode wholesale: a lock held
+    /// on the config path's pre-rename inode would go on guarding a file
+    /// that is no longer reachable at that path the instant the rename
+    /// lands, while a second process opened its own handle on the same path
+    /// and is now happily writing straight through the "protected" file.
+    /// Locking a name that `save` never renames and never removes is what
+    /// keeps the lock meaningful across that rename. Do not "simplify" this
+    /// to `self.config_path`.
+    fn lock_path(&self) -> PathBuf {
+        let mut name = self.config_path.as_os_str().to_owned();
+        name.push(".lock");
+        PathBuf::from(name)
+    }
+
+    /// The revision of whatever is currently on disk at `config_path`, used
+    /// by `save`'s compare-and-swap check. Called only while the lock in
+    /// `save` is held, so it always sees the latest committed write from any
+    /// process sharing this file.
+    ///
+    /// `Revision(0)` is a reserved sentinel meaning "nothing is stored at
+    /// this path yet": a caller that supplies `expected: Some(_)` believes it
+    /// is updating a configuration that exists, so a missing file must be a
+    /// mismatch, not free rein to create one. `fnv1a`'s output is not
+    /// otherwise guaranteed to avoid zero, but a real configuration's
+    /// canonical YAML happening to hash to exactly the same value as this
+    /// sentinel is the same order of accident (about 1 in 2^64) that this
+    /// whole scheme already accepts for any two distinct configurations
+    /// colliding, so reusing it here adds no meaningfully new risk.
+    fn current_revision(config_path: &Path) -> Result<Revision, StoreError> {
+        match config::load_from_path(config_path) {
+            Ok(config) => Ok(Revision::of_config(&config)),
+            Err(ConfigError::NotFound(_)) => Ok(Revision(0)),
+            Err(ConfigError::Io { path, source }) => Err(StoreError::Io { path, source }),
+            Err(ConfigError::Parse(err)) => {
+                Err(StoreError::Invalid(vec![crate::validate::Violation::new(
+                    "",
+                    err.to_string(),
+                )]))
+            }
+        }
     }
 
     fn proxy_dir(&self, proxy: &str) -> Result<PathBuf, StoreError> {
@@ -52,7 +95,11 @@ impl FileStore {
 
 #[async_trait::async_trait]
 impl ConfigStore for FileStore {
-    async fn load(&self) -> Result<Config, StoreError> {
+    async fn load(&self) -> Result<(Config, Revision), StoreError> {
+        // Reads take no lock. `save`'s final `rename` is atomic, so a reader
+        // racing a writer always observes either the complete old
+        // configuration or the complete new one at `config_path`, never a
+        // partial write; there is nothing here for a lock to protect.
         let config = match config::load_from_path(&self.config_path) {
             Ok(config) => config,
             Err(ConfigError::NotFound(path)) => return Err(StoreError::NotFound(path)),
@@ -65,11 +112,66 @@ impl ConfigStore for FileStore {
             }
         };
         validate(&config).map_err(StoreError::Invalid)?;
-        Ok(config)
+        let revision = Revision::of_config(&config);
+        Ok((config, revision))
     }
 
-    async fn save(&self, config: &Config, _actor: Option<&str>) -> Result<Revision, StoreError> {
+    async fn save(
+        &self,
+        config: &Config,
+        expected: Option<Revision>,
+        _actor: Option<&str>,
+    ) -> Result<Revision, StoreError> {
         validate(config).map_err(StoreError::Invalid)?;
+
+        let lock_path = self.lock_path();
+        // The lock file is created if absent, but never truncated, renamed,
+        // or removed: it exists only to be locked. See `lock_path` for why
+        // it, and not `self.config_path`, is what gets locked here.
+        let lock_file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            // Explicit, not the default: this file's whole point is to keep
+            // existing so it can be locked, and clippy correctly wants
+            // `create(true)` paired with an explicit truncation choice.
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(Self::io(&lock_path))?;
+        // A blocking, exclusive, advisory lock, held from here to the end of
+        // this function. It serialises this whole check-then-write sequence
+        // (the revision comparison below, the serialization, the temporary
+        // file write, the sync, and the rename) across every process
+        // sharing this configuration file -- which an in-process mutex
+        // cannot do, since it is invisible to the other processes in the
+        // deployment this store targets. It also serialises threads within
+        // one process: each thread opens its own file description on
+        // `lock_path`, and the OS advisory lock queues those exactly as it
+        // would two separate processes, so no second, in-process lock is
+        // kept alongside this one. Every early return below (via `?`) still
+        // drops `lock_file` on its way out, which closes the descriptor and
+        // releases the lock, so a rejected save never leaves it held for the
+        // next caller.
+        //
+        // Called through the trait (`fs4::FileExt::lock`, not
+        // `lock_file.lock()`) so this stays pinned to the `fs4` crate the
+        // spec calls for, rather than silently resolving to the
+        // now-also-stable, but separately maintained, inherent
+        // `std::fs::File::lock` if the two ever drift in behavior.
+        fs4::FileExt::lock(&lock_file).map_err(Self::io(&lock_path))?;
+
+        if let Some(expected_revision) = expected {
+            let actual = Self::current_revision(&self.config_path)?;
+            if actual != expected_revision {
+                // Nothing has been written yet: the mismatch is caught
+                // before serialization even starts, so the file on disk is
+                // untouched.
+                return Err(StoreError::RevisionMismatch {
+                    expected: expected_revision,
+                    actual,
+                });
+            }
+        }
+
         let yaml = config::to_yaml(config).map_err(|e| StoreError::Serialize(e.to_string()))?;
 
         let dir = self.config_path.parent().unwrap_or(Path::new("."));
@@ -87,7 +189,7 @@ impl ConfigStore for FileStore {
                 source: e.error,
             })?;
 
-        Ok(Revision(self.revision.fetch_add(1, Ordering::SeqCst) + 1))
+        Ok(Revision::of_config(config))
     }
 
     async fn load_templates(&self, proxy: &str) -> Result<Vec<TemplateFile>, StoreError> {
@@ -223,7 +325,7 @@ proxies:
     async fn load_returns_a_validated_config() {
         let dir = tempfile::tempdir().unwrap();
         let (store, _) = store(dir.path());
-        let config = store.load().await.unwrap();
+        let (config, _revision) = store.load().await.unwrap();
         assert_eq!(config.proxies[0].name, "p1");
     }
 
@@ -247,30 +349,14 @@ proxies:
     }
 
     #[tokio::test]
-    async fn save_round_trips_and_bumps_the_revision() {
-        let dir = tempfile::tempdir().unwrap();
-        let (store, config_path) = store(dir.path());
-        let mut config = store.load().await.unwrap();
-        config.proxies[0].name = "renamed".to_owned();
-
-        let first = store.save(&config, Some("tester")).await.unwrap();
-        let second = store.save(&config, Some("tester")).await.unwrap();
-        assert_eq!(first, Revision(1));
-        assert_eq!(second, Revision(2));
-
-        let reloaded = load_from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
-        assert_eq!(reloaded.proxies[0].name, "renamed");
-    }
-
-    #[tokio::test]
     async fn save_refuses_an_invalid_config_and_leaves_the_file_alone() {
         let dir = tempfile::tempdir().unwrap();
         let (store, config_path) = store(dir.path());
-        let mut config = store.load().await.unwrap();
+        let (mut config, _) = store.load().await.unwrap();
         config.admin.port = config.server.port;
 
         assert!(matches!(
-            store.save(&config, None).await,
+            store.save(&config, None, None).await,
             Err(StoreError::Invalid(_))
         ));
         assert_eq!(std::fs::read_to_string(&config_path).unwrap(), GOOD);
@@ -291,9 +377,9 @@ proxies:
         std::fs::write(&config_path, &reference).unwrap();
         let store = FileStore::new(config_path, dir.path().join("templates"));
 
-        let before = store.load().await.unwrap();
-        store.save(&before, None).await.unwrap();
-        let after = store.load().await.unwrap();
+        let (before, _) = store.load().await.unwrap();
+        store.save(&before, None, None).await.unwrap();
+        let (after, _) = store.load().await.unwrap();
         assert_eq!(before, after);
     }
 
@@ -301,16 +387,254 @@ proxies:
     async fn save_leaves_no_temporary_files_behind() {
         let dir = tempfile::tempdir().unwrap();
         let (store, _) = store(dir.path());
-        let config = store.load().await.unwrap();
-        store.save(&config, None).await.unwrap();
+        let (config, _) = store.load().await.unwrap();
+        store.save(&config, None, None).await.unwrap();
 
+        // The lock file is expected to be there; it is not a leftover.
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()
             .filter_map(Result::ok)
             .map(|e| e.file_name().to_string_lossy().into_owned())
-            .filter(|name| name != "main.yaml")
+            .filter(|name| name != "main.yaml" && name != "main.yaml.lock")
             .collect();
         assert!(leftovers.is_empty(), "unexpected leftovers: {leftovers:?}");
+    }
+
+    // -- Revision identity --------------------------------------------------
+
+    #[tokio::test]
+    async fn saving_the_same_configuration_twice_returns_the_same_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (config, _) = store.load().await.unwrap();
+
+        let first = store.save(&config, None, None).await.unwrap();
+        let second = store.save(&config, Some(first), None).await.unwrap();
+        assert_eq!(first, second);
+    }
+
+    #[tokio::test]
+    async fn saving_a_changed_configuration_returns_a_different_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (mut config, _) = store.load().await.unwrap();
+
+        let before = store.save(&config, None, None).await.unwrap();
+        config.proxies[0].name = "renamed".to_owned();
+        let after = store.save(&config, Some(before), None).await.unwrap();
+        assert_ne!(before, after);
+    }
+
+    #[tokio::test]
+    async fn load_returns_the_same_revision_the_preceding_save_returned() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (config, _) = store.load().await.unwrap();
+
+        let saved = store.save(&config, None, None).await.unwrap();
+        let (_, loaded) = store.load().await.unwrap();
+        assert_eq!(saved, loaded);
+    }
+
+    #[tokio::test]
+    async fn two_stores_over_separate_files_agree_on_the_revision_of_the_same_configuration() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store_a, _) = store(dir.path());
+        let config_b_path = dir.path().join("other.yaml");
+        std::fs::write(&config_b_path, GOOD).unwrap();
+        let store_b = FileStore::new(config_b_path, dir.path().join("templates-b"));
+
+        let (_, revision_a) = store_a.load().await.unwrap();
+        let (_, revision_b) = store_b.load().await.unwrap();
+        assert_eq!(revision_a, revision_b);
+    }
+
+    // Same configuration as `GOOD`, but reindented and with a comment added:
+    // different bytes, same meaning. Kept as a full YAML literal (rather than
+    // derived from `GOOD` by string surgery) so its indentation is honestly
+    // different rather than mechanically doubled.
+    const GOOD_REFORMATTED: &str = r#"
+# same configuration as GOOD, just formatted differently
+server:
+    host: "127.0.0.1"
+    port: 8080
+admin:
+    host: "127.0.0.1"
+    port: 8081
+    tokens: []
+    access: {}
+    upload:
+        limit: 1M
+proxies:
+    - name: p1
+      type: http
+      url: "https://example.com/"
+"#;
+
+    #[tokio::test]
+    async fn reformatting_without_changing_meaning_does_not_change_the_revision() {
+        let dir = tempfile::tempdir().unwrap();
+        let path_a = dir.path().join("a.yaml");
+        let path_b = dir.path().join("b.yaml");
+        std::fs::write(&path_a, GOOD).unwrap();
+        std::fs::write(&path_b, GOOD_REFORMATTED).unwrap();
+        let store_a = FileStore::new(path_a, dir.path().join("templates-a"));
+        let store_b = FileStore::new(path_b, dir.path().join("templates-b"));
+
+        let (config_a, revision_a) = store_a.load().await.unwrap();
+        let (config_b, revision_b) = store_b.load().await.unwrap();
+        assert_eq!(config_a, config_b);
+        assert_eq!(revision_a, revision_b);
+    }
+
+    // -- Compare-and-swap -----------------------------------------------------
+
+    #[tokio::test]
+    async fn save_with_no_expected_writes_unconditionally() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, config_path) = store(dir.path());
+        let (mut config, _) = store.load().await.unwrap();
+        config.proxies[0].name = "renamed".to_owned();
+
+        store.save(&config, None, None).await.unwrap();
+        let reloaded = load_from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
+        assert_eq!(reloaded.proxies[0].name, "renamed");
+    }
+
+    #[tokio::test]
+    async fn save_with_the_correct_expected_revision_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (mut config, revision) = store.load().await.unwrap();
+        config.proxies[0].name = "renamed".to_owned();
+
+        let new_revision = store.save(&config, Some(revision), None).await.unwrap();
+        assert_ne!(new_revision, revision);
+    }
+
+    #[tokio::test]
+    async fn save_with_a_stale_expected_revision_fails_and_leaves_the_file_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, config_path) = store(dir.path());
+        let (config, revision) = store.load().await.unwrap();
+        let before = std::fs::read(&config_path).unwrap();
+
+        // Not the current revision, by construction: `save` has not run yet,
+        // so `revision` is the only value currently valid, and this is not it.
+        let stale = Revision(revision.0.wrapping_add(1));
+        let err = store.save(&config, Some(stale), None).await.unwrap_err();
+        let StoreError::RevisionMismatch { expected, actual } = err else {
+            panic!("expected RevisionMismatch, got {err:?}");
+        };
+        assert_eq!(expected, stale);
+        assert_eq!(actual, revision);
+
+        // Not just "it errored": the bytes on disk are exactly what they
+        // were, not merely a config with the same meaning.
+        assert_eq!(std::fs::read(&config_path).unwrap(), before);
+    }
+
+    #[tokio::test]
+    async fn save_with_expected_against_a_missing_config_file_fails_rather_than_creating_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("absent.yaml");
+        let store = FileStore::new(config_path.clone(), dir.path().join("templates"));
+        let config = load_from_str(GOOD).unwrap();
+
+        let err = store
+            .save(&config, Some(Revision(123)), None)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, StoreError::RevisionMismatch { .. }));
+        assert!(!config_path.exists());
+    }
+
+    // Two concurrent `save` calls that both start from the same revision:
+    // exactly one must win and every other one must see `RevisionMismatch`.
+    //
+    // This does not prove that the two `save` calls truly overlapped in
+    // time -- tokio's scheduler and the OS decide the actual interleaving,
+    // and `save`'s file lock serialises the calls regardless of how they
+    // land. What it does prove is the property the lock exists for: the
+    // compare-and-swap check happens under that lock, so no matter how these
+    // tasks are interleaved, at most one caller that read the old revision
+    // can succeed, and it is never possible for two of them to both
+    // "succeed" and silently clobber each other.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn concurrent_saves_from_the_same_revision_let_exactly_one_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let store = std::sync::Arc::new(store);
+        let (config, revision) = store.load().await.unwrap();
+
+        let mut handles = Vec::new();
+        for i in 0..8 {
+            let store = std::sync::Arc::clone(&store);
+            let mut config = config.clone();
+            config.proxies[0].name = format!("renamed-{i}");
+            handles.push(tokio::spawn(async move {
+                store.save(&config, Some(revision), None).await
+            }));
+        }
+
+        let mut successes = 0;
+        let mut mismatches = 0;
+        for handle in handles {
+            match handle.await.unwrap() {
+                Ok(_) => successes += 1,
+                Err(StoreError::RevisionMismatch { .. }) => mismatches += 1,
+                Err(other) => panic!("unexpected error: {other:?}"),
+            }
+        }
+
+        assert_eq!(successes, 1);
+        assert_eq!(mismatches, 7);
+    }
+
+    // -- Locking --------------------------------------------------------------
+
+    #[tokio::test]
+    async fn the_lock_file_exists_next_to_the_config_after_a_successful_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (config, _) = store.load().await.unwrap();
+        store.save(&config, None, None).await.unwrap();
+
+        assert!(store.lock_path().exists());
+    }
+
+    #[tokio::test]
+    async fn a_second_save_in_the_same_process_succeeds_afterward() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (config, _) = store.load().await.unwrap();
+
+        store.save(&config, None, None).await.unwrap();
+        // If the first `save` had left the lock held, this would block
+        // forever: it does not, because the lock is released when `save`
+        // returns.
+        store.save(&config, None, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_lock_file_is_not_the_config_file_and_saving_does_not_clobber_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, config_path) = store(dir.path());
+        let (config, _) = store.load().await.unwrap();
+        store.save(&config, None, None).await.unwrap();
+
+        let lock_path = store.lock_path();
+        assert_ne!(lock_path, config_path);
+        // `save` only ever opens the lock file to lock it, never writes to
+        // it, so it stays empty.
+        assert!(std::fs::read(&lock_path).unwrap().is_empty());
+        // And the config file was written normally, not replaced by the lock
+        // file's (empty) content.
+        assert!(
+            std::fs::read_to_string(&config_path)
+                .unwrap()
+                .contains("proxies")
+        );
     }
 
     #[tokio::test]

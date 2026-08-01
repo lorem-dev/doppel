@@ -20,6 +20,7 @@ pub enum ErrorCode {
     UploadTooLarge,
     TemplateNotDeclared,
     StoreError,
+    RevisionMismatch,
 }
 
 impl ErrorCode {
@@ -37,7 +38,15 @@ impl ErrorCode {
             Self::ConfigInvalid => 400,
             Self::Unauthorized => 401,
             Self::Forbidden => 403,
+            // `Conflict` and `RevisionMismatch` report the same HTTP status,
+            // 409, but stay separate codes here on purpose: the status is
+            // what an HTTP-level intermediary cares about, but a client
+            // acting on the body needs to tell "the thing you tried to
+            // create already exists" (`CONFLICT`) apart from "you are
+            // holding a stale copy, re-read before retrying"
+            // (`REVISION_MISMATCH`).
             Self::Conflict => 409,
+            Self::RevisionMismatch => 409,
             Self::UploadTooLarge => 413,
             Self::TemplateNotDeclared => 422,
         }
@@ -61,6 +70,7 @@ impl ErrorCode {
             Self::UploadTooLarge => "UPLOAD_TOO_LARGE",
             Self::TemplateNotDeclared => "TEMPLATE_NOT_DECLARED",
             Self::StoreError => "STORE_ERROR",
+            Self::RevisionMismatch => "REVISION_MISMATCH",
         }
     }
 }
@@ -124,6 +134,8 @@ mod tests {
         assert_eq!(ErrorCode::UpstreamError.status(), 502);
         assert_eq!(ErrorCode::UploadTooLarge.status(), 413);
         assert_eq!(ErrorCode::TemplateNotDeclared.status(), 422);
+        assert_eq!(ErrorCode::Conflict.status(), 409);
+        assert_eq!(ErrorCode::RevisionMismatch.status(), 409);
     }
 
     #[test]
@@ -132,6 +144,23 @@ mod tests {
         assert_eq!(
             ErrorCode::TemplateRenderError.as_str(),
             "TEMPLATE_RENDER_ERROR"
+        );
+        assert_eq!(ErrorCode::RevisionMismatch.as_str(), "REVISION_MISMATCH");
+    }
+
+    #[test]
+    fn revision_mismatch_and_conflict_share_a_status_but_are_distinct_codes() {
+        // Same HTTP status, 409, but different wire codes: a client must be
+        // able to tell "the thing you tried to create already exists"
+        // (`CONFLICT`) apart from "you are holding a stale copy, re-read
+        // before retrying" (`REVISION_MISMATCH`).
+        assert_eq!(
+            ErrorCode::Conflict.status(),
+            ErrorCode::RevisionMismatch.status()
+        );
+        assert_ne!(
+            ErrorCode::Conflict.as_str(),
+            ErrorCode::RevisionMismatch.as_str()
         );
     }
 
