@@ -230,6 +230,29 @@ proxies:
     }
 
     #[test]
+    fn v27_proxy_access_override_must_reference_known_subjects() {
+        let text = good().replace(
+            r#"    url: "https://example.com/""#,
+            "    url: \"https://example.com/\"\n    access:\n      read: ghost",
+        );
+        assert_violation(
+            &text,
+            "proxies[0].access.read",
+            "unknown token or group `ghost`",
+        );
+    }
+
+    #[test]
+    fn v27_proxy_access_override_accepts_known_subjects() {
+        let text = good().replace(
+            r#"    url: "https://example.com/""#,
+            "    url: \"https://example.com/\"\n    access:\n      read: admin",
+        );
+        let config = load_from_str(&text).unwrap();
+        assert_eq!(validate(&config), Ok(()));
+    }
+
+    #[test]
     fn v28_overriding_create_on_a_proxy_fails_at_parse_time() {
         let text = good().replace(
             r#"    url: "https://example.com/""#,
