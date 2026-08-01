@@ -11,7 +11,7 @@ use doppel_core::{CompiledProxy, Error, ErrorCode};
 use futures_util::TryStreamExt;
 
 /// Headers that describe a single connection and must not be relayed.
-pub const HOP_BY_HOP: [&str; 8] = [
+pub const HOP_BY_HOP: [&str; 9] = [
     "connection",
     "keep-alive",
     "transfer-encoding",
@@ -20,9 +20,16 @@ pub const HOP_BY_HOP: [&str; 8] = [
     "upgrade",
     "proxy-authenticate",
     "proxy-authorization",
+    "proxy-connection",
 ];
 
 /// What happened upstream, for the log line in Task 14.
+///
+/// Both fields stop at the response headers, not the end of the body: the
+/// clock (`Instant::now()` below) is read as soon as `send` returns, and the
+/// body is streamed back to the caller afterwards, unread by this function.
+/// A consumer reading `upstream_duration_ms` as end-to-end latency will be
+/// wrong for any response with a body of consequential size or slowness.
 #[derive(Debug, Clone, Copy)]
 pub struct UpstreamOutcome {
     pub status: u16,
@@ -125,11 +132,21 @@ pub fn join_upstream(
 }
 
 /// Forward one request and relay the response, streaming both bodies.
+///
+/// `resolve_headers` are the runtime's configured resolution header names
+/// (lowercased); each is stripped from the outbound request so a proxy
+/// resolved via e.g. `X-Proxy-Name` does not leak Doppel's own routing
+/// vocabulary upstream, and a chained Doppel does not re-resolve on it.
+///
+/// `request_id` is sent upstream as `x-request-id` so a single request can be
+/// followed across services, per the core design spec's logging section.
 pub async fn forward(
     client: &reqwest::Client,
     proxy: &CompiledProxy,
     request: Request,
     peer: Option<IpAddr>,
+    resolve_headers: &[String],
+    request_id: &str,
 ) -> Result<(Response, UpstreamOutcome), Error> {
     let (parts, body) = request.into_parts();
     let url = join_upstream(&proxy.base_url, parts.uri.path(), parts.uri.query())?;
@@ -138,7 +155,13 @@ pub async fn forward(
     // reqwest derives Host from the URL; relaying the client's would send the
     // wrong authority upstream.
     headers.remove("host");
+    for name in resolve_headers {
+        headers.remove(name.as_str());
+    }
     apply_forwarded_for(&mut headers, &parts.headers, peer);
+    if let Ok(value) = HeaderValue::from_str(request_id) {
+        headers.insert("x-request-id", value);
+    }
     for (name, value) in &proxy.headers {
         if let (Ok(name), Ok(value)) = (
             HeaderName::from_bytes(name.as_bytes()),
@@ -162,6 +185,10 @@ pub async fn forward(
         .send()
         .await
         .map_err(map_upstream_error)?;
+    // `send` resolves once the response headers arrive; the body below is
+    // streamed back to the caller unread, so `duration` covers only the time
+    // to first byte of the headers, not the full response body. See the
+    // `UpstreamOutcome` doc comment.
     let duration = started.elapsed();
 
     let status = response.status();
@@ -171,6 +198,12 @@ pub async fn forward(
     let mut builder = Response::builder().status(status);
     if let Some(headers) = builder.headers_mut() {
         headers.extend(relayed);
+        // Returned to the client on every response, not just when it happened
+        // to send one itself, so a single request can be followed across
+        // services regardless of who minted the id.
+        if let Ok(value) = HeaderValue::from_str(request_id) {
+            headers.insert("x-request-id", value);
+        }
     }
     let response = builder.body(Body::from_stream(stream)).map_err(|e| {
         Error::new(
@@ -188,22 +221,46 @@ pub async fn forward(
     ))
 }
 
+/// Strip the standard hop-by-hop headers plus, per RFC 9110 section 7.6.1,
+/// every header the `Connection` field itself names. `HeaderName` is always
+/// lowercase, so each comma-separated `Connection` token is lowercased before
+/// comparison rather than assuming the sender wrote it that way.
 fn sanitize_headers(headers: &HeaderMap) -> HeaderMap {
+    let named_by_connection: Vec<String> = headers
+        .get_all("connection")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(|token| token.trim().to_ascii_lowercase())
+        .filter(|token| !token.is_empty())
+        .collect();
+
     headers
         .iter()
-        .filter(|(name, _)| !HOP_BY_HOP.contains(&name.as_str()))
+        .filter(|(name, _)| {
+            !HOP_BY_HOP.contains(&name.as_str())
+                && !named_by_connection
+                    .iter()
+                    .any(|token| token.as_str() == name.as_str())
+        })
         .map(|(name, value)| (name.clone(), value.clone()))
         .collect()
 }
 
+/// Join every `X-Forwarded-For` field line (not just the first -- `HeaderMap::get`
+/// would silently drop the rest of a chain split across several lines, which
+/// some proxies emit) with the peer appended last.
 fn apply_forwarded_for(target: &mut HeaderMap, original: &HeaderMap, peer: Option<IpAddr>) {
     let Some(peer) = peer else { return };
-    let chain = match original
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-    {
-        Some(existing) => format!("{existing}, {peer}"),
-        None => peer.to_string(),
+    let existing: Vec<&str> = original
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect();
+    let chain = if existing.is_empty() {
+        peer.to_string()
+    } else {
+        format!("{}, {peer}", existing.join(", "))
     };
     if let Ok(value) = HeaderValue::from_str(&chain) {
         target.insert("x-forwarded-for", value);
@@ -464,6 +521,7 @@ mod tests {
         assert!(HOP_BY_HOP.contains(&"connection"));
         assert!(HOP_BY_HOP.contains(&"transfer-encoding"));
         assert!(HOP_BY_HOP.contains(&"proxy-authorization"));
+        assert!(HOP_BY_HOP.contains(&"proxy-connection"));
         assert!(HOP_BY_HOP.iter().all(|h| h.to_ascii_lowercase() == *h));
     }
 
@@ -548,11 +606,27 @@ mod tests {
         String::from_utf8(bytes.to_vec()).unwrap()
     }
 
+    /// A stand-in request id for tests that do not exercise request-id
+    /// propagation itself.
+    const TEST_REQUEST_ID: &str = "test-request-id";
+
+    /// `forward` with the defaults every test that is not itself about
+    /// resolve-header stripping or request-id propagation wants: no
+    /// resolution headers to strip, and a fixed request id.
+    async fn fwd(
+        client: &reqwest::Client,
+        proxy: &doppel_core::CompiledProxy,
+        request: axum::extract::Request,
+        peer: Option<IpAddr>,
+    ) -> Result<(Response, UpstreamOutcome), Error> {
+        forward(client, proxy, request, peer, &[], TEST_REQUEST_ID).await
+    }
+
     #[tokio::test]
     async fn forwards_path_and_query() {
         let base = upstream().await;
         let client = reqwest::Client::new();
-        let response = forward(
+        let response = fwd(
             &client,
             &proxy(&base),
             request(Method::GET, "/thing?a=1&b=2"),
@@ -573,7 +647,7 @@ mod tests {
         req.headers_mut()
             .insert("authorization", HeaderValue::from_static("Bearer client"));
 
-        let response = forward(&client, &proxy(&base), req, None).await.unwrap();
+        let response = fwd(&client, &proxy(&base), req, None).await.unwrap();
         let body: serde_json::Value = serde_json::from_str(&body_string(response.0).await).unwrap();
         let headers = body["headers"].as_array().unwrap();
         assert!(
@@ -591,7 +665,7 @@ mod tests {
         req.headers_mut()
             .insert("te", HeaderValue::from_static("trailers"));
 
-        let (response, _) = forward(&client, &proxy(&base), req, None).await.unwrap();
+        let (response, _) = fwd(&client, &proxy(&base), req, None).await.unwrap();
         assert!(
             response.headers().get("connection").is_none(),
             "upstream Connection must be stripped"
@@ -607,6 +681,44 @@ mod tests {
         );
     }
 
+    #[test]
+    fn sanitize_headers_strips_headers_named_by_the_connection_field() {
+        // RFC 9110 section 7.6.1: a proxy must remove any header the
+        // `Connection` field names, on top of the fixed hop-by-hop set.
+        let mut headers = HeaderMap::new();
+        headers.insert("connection", HeaderValue::from_static("X-Custom, x-other"));
+        headers.insert("x-custom", HeaderValue::from_static("secret"));
+        headers.insert("x-other", HeaderValue::from_static("also secret"));
+        headers.insert("x-kept", HeaderValue::from_static("kept"));
+
+        let sanitized = sanitize_headers(&headers);
+        assert!(sanitized.get("connection").is_none());
+        assert!(sanitized.get("x-custom").is_none());
+        assert!(sanitized.get("x-other").is_none());
+        assert_eq!(sanitized.get("x-kept").unwrap(), "kept");
+    }
+
+    #[tokio::test]
+    async fn a_header_named_by_connection_is_stripped_from_the_outbound_request() {
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+        let mut req = request(Method::GET, "/thing");
+        req.headers_mut()
+            .insert("connection", HeaderValue::from_static("x-secret"));
+        req.headers_mut()
+            .insert("x-secret", HeaderValue::from_static("leak-me-not"));
+
+        let (response, _) = fwd(&client, &proxy(&base), req, None).await.unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            !headers
+                .iter()
+                .any(|h| h.as_str().unwrap().starts_with("x-secret=")),
+            "got {headers:?}"
+        );
+    }
+
     #[tokio::test]
     async fn appends_to_x_forwarded_for_rather_than_replacing_it() {
         let base = upstream().await;
@@ -615,7 +727,7 @@ mod tests {
         req.headers_mut()
             .insert("x-forwarded-for", HeaderValue::from_static("10.0.0.1"));
 
-        let (response, _) = forward(
+        let (response, _) = fwd(
             &client,
             &proxy(&base),
             req,
@@ -634,6 +746,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_chain_split_across_several_x_forwarded_for_lines_is_joined_not_truncated() {
+        // `HeaderMap::get` returns only the first field line of a repeated
+        // header; some proxies emit the chain split across several lines,
+        // which is legal. Losing everything but the first before appending
+        // the peer would silently drop the earlier hops.
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+        let mut req = request(Method::GET, "/thing");
+        req.headers_mut()
+            .append("x-forwarded-for", HeaderValue::from_static("10.0.0.1"));
+        req.headers_mut()
+            .append("x-forwarded-for", HeaderValue::from_static("10.0.0.2"));
+
+        let (response, _) = fwd(
+            &client,
+            &proxy(&base),
+            req,
+            Some("10.0.0.3".parse().unwrap()),
+        )
+        .await
+        .unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            headers
+                .iter()
+                .any(|h| h == "x-forwarded-for=10.0.0.1, 10.0.0.2, 10.0.0.3"),
+            "got {headers:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn the_upstream_receives_its_own_host_not_the_clients() {
         // `headers.remove("host")` has no test of its own anywhere else: if
         // it were deleted, every other test would still pass, since none of
@@ -644,7 +788,7 @@ mod tests {
         req.headers_mut()
             .insert("host", HeaderValue::from_static("evil.example"));
 
-        let (response, _) = forward(&client, &proxy(&base), req, None).await.unwrap();
+        let (response, _) = fwd(&client, &proxy(&base), req, None).await.unwrap();
         let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
         let headers = body["headers"].as_array().unwrap();
         assert!(
@@ -675,7 +819,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let (response, outcome) = forward(
+        let (response, outcome) = fwd(
             &client,
             &proxy(&base),
             request(Method::GET, "/redirect"),
@@ -733,7 +877,7 @@ mod tests {
 
         let mut p = proxy(&base);
         p.timeout = Duration::from_secs(30);
-        let (response, _) = forward(&client, &p, req, None).await.unwrap();
+        let (response, _) = fwd(&client, &p, req, None).await.unwrap();
         assert_eq!(body_string(response).await, (8 * 1024 * 1024).to_string());
     }
 
@@ -741,7 +885,7 @@ mod tests {
     async fn a_timeout_becomes_504() {
         let base = upstream().await;
         let client = reqwest::Client::new();
-        let err = forward(&client, &proxy(&base), request(Method::GET, "/slow"), None)
+        let err = fwd(&client, &proxy(&base), request(Method::GET, "/slow"), None)
             .await
             .unwrap_err();
         assert_eq!(err.code, doppel_core::ErrorCode::UpstreamTimeout);
@@ -752,7 +896,7 @@ mod tests {
     async fn a_refused_connection_becomes_502() {
         let client = reqwest::Client::new();
         // Port 1 on loopback has nothing listening.
-        let err = forward(
+        let err = fwd(
             &client,
             &proxy("http://127.0.0.1:1/"),
             request(Method::GET, "/x"),
@@ -768,10 +912,89 @@ mod tests {
     async fn reports_the_upstream_status_and_duration() {
         let base = upstream().await;
         let client = reqwest::Client::new();
-        let (_, outcome) = forward(&client, &proxy(&base), request(Method::GET, "/thing"), None)
+        let (_, outcome) = fwd(&client, &proxy(&base), request(Method::GET, "/thing"), None)
             .await
             .unwrap();
         assert_eq!(outcome.status, 200);
         assert!(outcome.duration > Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn resolve_headers_are_stripped_from_the_outbound_request() {
+        // A request routed by e.g. `X-Proxy-Name` must not carry that header
+        // upstream: it leaks Doppel's own routing vocabulary and would make
+        // a chained Doppel re-resolve on it.
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+        let mut req = request(Method::GET, "/thing");
+        req.headers_mut()
+            .insert("x-proxy-name", HeaderValue::from_static("p1"));
+        req.headers_mut()
+            .insert("x-kept", HeaderValue::from_static("kept"));
+
+        let resolve_headers = vec!["x-proxy-name".to_owned()];
+        let (response, _) = forward(
+            &client,
+            &proxy(&base),
+            req,
+            None,
+            &resolve_headers,
+            TEST_REQUEST_ID,
+        )
+        .await
+        .unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            !headers
+                .iter()
+                .any(|h| h.as_str().unwrap().starts_with("x-proxy-name=")),
+            "got {headers:?}"
+        );
+        assert!(headers.iter().any(|h| h == "x-kept=kept"));
+    }
+
+    #[tokio::test]
+    async fn the_client_supplied_request_id_is_sent_upstream_unchanged() {
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+
+        let (response, _) = forward(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/thing"),
+            None,
+            &[],
+            "caller-chosen-id",
+        )
+        .await
+        .unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            headers.iter().any(|h| h == "x-request-id=caller-chosen-id"),
+            "got {headers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_request_id_is_returned_to_the_client_on_the_response() {
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+
+        let (response, _) = forward(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/thing"),
+            None,
+            &[],
+            "caller-chosen-id",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            response.headers().get("x-request-id").unwrap(),
+            "caller-chosen-id"
+        );
     }
 }

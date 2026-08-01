@@ -64,7 +64,7 @@ async fn handle(
     let proxy = match resolve(&runtime, request.headers()) {
         Ok(proxy) => proxy,
         Err(err) => {
-            let response = error_response(&err);
+            let response = with_request_id(error_response(&err), &request_id);
             // `upstream_contacted` is a bool, not an `Option`-typed null: the
             // `tracing::Value` impl for `Option<T>` records nothing at all
             // when the value is `None`, so the JSON layer omits a null field
@@ -102,10 +102,13 @@ async fn handle(
     );
 
     if let Some(status) = faults.loss_status {
-        let response = Response::builder()
-            .status(status)
-            .body(axum::body::Body::empty())
-            .expect("status came from a validated config");
+        let response = with_request_id(
+            Response::builder()
+                .status(status)
+                .body(axum::body::Body::empty())
+                .expect("status came from a validated config"),
+            &request_id,
+        );
         tracing::info!(
             request_id,
             proxy = proxy.name,
@@ -129,7 +132,16 @@ async fn handle(
         None => 0,
     };
 
-    match forward(&runtime.client, proxy, request, Some(peer.ip())).await {
+    match forward(
+        &runtime.client,
+        proxy,
+        request,
+        Some(peer.ip()),
+        &runtime.resolve_headers,
+        &request_id,
+    )
+    .await
+    {
         Ok((response, outcome)) => {
             tracing::info!(
                 request_id,
@@ -148,7 +160,7 @@ async fn handle(
             response
         }
         Err(err) => {
-            let response = error_response(&err);
+            let response = with_request_id(error_response(&err), &request_id);
             // `forward` validates the request path before it ever opens a
             // connection (see `join_upstream`), so a 4xx here (always
             // `InvalidRequestPath` today) means the request was rejected on
@@ -212,6 +224,18 @@ pub fn request_id(headers: &HeaderMap) -> String {
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| format!("{:032x}", rand::random::<u128>()))
+}
+
+/// Set `X-Request-ID` on every response the client receives, not just a
+/// successfully forwarded one -- otherwise the id logged for a rejected or
+/// dropped request would never reach the client that could quote it back.
+/// `forward`'s own success path already sets this on its way back from the
+/// upstream; this covers the branches that never call `forward` at all.
+fn with_request_id(mut response: Response, request_id: &str) -> Response {
+    if let Ok(value) = axum::http::HeaderValue::from_str(request_id) {
+        response.headers_mut().insert("x-request-id", value);
+    }
+    response
 }
 
 #[cfg(test)]
@@ -689,5 +713,92 @@ proxies:
             axum::http::HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap(),
         );
         assert_eq!(request_id(&headers).len(), 32);
+    }
+
+    // -- X-Request-ID reaches the client on every branch, not just forward --
+
+    fn get_with_request_id(uri: &str, id: &str) -> Request<Body> {
+        let mut request = get(uri);
+        request
+            .headers_mut()
+            .insert("x-request-id", id.parse().unwrap());
+        request
+    }
+
+    #[tokio::test]
+    async fn client_supplied_request_id_is_echoed_back_on_a_successful_forward() {
+        let base = spawn_ok_upstream().await;
+        let text = config_pointing_at(&base, "");
+        let response = send(
+            state(&text, vec![]),
+            get_with_request_id("/anything", "caller-id-1"),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get("x-request-id").unwrap(),
+            "caller-id-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn client_supplied_request_id_is_echoed_back_when_resolution_fails() {
+        let text = config_with("").replace(
+            "      type: default",
+            "      type: header\n      header: X-Proxy-Name",
+        );
+        let response = send(
+            state(&text, vec![]),
+            get_with_request_id("/anything", "caller-id-2"),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            response.headers().get("x-request-id").unwrap(),
+            "caller-id-2"
+        );
+    }
+
+    #[tokio::test]
+    async fn client_supplied_request_id_is_echoed_back_when_loss_drops_the_request() {
+        let text = config_with("    loss:\n      percentage: 1.0\n      status: 503");
+        let response = send(
+            state(&text, vec![0.0]),
+            get_with_request_id("/anything", "caller-id-3"),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            response.headers().get("x-request-id").unwrap(),
+            "caller-id-3"
+        );
+    }
+
+    #[tokio::test]
+    async fn client_supplied_request_id_is_echoed_back_when_forwarding_fails() {
+        let response = send(
+            state(&config_with(""), vec![]),
+            get_with_request_id("/anything", "caller-id-4"),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            response.headers().get("x-request-id").unwrap(),
+            "caller-id-4"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_generated_request_id_is_returned_when_the_client_sent_none() {
+        let response = send(state(&config_with(""), vec![]), get("/anything")).await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        let returned = response
+            .headers()
+            .get("x-request-id")
+            .expect("a request id must be generated and returned even without one from the client")
+            .to_str()
+            .unwrap();
+        assert_eq!(returned.len(), 32);
+        assert!(returned.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }
