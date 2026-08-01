@@ -60,7 +60,7 @@ pub enum StoreKind {
 /// Where the configuration lives. Connection settings come from here and from
 /// the environment only -- never from the configuration document, which would
 /// be circular.
-#[derive(Debug, Args)]
+#[derive(Args)]
 pub struct StoreArgs {
     #[arg(long, value_enum, env = "DOPPEL_CONFIG_STORE", default_value = "file")]
     pub store: StoreKind,
@@ -75,19 +75,47 @@ pub struct StoreArgs {
     pub database_url: Option<String>,
 }
 
+/// A hand-written `Debug` impl, rather than `#[derive(Debug)]`, because the
+/// derived one would format `database_url` verbatim: anyone who ever `{:?}`s
+/// a `StoreArgs` (in a log line, a panic message, anywhere) must not be able
+/// to make the password come out in the clear.
+impl std::fmt::Debug for StoreArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StoreArgs")
+            .field("store", &self.store)
+            .field("config", &self.config)
+            .field("config_name", &self.config_name)
+            .field("database_url", &self.database_url.as_deref().map(mask_dsn))
+            .finish()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
-    #[error("the postgres store is not available in this build")]
-    StoreUnavailable,
+    /// `dsn` is `None` when no `--database-url` was given, and already masked
+    /// otherwise. This text reaches stderr on every path that prints a
+    /// `CliError` -- `serve`'s error path, and `config validate`'s and
+    /// `config reload`'s printed messages -- none of which can be relied on
+    /// to have logging initialised, so the DSN is masked here rather than at
+    /// a call site that might not run.
+    #[error("the postgres store is not available in this build{}", dsn_suffix(dsn))]
+    StoreUnavailable { dsn: Option<String> },
     #[error("{0}")]
     Failed(String),
+}
+
+fn dsn_suffix(dsn: &Option<String>) -> String {
+    match dsn {
+        Some(dsn) => format!(" (database url: {dsn})"),
+        None => String::new(),
+    }
 }
 
 impl CliError {
     #[must_use]
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::StoreUnavailable => 2,
+            Self::StoreUnavailable { .. } => 2,
             Self::Failed(_) => 1,
         }
     }
@@ -98,18 +126,9 @@ impl StoreArgs {
     /// once, which is why this is fallible.
     pub fn open(&self) -> Result<Arc<dyn ConfigStore>, CliError> {
         match self.store {
-            StoreKind::Postgres => {
-                // If a database URL was given, note it (masked) so an operator
-                // can see one was received, without ever logging it in the
-                // clear -- this build has nowhere to use it yet.
-                if let Some(url) = &self.database_url {
-                    tracing::warn!(
-                        dsn = %mask_dsn(url),
-                        "a database url was provided, but the postgres store is not available in this build"
-                    );
-                }
-                Err(CliError::StoreUnavailable)
-            }
+            StoreKind::Postgres => Err(CliError::StoreUnavailable {
+                dsn: self.database_url.as_deref().map(mask_dsn),
+            }),
             StoreKind::File => {
                 let templates_dir = doppel_core::config::load_from_path(&self.config)
                     .map(|config| config.templates.dir)
@@ -233,6 +252,21 @@ mod tests {
         assert!(
             !err.to_string().contains(":p@"),
             "the dsn must not leak into the message"
+        );
+    }
+
+    #[test]
+    fn store_args_debug_masks_the_database_url_password() {
+        let args = StoreArgs {
+            store: StoreKind::Postgres,
+            config: "./main.yaml".into(),
+            config_name: "default".to_owned(),
+            database_url: Some("postgres://u:p@h/db".to_owned()),
+        };
+        let debug = format!("{args:?}");
+        assert!(
+            !debug.contains(":p@"),
+            "the dsn must not leak into Debug output: {debug}"
         );
     }
 }

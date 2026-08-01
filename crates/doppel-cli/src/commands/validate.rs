@@ -10,12 +10,21 @@ use crate::cli::StoreArgs;
 pub struct Report {
     pub violations: Vec<Violation>,
     pub message: Option<String>,
+    /// Overrides the exit code that would otherwise be derived from
+    /// `violations`/`message` (which can only ever be 0 or 1). A failure that
+    /// carries its own exit code -- `StoreArgs::open()` refusing
+    /// `--store postgres` with code 2, for instance -- must not be flattened
+    /// down to the generic "invalid configuration" code 1, or a script
+    /// branching on the exit code cannot tell the two apart.
+    pub code: Option<u8>,
 }
 
 impl Report {
     #[must_use]
     pub fn exit_code(&self) -> u8 {
-        u8::from(!self.violations.is_empty() || self.message.is_some())
+        self.code.unwrap_or(u8::from(
+            !self.violations.is_empty() || self.message.is_some(),
+        ))
     }
 }
 
@@ -26,6 +35,7 @@ pub async fn validate(args: &StoreArgs) -> Report {
             return Report {
                 violations: Vec::new(),
                 message: Some(err.to_string()),
+                code: Some(err.exit_code()),
             };
         }
     };
@@ -35,10 +45,12 @@ pub async fn validate(args: &StoreArgs) -> Report {
         Err(StoreError::Invalid(violations)) => Report {
             violations,
             message: None,
+            code: None,
         },
         Err(err) => Report {
             violations: Vec::new(),
             message: Some(err.to_string()),
+            code: None,
         },
     }
 }
@@ -133,5 +145,21 @@ proxies:
         let text = format!("{GOOD}\ntemplates:\n  dir: /definitely/not/here\n");
         let report = validate(&args(dir.path(), &text)).await;
         assert_eq!(report.exit_code(), 0);
+    }
+
+    #[tokio::test]
+    async fn validating_a_postgres_store_exits_2_not_1() {
+        // `StoreArgs::open()` refuses `--store postgres` with exit code 2;
+        // `validate` must carry that code through rather than flattening
+        // every failure down to 1, or a script cannot tell "your config is
+        // wrong" apart from "this build cannot do that".
+        let args = StoreArgs {
+            store: StoreKind::Postgres,
+            config: "./main.yaml".into(),
+            config_name: "default".to_owned(),
+            database_url: None,
+        };
+        let report = validate(&args).await;
+        assert_eq!(report.exit_code(), 2);
     }
 }
