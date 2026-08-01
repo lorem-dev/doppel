@@ -263,6 +263,15 @@ mod tests {
             !err.to_string().contains(":p@"),
             "the dsn must not leak into the message"
         );
+        // The negative check above (no raw password) was trivially true
+        // before `dsn` even existed on this variant. Assert the positive
+        // too: the masked form the caller supplied must actually show up in
+        // the message, not merely "no password leaked because nothing about
+        // the dsn appears at all".
+        assert!(
+            err.to_string().contains("postgres://u:***@h/db"),
+            "the masked dsn must appear in the message, got: {err}"
+        );
     }
 
     #[test]

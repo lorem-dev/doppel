@@ -73,6 +73,34 @@ mod tests {
     }
 
     #[test]
+    fn an_invalid_filter_directive_yields_bad_filter_with_a_useful_message() {
+        // Exercises exactly the two steps `init_logging` performs before it
+        // ever touches the global subscriber: resolving the directive, then
+        // building the filter from it. `init_logging` itself cannot safely
+        // be called here to prove this -- the global subscriber can only be
+        // installed once per process (see `init_is_idempotent_within_a_process`
+        // below), so a second, unrelated test in this same binary could
+        // already have consumed that one shot, and this test would then
+        // observe `AlreadyInitialized` instead of `BadFilter` depending on
+        // test execution order. The directive-resolution and
+        // filter-construction steps below have no such shared state.
+        let directive =
+            filter_directive(LogLevel::Info, Some("not a valid directive===".to_owned()));
+        let parsed = EnvFilter::try_new(&directive);
+        assert!(
+            parsed.is_err(),
+            "the chosen directive must actually be invalid for this test to mean anything"
+        );
+
+        // The same mapping `init_logging` applies to this same error.
+        let err = parsed.map_err(|e| TelemetryError::BadFilter(e.to_string()));
+        let TelemetryError::BadFilter(message) = err.unwrap_err() else {
+            panic!("expected BadFilter");
+        };
+        assert!(!message.is_empty(), "the message must say something useful");
+    }
+
+    #[test]
     fn init_is_idempotent_within_a_process() {
         // The global subscriber can only be set once; a second call must report
         // that rather than panic, because tests and `serve` both call it.
