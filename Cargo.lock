@@ -319,6 +319,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "doppel-render"
+version = "0.1.0"
+dependencies = [
+ "doppel-core",
+ "minijinja",
+ "serde_json",
+]
+
+[[package]]
 name = "doppel-telemetry"
 version = "0.1.0"
 dependencies = [
