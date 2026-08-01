@@ -1,4 +1,4 @@
-//! Rules V5..V15, plus dispatch into the mock rules.
+//! Rules V5..V15 and V32, plus dispatch into the mock rules.
 
 use std::collections::BTreeSet;
 

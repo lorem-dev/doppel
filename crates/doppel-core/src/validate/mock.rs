@@ -1,4 +1,4 @@
-//! Rules V16..V25 and V30.
+//! Rules V16..V25, V30, and V31.
 
 use std::collections::BTreeSet;
 
