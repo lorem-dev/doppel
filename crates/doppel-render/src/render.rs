@@ -2,9 +2,11 @@
 //! rendered bytes or a `TEMPLATE_RENDER_ERROR` out.
 //!
 //! `render_json` is deliberately not `render_str` under another name: it
-//! parses the rendered output as JSON and re-serializes it, so a `json:`
-//! mock field that renders to malformed JSON fails loudly instead of
-//! shipping a broken body. See section 7 of the design.
+//! also parses the rendered output as JSON, purely to validate it, so a
+//! `json:` mock field that renders to malformed JSON fails loudly instead of
+//! shipping a broken body. The rendered string itself is returned unchanged
+//! -- validation must not rewrite the bytes a mock author wrote. See section
+//! 7 of the design.
 
 use doppel_core::{Error, ErrorCode};
 
@@ -49,30 +51,30 @@ impl Renderer {
             .map_err(render_error)
     }
 
-    /// Renders `template`, then parses the output as JSON and re-serializes
-    /// it.
+    /// Renders `template`, then parses the output as JSON purely to
+    /// validate it, and returns the rendered string unchanged.
     ///
-    /// A template that renders successfully but whose output is not valid
-    /// JSON is `TEMPLATE_RENDER_ERROR`, same as a template syntax error, but
-    /// the message says so explicitly: the mistake is in what the template
-    /// *produced*, not in the template itself, and an operator fixes those
-    /// two differently.
+    /// This deliberately does not re-serialize: a mock exists to reproduce a
+    /// backend's bytes as closely as it can, so rewriting the key order or
+    /// whitespace of JSON the template author wrote would make this a worse
+    /// stand-in for no gain, and would fight byte-for-byte assertions against
+    /// it. Parsing exists only to catch the case this method is for: a
+    /// template that renders successfully but whose output is not valid
+    /// JSON. That failure is `TEMPLATE_RENDER_ERROR`, same code as a template
+    /// syntax error, but the message says so explicitly: the mistake is in
+    /// what the template *produced*, not in the template itself, and an
+    /// operator fixes those two differently.
     pub fn render_json(&self, template: &str, vars: &Variables) -> Result<String, Error> {
         let rendered = self.render_str(template, vars)?;
 
-        let value: serde_json::Value = serde_json::from_str(&rendered).map_err(|err| {
+        serde_json::from_str::<serde_json::Value>(&rendered).map_err(|err| {
             Error::new(
                 ErrorCode::TemplateRenderError,
                 format!("template rendered successfully but its output is not valid json: {err}"),
             )
         })?;
 
-        serde_json::to_string(&value).map_err(|err| {
-            Error::new(
-                ErrorCode::TemplateRenderError,
-                format!("rendered json value could not be re-serialized: {err}"),
-            )
-        })
+        Ok(rendered)
     }
 }
 
@@ -167,6 +169,20 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&out).unwrap(),
             serde_json::json!({"id": 42})
         );
+    }
+
+    #[test]
+    fn render_json_preserves_key_order_and_spacing_rather_than_re_serializing() {
+        let renderer = Renderer::new();
+        let vars = vars_from(&[
+            ("id", serde_json::json!(42)),
+            ("name", serde_json::json!("ada")),
+        ]);
+
+        let template = r#"{ "zebra": true, "name": "{{ name }}", "id": {{ id }} }"#;
+        let out = renderer.render_json(template, &vars).unwrap();
+
+        assert_eq!(out, r#"{ "zebra": true, "name": "ada", "id": 42 }"#);
     }
 
     #[test]
