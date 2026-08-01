@@ -250,6 +250,28 @@ proxies:
     }
 
     #[test]
+    fn compile_reports_an_unparseable_proxy_url_rather_than_panicking() {
+        // `validate` would normally reject a url like this before `compile`
+        // ever sees it, so this builds the `Config` directly rather than
+        // through `load_from_str`/validation, to reach `compile_proxy`'s
+        // `Url::parse` failure branch -- the second line of defence -- on
+        // its own.
+        let mut config = load_from_str(TWO_PROXIES).unwrap();
+        config.proxies[0].url = "not a url at all".to_owned();
+
+        let err = match Runtime::compile(std::sync::Arc::new(config), Revision(1)) {
+            Ok(_) => panic!("expected compile to reject an unparseable proxy url"),
+            Err(err) => err,
+        };
+        assert_eq!(err.code, crate::ErrorCode::ConfigInvalid);
+        assert!(
+            err.message.contains("p1"),
+            "the offending proxy's name should be in the message, got: {}",
+            err.message
+        );
+    }
+
+    #[test]
     fn lookup_by_name_works() {
         let rt = compile(TWO_PROXIES);
         assert!(rt.proxy_by_name("p1").is_some());

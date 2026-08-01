@@ -227,6 +227,16 @@ impl ConfigStore for FileStore {
         // directory and syncing it is what makes the rename survive that
         // crash, so the durability of the last successful `save` matches
         // what its caller was told.
+        //
+        // If this sync fails, the error below is returned *after* the
+        // rename above has already put the new config in place: the new
+        // content is live and readable at `config_path` right now, in this
+        // process, regardless of what a future crash might do to it. A
+        // caller must not read an `Err` here as "nothing was written" --
+        // that would only be true if the process crashes before the next
+        // successful sync of this directory (by this call or another),
+        // taking the not-yet-durable rename down with it. Short of that,
+        // the write already landed.
         std::fs::File::open(dir)
             .and_then(|dir_file| dir_file.sync_all())
             .map_err(Self::io(dir))?;
@@ -648,6 +658,58 @@ proxies:
         store.save(&config, None).await.unwrap();
 
         assert!(store.lock_path().exists());
+    }
+
+    // The multi-threaded race test above (`concurrent_saves_from_the_same_revision_let_exactly_one_through`)
+    // proves the compare-and-swap property but only by timing margin: it
+    // does not deterministically prove that `save` actually blocks on the
+    // lock file. This test does, by locking `lock_path()` from outside
+    // `save` entirely and observing `save` fail to complete while that lock
+    // is held, then succeed the instant it is released. That pins both
+    // "`save` takes the lock before doing its work" and the underlying
+    // flock-per-open-file-description semantics the whole design rests on:
+    // a lock taken by one file description (this test's `external_lock`)
+    // blocks a second, independently opened description on the same path
+    // (the one `save` opens internally), exactly as it would across two
+    // separate processes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn save_does_not_complete_while_the_lock_file_is_held_externally() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        let (config, _) = store.load().await.unwrap();
+
+        let lock_path = store.lock_path();
+        let external_lock = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)
+            .unwrap();
+        external_lock.lock().unwrap();
+
+        let store = std::sync::Arc::new(store);
+        let task_store = std::sync::Arc::clone(&store);
+        let mut handle = tokio::spawn(async move { task_store.save(&config, None).await });
+
+        // Bounded wait: if `save` did not block on the lock, this would
+        // resolve almost immediately; if it deadlocked instead of blocking
+        // on the OS lock as expected, the final await below would hang
+        // instead of this one timing out -- either way the test fails
+        // rather than hanging forever.
+        let still_running =
+            tokio::time::timeout(std::time::Duration::from_millis(200), &mut handle).await;
+        assert!(
+            still_running.is_err(),
+            "save completed while the lock file was held externally"
+        );
+
+        drop(external_lock);
+
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+            .await
+            .expect("save did not complete after the external lock was released")
+            .expect("save task panicked");
+        result.unwrap();
     }
 
     #[tokio::test]
