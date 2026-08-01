@@ -72,6 +72,8 @@ async fn handle(
                 path,
                 status = response.status().as_u16(),
                 duration_ms = started.elapsed().as_millis(),
+                upstream_status = Option::<u16>::None,
+                upstream_duration_ms = Option::<u128>::None,
                 loss_injected = false,
                 latency_injected_ms = 0u128,
                 error_code = err.code.as_str(),
@@ -99,6 +101,8 @@ async fn handle(
             path,
             status,
             duration_ms = started.elapsed().as_millis(),
+            upstream_status = Option::<u16>::None,
+            upstream_duration_ms = Option::<u128>::None,
             loss_injected = true,
             latency_injected_ms = 0u128,
             "request dropped"
@@ -123,8 +127,8 @@ async fn handle(
                 path,
                 status = response.status().as_u16(),
                 duration_ms = started.elapsed().as_millis(),
-                upstream_status = outcome.status,
-                upstream_duration_ms = outcome.duration.as_millis(),
+                upstream_status = Some(outcome.status),
+                upstream_duration_ms = Some(outcome.duration.as_millis()),
                 loss_injected = false,
                 latency_injected_ms = latency_ms,
                 "request proxied"
@@ -136,36 +140,45 @@ async fn handle(
             // `forward` validates the request path before it ever opens a
             // connection (see `join_upstream`), so a 4xx here means the
             // request was rejected on the way in, not that the upstream
-            // misbehaved or was unreachable. Log that distinction: a client
+            // misbehaved or was unreachable -- and either way, `forward`
+            // returns before it ever builds an `UpstreamOutcome`, so there is
+            // no status or duration to report; both fields are `None` here
+            // just like the resolve-error and loss branches above. A client
             // mistake is not an operational upstream failure, and paging
-            // someone for it would be wrong. Every field below still mirrors
-            // the success and loss branches so a log consumer sees one shape.
+            // someone for it would be wrong, so the two cases log at
+            // different levels.
+            //
+            // `tracing::event!` requires its level to be a compile-time
+            // constant -- each callsite bakes one fixed `Level` into its
+            // static metadata for the fast filtering path -- so a runtime
+            // `let level = if .. { Level::INFO } else { Level::WARN }` does
+            // not compile. This local macro keeps the field list written
+            // exactly once while still letting each arm supply its own
+            // literal level and message, so the next field added here only
+            // has to be added once.
+            macro_rules! log_forward_error {
+                ($level:expr, $message:literal) => {
+                    tracing::event!(
+                        $level,
+                        request_id,
+                        proxy = proxy.name,
+                        method = %method,
+                        path,
+                        status = response.status().as_u16(),
+                        duration_ms = started.elapsed().as_millis(),
+                        upstream_status = Option::<u16>::None,
+                        upstream_duration_ms = Option::<u128>::None,
+                        loss_injected = false,
+                        latency_injected_ms = latency_ms,
+                        error_code = err.code.as_str(),
+                        $message
+                    )
+                };
+            }
             if err.status() < 500 {
-                tracing::info!(
-                    request_id,
-                    proxy = proxy.name,
-                    method = %method,
-                    path,
-                    status = response.status().as_u16(),
-                    duration_ms = started.elapsed().as_millis(),
-                    loss_injected = false,
-                    latency_injected_ms = latency_ms,
-                    error_code = err.code.as_str(),
-                    "request rejected"
-                );
+                log_forward_error!(tracing::Level::INFO, "request rejected");
             } else {
-                tracing::warn!(
-                    request_id,
-                    proxy = proxy.name,
-                    method = %method,
-                    path,
-                    status = response.status().as_u16(),
-                    duration_ms = started.elapsed().as_millis(),
-                    loss_injected = false,
-                    latency_injected_ms = latency_ms,
-                    error_code = err.code.as_str(),
-                    "upstream failed"
-                );
+                log_forward_error!(tracing::Level::WARN, "upstream failed");
             }
             response
         }
@@ -197,10 +210,8 @@ mod tests {
     use std::time::{Duration, Instant};
     use tower::ServiceExt;
 
-    /// The upstream points at loopback port 1, where nothing listens. Any test
-    /// that passes without a real upstream therefore proves the upstream was
-    /// never contacted.
-    fn config_with(extra: &str) -> String {
+    /// Builds config text pointing the proxy's upstream at `base`.
+    fn config_pointing_at(base: &str, extra: &str) -> String {
         format!(
             r#"
 server:
@@ -216,12 +227,31 @@ admin:
 proxies:
   - name: p1
     type: http
-    url: "http://127.0.0.1:1/"
+    url: "{base}"
     resolve:
       type: default
 {extra}
 "#
         )
+    }
+
+    /// The upstream points at loopback port 1, where nothing listens. Any test
+    /// that passes without a real upstream therefore proves the upstream was
+    /// never contacted.
+    fn config_with(extra: &str) -> String {
+        config_pointing_at("http://127.0.0.1:1/", extra)
+    }
+
+    /// Spawns a tiny real upstream that answers every request with 200 OK,
+    /// for the one branch (a successful forward) that actually needs one.
+    async fn spawn_ok_upstream() -> String {
+        let app = axum::Router::new().fallback(axum::routing::any(|| async { "ok" }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}/")
     }
 
     fn state(text: &str, samples: Vec<f64>) -> ProxyState {
@@ -317,26 +347,51 @@ proxies:
         assert_eq!(body["code"], "UPSTREAM_ERROR");
     }
 
-    // -- Log level distinction: client rejection vs. genuine upstream failure --
+    // -- Log level distinction and log schema -----------------------------
     //
-    // A minimal `tracing::Subscriber` recording only level and message, set as
-    // the *thread-local* default via `set_default` (not `set_global_default`).
-    // `#[tokio::test]` runs on a single-threaded current-thread runtime, so the
-    // subscriber stays active across every await point in the request under
-    // test without ever touching global state another test could observe.
+    // A minimal `tracing::Subscriber`, set as the *thread-local* default via
+    // `set_default` (not `set_global_default`). `#[tokio::test]` runs on a
+    // single-threaded current-thread runtime, so the subscriber stays active
+    // across every await point in the request under test without ever
+    // touching global state another test could observe.
+    //
+    // It records, per event: the level, the message, every field name
+    // *declared* at that callsite (`Metadata::fields()`, fixed at compile
+    // time from the macro invocation regardless of whether a value was ever
+    // recorded for it), and every field name that actually got a value
+    // (`recorded_fields`). `tracing_core::field::Value`'s blanket impl for
+    // `Option<T>` calls the visitor for `Some` and calls nothing at all for
+    // `None` -- so a field that is declared but missing from
+    // `recorded_fields` is exactly the "present and null" case this file's
+    // production code relies on to keep the key set identical across
+    // branches without fabricating a zero.
 
-    struct RecordMessage(String);
+    #[derive(Debug, Clone)]
+    struct CapturedEvent {
+        level: tracing::Level,
+        message: String,
+        declared_fields: Vec<String>,
+        recorded_fields: std::collections::BTreeMap<String, String>,
+    }
 
-    impl tracing::field::Visit for RecordMessage {
+    struct RecordFields {
+        message: String,
+        recorded_fields: std::collections::BTreeMap<String, String>,
+    }
+
+    impl tracing::field::Visit for RecordFields {
         fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            let text = format!("{value:?}");
             if field.name() == "message" {
-                self.0 = format!("{value:?}");
+                self.message = text;
+            } else {
+                self.recorded_fields.insert(field.name().to_owned(), text);
             }
         }
     }
 
     struct Capture {
-        events: Arc<std::sync::Mutex<Vec<(tracing::Level, String)>>>,
+        events: Arc<std::sync::Mutex<Vec<CapturedEvent>>>,
     }
 
     impl tracing::Subscriber for Capture {
@@ -356,12 +411,23 @@ proxies:
         fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
 
         fn event(&self, event: &tracing::Event<'_>) {
-            let mut visitor = RecordMessage(String::new());
+            let mut visitor = RecordFields {
+                message: String::new(),
+                recorded_fields: std::collections::BTreeMap::new(),
+            };
             event.record(&mut visitor);
-            self.events
-                .lock()
-                .unwrap()
-                .push((*event.metadata().level(), visitor.0));
+            let declared_fields = event
+                .metadata()
+                .fields()
+                .iter()
+                .map(|field| field.name().to_owned())
+                .collect();
+            self.events.lock().unwrap().push(CapturedEvent {
+                level: *event.metadata().level(),
+                message: visitor.message,
+                declared_fields,
+                recorded_fields: visitor.recorded_fields,
+            });
         }
 
         fn enter(&self, _span: &tracing::span::Id) {}
@@ -372,7 +438,7 @@ proxies:
     async fn run_captured(
         state: ProxyState,
         request: Request<Body>,
-    ) -> (axum::response::Response, Vec<(tracing::Level, String)>) {
+    ) -> (axum::response::Response, Vec<CapturedEvent>) {
         let events = Arc::new(std::sync::Mutex::new(Vec::new()));
         let capture = Capture {
             events: events.clone(),
@@ -382,6 +448,42 @@ proxies:
         drop(guard);
         let events = events.lock().unwrap().clone();
         (response, events)
+    }
+
+    /// The ten fields every completion log carries, per the design spec's
+    /// logging section: the key set is identical on every branch, including
+    /// the three where no upstream was contacted.
+    const REQUIRED_FIELDS: [&str; 10] = [
+        "request_id",
+        "proxy",
+        "method",
+        "path",
+        "status",
+        "duration_ms",
+        "upstream_status",
+        "upstream_duration_ms",
+        "loss_injected",
+        "latency_injected_ms",
+    ];
+
+    fn assert_full_schema(event: &CapturedEvent) {
+        for field in REQUIRED_FIELDS {
+            assert!(
+                event.declared_fields.iter().any(|name| name == field),
+                "missing field `{field}` in {event:?}"
+            );
+        }
+    }
+
+    fn assert_upstream_fields_are_null(event: &CapturedEvent) {
+        assert!(
+            !event.recorded_fields.contains_key("upstream_status"),
+            "upstream_status should be null (declared but unrecorded) in {event:?}"
+        );
+        assert!(
+            !event.recorded_fields.contains_key("upstream_duration_ms"),
+            "upstream_duration_ms should be null (declared but unrecorded) in {event:?}"
+        );
     }
 
     #[tokio::test]
@@ -396,9 +498,9 @@ proxies:
             1,
             "expected exactly one log line, got {events:?}"
         );
-        let (level, message) = &events[0];
-        assert_eq!(*level, tracing::Level::INFO, "got {events:?}");
-        assert!(message.contains("rejected"), "got {events:?}");
+        let event = &events[0];
+        assert_eq!(event.level, tracing::Level::INFO, "got {event:?}");
+        assert!(event.message.contains("rejected"), "got {event:?}");
     }
 
     #[tokio::test]
@@ -413,9 +515,85 @@ proxies:
             1,
             "expected exactly one log line, got {events:?}"
         );
-        let (level, message) = &events[0];
-        assert_eq!(*level, tracing::Level::WARN, "got {events:?}");
-        assert!(message.contains("failed"), "got {events:?}");
+        let event = &events[0];
+        assert_eq!(event.level, tracing::Level::WARN, "got {event:?}");
+        assert!(event.message.contains("failed"), "got {event:?}");
+    }
+
+    #[tokio::test]
+    async fn resolve_error_branch_has_the_full_schema_with_null_upstream_fields() {
+        let text = config_with("").replace(
+            "      type: default",
+            "      type: header\n      header: X-Proxy-Name",
+        );
+        let (response, events) = run_captured(state(&text, vec![]), get("/anything")).await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_full_schema(&events[0]);
+        assert_upstream_fields_are_null(&events[0]);
+    }
+
+    #[tokio::test]
+    async fn loss_branch_has_the_full_schema_with_null_upstream_fields() {
+        let text = config_with("    loss:\n      percentage: 1.0\n      status: 503");
+        let (response, events) = run_captured(state(&text, vec![0.0]), get("/anything")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_full_schema(&events[0]);
+        assert_upstream_fields_are_null(&events[0]);
+    }
+
+    #[tokio::test]
+    async fn forward_error_branch_has_the_full_schema_with_null_upstream_fields() {
+        let (response, events) =
+            run_captured(state(&config_with(""), vec![]), get("/anything")).await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_full_schema(&events[0]);
+        assert_upstream_fields_are_null(&events[0]);
+    }
+
+    #[tokio::test]
+    async fn forward_success_branch_has_the_full_schema_with_real_upstream_fields() {
+        let base = spawn_ok_upstream().await;
+        let text = config_pointing_at(&base, "");
+        let (response, events) = run_captured(state(&text, vec![]), get("/anything")).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(events.len(), 1, "{events:?}");
+        let event = &events[0];
+        assert_full_schema(event);
+        assert!(
+            event.recorded_fields.contains_key("upstream_status"),
+            "upstream_status should be recorded once the upstream answers, got {event:?}"
+        );
+        assert!(
+            event.recorded_fields.contains_key("upstream_duration_ms"),
+            "upstream_duration_ms should be recorded once the upstream answers, got {event:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn loss_and_latency_together_skip_the_latency_delay_entirely() {
+        // Pipeline order is resolve, then loss, then latency, then forward.
+        // With loss configured to always fire, latency must never even be
+        // sampled, let alone slept on -- `decide` already pins this at the
+        // unit level (`fault::tests::loss_short_circuits_latency`); this
+        // pins the same claim through the whole pipeline. A single sampler
+        // draw is supplied: if latency were sampled too, `SequenceSampler`
+        // would panic on exhaustion rather than silently letting a slow test
+        // pass.
+        let text = config_with(
+            "    loss:\n      percentage: 1.0\n      status: 503\n    latency:\n      \
+             percentage: 1.0\n      min: 2.0\n      max: 2.0",
+        );
+        let started = Instant::now();
+        let response = send(state(&text, vec![0.0]), get("/anything")).await;
+        let elapsed = started.elapsed();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "expected the 2s configured latency to be skipped entirely, took {elapsed:?}"
+        );
     }
 
     #[test]
