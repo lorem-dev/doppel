@@ -10,7 +10,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 /// Ask the OS for a free port, then release it before handing the number to
@@ -345,6 +345,106 @@ fn send_sigterm(pid: u32) {
     );
 }
 
+/// The deadline every post-signal wait below uses.
+///
+/// `serve.rs`'s own shutdown path (`DRAIN_TIMEOUT` in
+/// `crates/doppel-cli/src/commands/serve.rs`) bounds the entire shutdown
+/// sequence at 30 seconds: that branch of its `tokio::select!` fires
+/// unconditionally once a signal has been received, whether or not any
+/// request was in flight at the time. None of the four tests that wait on a
+/// child after `send_sigterm` actually has a request in flight at the
+/// moment of the signal -- `Server::get` is synchronous and returns only
+/// after the response is fully read, so by the time SIGTERM is sent the one
+/// request each test issues has already completed. That means there is no
+/// real distinction here between "a test that exercises a real drain" and
+/// "a test where the server has nothing in flight": every one of the four
+/// goes through the exact same `wait_for_signal -> drain` code path, bounded
+/// by the exact same 30-second constant, regardless of traffic history. So
+/// rather than inventing a second, shorter deadline that is not backed by
+/// any actual difference in behaviour (and would just be a second arbitrary
+/// number to tune later), all four tests share one deadline: the real
+/// 30-second bound plus a flat margin for process teardown and scheduling
+/// jitter on a loaded machine.
+const SIGNAL_WAIT_DEADLINE: Duration = Duration::from_secs(35);
+
+/// Wait for a child to exit after it has already been sent a signal, with a
+/// deadline -- so a regressed signal handler (the exact failure class this
+/// suite exists to catch) fails the test with a diagnostic instead of
+/// hanging the run.
+///
+/// Both pipes are drained concurrently on their own threads for the entire
+/// wait, not read afterwards: this is what makes the wait safe from
+/// deadlock. If stdout or stderr filled its OS pipe buffer while nothing
+/// was reading it, the child's own `write` would block, which would in turn
+/// stop the child from ever reaching the point where it exits -- turning a
+/// wait for exit into a wait that can never complete. Reading continuously
+/// from the moment the child is handed in means neither buffer can fill
+/// while this function is polling `try_wait`, so there is nothing for the
+/// child to block on.
+///
+/// On the happy path (`try_wait` reports an exit before the deadline), the
+/// exit status is returned to the caller so it can distinguish a clean exit
+/// from a dirty one with its own assertion and message. On the timeout
+/// path, the child is killed and reaped first -- which is also what lets
+/// the reader threads observe EOF and `join` rather than blocking forever
+/// on a child that is still running -- and this function panics itself,
+/// with wording that names the timeout specifically ("did not exit within
+/// ... of ...") so it can never be confused with the caller's own "exited
+/// with status X" message for a dirty exit.
+fn wait_after_signal(
+    mut child: Child,
+    reason: &str,
+    deadline: Duration,
+) -> (ExitStatus, String, String) {
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
+
+    let stdout_handle = std::thread::spawn(move || {
+        let mut buffer = String::new();
+        if let Some(mut pipe) = stdout_pipe {
+            let _ = pipe.read_to_string(&mut buffer);
+        }
+        buffer
+    });
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buffer = String::new();
+        if let Some(mut pipe) = stderr_pipe {
+            let _ = pipe.read_to_string(&mut buffer);
+        }
+        buffer
+    });
+
+    let started = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("waiting on the child process") {
+            break status;
+        }
+        if started.elapsed() >= deadline {
+            // Still running: kill and reap it so this function never
+            // leaves a zombie behind. Killing it also closes its
+            // stdout/stderr, which is what lets the reader threads below
+            // reach EOF and `join` instead of blocking on a process that
+            // will never produce more output.
+            timed_out = true;
+            let _ = child.kill();
+            break child.wait().expect("reaping the killed child");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
+
+    let stdout = stdout_handle.join().unwrap_or_default();
+    let stderr = stderr_handle.join().unwrap_or_default();
+
+    assert!(
+        !timed_out,
+        "doppel did not exit within {deadline:?} of {reason} (killed after the deadline)\n\
+         --- stdout so far ---\n{stdout}\n--- stderr so far ---\n{stderr}"
+    );
+
+    (status, stdout, stderr)
+}
+
 #[test]
 fn proxies_a_request_end_to_end() {
     let up = upstream();
@@ -563,7 +663,8 @@ fn sigterm_drains_and_removes_the_socket() {
 
     send_sigterm(pid);
 
-    let status = server.into_child().wait().unwrap();
+    let (status, _stdout, _stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
     assert!(status.success(), "expected a clean exit, got {status:?}");
     assert!(
         !socket.exists(),
@@ -578,10 +679,9 @@ fn admin_token_values_never_reach_the_logs() {
     server.get("/anything");
 
     send_sigterm(server.pid());
-    let output = server.into_child().wait_with_output().unwrap();
+    let (_status, stdout, stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         !stdout.contains(SECRET_TOKEN),
         "an admin token leaked into stdout"
@@ -618,12 +718,8 @@ fn admin_token_values_never_reach_the_logs_at_trace_level() {
     wait_until_ready(&mut child, port, &socket);
 
     send_sigterm(child.id());
-    let output = child.wait_with_output().unwrap();
-    let combined = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let (_status, stdout, stderr) = wait_after_signal(child, "SIGTERM", SIGNAL_WAIT_DEADLINE);
+    let combined = format!("{stdout}{stderr}");
     assert!(
         !combined.is_empty(),
         "trace level should produce some output"
@@ -641,8 +737,8 @@ fn logs_are_json_and_carry_the_documented_fields() {
     server.get("/logged");
 
     send_sigterm(server.pid());
-    let output = server.into_child().wait_with_output().unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (_status, stdout, _stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
 
     let line = stdout
         .lines()
