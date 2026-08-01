@@ -1,5 +1,6 @@
 //! Configuration storage. `FileStore` here, `PostgresStore` in phase 4.
 
+pub mod file;
 pub mod name;
 
 use std::path::PathBuf;
@@ -25,4 +26,41 @@ pub enum StoreError {
     Serialize(String),
     #[error("template name `{name}` rejected: {reason}")]
     BadTemplateName { name: String, reason: String },
+}
+
+pub use file::FileStore;
+
+/// One template file, as stored.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateFile {
+    pub name: String,
+    pub content: Vec<u8>,
+}
+
+/// Where configuration lives. `FileStore` implements it now; `PostgresStore`
+/// implements it in phase 4 without any change to callers.
+#[async_trait::async_trait]
+pub trait ConfigStore: Send + Sync {
+    /// Load and validate the configuration.
+    async fn load(&self) -> Result<crate::Config, StoreError>;
+
+    /// Validate and persist the configuration, returning the new revision.
+    async fn save(
+        &self,
+        config: &crate::Config,
+        actor: Option<&str>,
+    ) -> Result<Revision, StoreError>;
+
+    /// Every template file belonging to a proxy. An unknown proxy yields an
+    /// empty list rather than an error: having no templates is normal.
+    async fn load_templates(&self, proxy: &str) -> Result<Vec<TemplateFile>, StoreError>;
+
+    async fn save_template(&self, proxy: &str, file: &str, bytes: &[u8]) -> Result<(), StoreError>;
+
+    /// Returns whether the file existed.
+    async fn delete_template(&self, proxy: &str, file: &str) -> Result<bool, StoreError>;
+
+    /// Drop every template for `proxy` except those named in `keep`. An empty
+    /// `keep` removes the proxy's storage entirely.
+    async fn retain_templates(&self, proxy: &str, keep: &[String]) -> Result<(), StoreError>;
 }
