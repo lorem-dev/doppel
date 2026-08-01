@@ -15,6 +15,15 @@ use crate::cli::{Cli, Command, ConfigCommand, ServeArgs};
 /// the config to exist before the runtime that will serve it does. So the
 /// config is opened synchronously, on the plain thread `main` starts on,
 /// before any tokio runtime is built -- see `run_serve` below.
+///
+/// Stream convention, followed by every command in this crate (`serve`,
+/// `config validate`, `config reload`): a command's actual output -- a
+/// violations list, `config reload`'s result, `config validate`'s
+/// "configuration is valid" -- goes to stdout, because a script or a human
+/// piping the output wants exactly that and nothing else. A failure that is
+/// not itself the command's output -- being unable to open the configured
+/// store, reach the control socket, or build the tokio runtime -- goes to
+/// stderr instead, same as any other tool's diagnostics.
 fn main() -> ExitCode {
     ExitCode::from(run(Cli::parse().command))
 }
@@ -69,8 +78,11 @@ fn run_serve(args: ServeArgs) -> u8 {
     };
 
     if let Err(violations) = doppel_core::validate::validate(&config) {
+        // The violations list is the command's actual output, like
+        // `config validate`'s -- not a failure to open or reach anything --
+        // so it goes to stdout, per the stream convention on `main` above.
         for violation in &violations {
-            eprintln!("{violation}");
+            println!("{violation}");
         }
         return 1;
     }

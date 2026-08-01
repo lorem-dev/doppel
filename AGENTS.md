@@ -8,6 +8,33 @@ This file is addressed to AI coding agents. Read it fully before touching code.
 
 ## Project Overview
 
+Doppel is a CLI-driven HTTP reverse proxy: a doppelganger that stands in for a
+real backend so its clients can be developed and tested against a realistic,
+deliberately degraded, or entirely absent upstream. It is a Cargo workspace of
+independently owned crates under `crates/`; only four exist as of phase 1
+(config/store/runtime, the proxy itself, telemetry, and the CLI binary), with
+a templating crate and an admin-API crate to follow in phases 2 and 3.
+Dependencies point one way, converging on `doppel-core`, so the config model
+and validation are exercised without a network and the proxy logic is
+exercised without an admin API.
+
+| Crate | Owns |
+|---|---|
+| `doppel-core` | Configuration model, YAML loading, validation, the `ConfigStore` trait and its file-backed implementation, the compiled runtime, the error model. |
+| `doppel-proxy` | The proxy listener, request resolution, fault injection, and upstream forwarding. |
+| `doppel-telemetry` | Logging initialization. |
+| `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other three crates together. |
+
+```
+doppel-cli -> { doppel-proxy, doppel-telemetry, doppel-core }
+doppel-proxy -> doppel-core
+doppel-telemetry -> doppel-core
+doppel-core -> (nothing in this workspace)
+```
+
+See `README.md` for what phase 1 does and does not do yet, and
+`.superpowers/specs/` (git-ignored, not shipped) for the full design.
+
 ---
 
 ## Running the Gates

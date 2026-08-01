@@ -6,11 +6,16 @@ use crate::cli::{CliError, ReloadArgs, StoreKind, mask_dsn};
 use crate::control::{ControlRequest, ControlResponse, client};
 
 /// Send a reload command and return the process exit code.
+///
+/// Stream convention (see `main.rs`): the reload result -- success or
+/// rejected, with its violations -- is this command's actual output, so it
+/// goes to stdout. Failing to even reach the control socket is not that
+/// output, so it goes to stderr.
 pub async fn reload(args: &ReloadArgs) -> u8 {
     let socket = match resolve_socket(args) {
         Ok(socket) => socket,
         Err(err) => {
-            println!("{err}");
+            eprintln!("{err}");
             return err.exit_code();
         }
     };
@@ -38,7 +43,7 @@ pub async fn reload(args: &ReloadArgs) -> u8 {
             1
         }
         Err(err) => {
-            println!("{err}");
+            eprintln!("{err}");
             1
         }
     }

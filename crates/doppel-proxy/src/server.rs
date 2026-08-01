@@ -55,6 +55,13 @@ async fn handle(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     request: Request,
 ) -> Response {
+    // `started.elapsed()` below, wherever it is read, is read once this
+    // function has a `Response` value to hand back to axum -- which wraps
+    // the response body as a still-unread stream -- not once that stream has
+    // actually finished writing to the client. Every `duration_ms` this
+    // handler logs therefore stops at the same point `UpstreamOutcome`'s
+    // duration does (see its doc comment in `upstream.rs`), and for the same
+    // reason.
     let started = std::time::Instant::now();
     let runtime = state.holder.load();
     let request_id = request_id(request.headers());

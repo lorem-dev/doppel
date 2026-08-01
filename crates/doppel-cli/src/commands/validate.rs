@@ -53,10 +53,16 @@ pub async fn validate(args: &StoreArgs) -> Report {
     }
 }
 
-/// Print a report to stdout and return the process exit code.
+/// Print a report and return the process exit code.
+///
+/// Stream convention (see `main.rs`): the violations list and the
+/// "configuration is valid" message are this command's actual output, so
+/// they go to stdout. `report.message` is only ever set when `args.open()`
+/// failed to reach or open the store in the first place -- not this
+/// command's output -- so it goes to stderr.
 pub fn print(report: &Report) -> u8 {
     if let Some(message) = &report.message {
-        println!("{message}");
+        eprintln!("{message}");
     }
     for violation in &report.violations {
         println!("{violation}");
