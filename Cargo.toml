@@ -17,7 +17,6 @@ axum = "0.8"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
-http-body-util = "0.1"
 minijinja = "2"
 rand = "0.9"
 regex = "1"

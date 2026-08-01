@@ -42,21 +42,52 @@ pub struct UpstreamOutcome {
 /// authority entirely, letting a client redirect the proxy -- with its
 /// configured upstream headers -- to a host of its choosing. Instead, the
 /// path is grafted onto the base by manipulating only the path component
-/// (`Url::set_path`, which cannot touch the scheme or authority), and a
-/// request path containing a `.` or `..` segment is rejected outright rather
-/// than normalised, so it can never walk the result outside the configured
-/// base. A post-condition re-checks that the scheme, host and port did not
-/// move, so the invariant "a proxy for one upstream can only ever talk to
-/// that upstream" is enforced, not merely arranged by the steps above.
+/// (`Url::set_path`, which cannot touch the scheme or authority).
+///
+/// A backslash and a decoded `.`/`..` segment are rejected up front so that
+/// the common cases fail with a clear, specific message -- but that filter
+/// is not what makes this function safe, and it does not try to be
+/// exhaustive: `Url::set_path` performs WHATWG dot-segment removal, which
+/// also recognises percent-encoded spellings of `.`/`..` (`%2e`, `.%2E`, and
+/// so on), treats `\` as a path separator for special schemes, and silently
+/// strips ASCII tab/CR/LF before segmenting, any of which can turn an
+/// innocent-looking raw segment into a real `..` once normalised. Predicting
+/// every such case here would mean re-modelling `url`'s normalisation rules
+/// (and the next `url` release could add more). The actual guarantee is a
+/// post-condition on the *result*: the resulting URL's scheme, host and port
+/// must equal the base's, and its path must still start with the base's
+/// (trailing-slash-normalised) path. A proxy configured for one upstream and
+/// one base path can only ever reach paths under that base on that upstream,
+/// and that is enforced by checking the outcome, not by inferring it from
+/// the input.
 pub fn join_upstream(
     base: &reqwest::Url,
     path: &str,
     query: Option<&str>,
 ) -> Result<reqwest::Url, Error> {
-    if path
-        .split('/')
-        .any(|segment| segment == "." || segment == "..")
-    {
+    // `\` is a path separator for special schemes (http/https among them) in
+    // `Url::set_path`'s parser, exactly like `/`; `http`'s path parser
+    // accepts a literal backslash in a request target, so this arrives over
+    // the wire. Reject it outright rather than modelling that separator
+    // rule ourselves.
+    if path.contains('\\') {
+        return Err(Error::new(
+            ErrorCode::InvalidRequestPath,
+            format!("request path `{path}` contains a backslash"),
+        ));
+    }
+
+    // Decode only the `%2e`/`%2E` percent-encoding of `.` -- there is no
+    // case-insensitivity to exploit beyond the `e`/`E` letter itself, since
+    // hex digits have no case -- before comparing a whole segment against
+    // `.`/`..`. This exists solely to produce a clear rejection message for
+    // the same inputs `url` itself treats as dot segments; it is not the
+    // safety net (see the containment check below), so it compares whole
+    // decoded segments for equality and never widens to "contains".
+    if path.split('/').any(|segment| {
+        let decoded = segment.replace("%2e", ".").replace("%2E", ".");
+        decoded == "." || decoded == ".."
+    }) {
         return Err(Error::new(
             ErrorCode::InvalidRequestPath,
             format!("request path `{path}` contains a `.` or `..` segment"),
@@ -74,9 +105,15 @@ pub fn join_upstream(
     url.set_path(&format!("{}{relative}", base.path()));
     url.set_query(query);
 
+    // The decisive guarantee: whatever `Url::set_path` actually did with the
+    // input -- including any dot-segment, separator or control-character
+    // handling the checks above did not anticipate -- the result must still
+    // be a path under the configured base, on the configured scheme, host
+    // and port.
     if url.scheme() != base.scheme()
         || url.host() != base.host()
         || url.port_or_known_default() != base.port_or_known_default()
+        || !url.path().starts_with(base.path())
     {
         return Err(Error::new(
             ErrorCode::InvalidRequestPath,
@@ -323,6 +360,96 @@ mod tests {
         let joined = join_upstream(&url("https://host/api/v1/"), "/x%2Fy", None).unwrap();
         assert_eq!(joined.path(), "/api/v1/x%2Fy");
         assert_eq!(joined.path_segments().unwrap().count(), 3);
+    }
+
+    // -- Security round 2: the segment filter must not be the safety net ---
+    //
+    // `Url::set_path` performs WHATWG dot-segment removal, which also
+    // recognises several percent-encoded spellings of `.`/`..`, and treats
+    // `\` as a path separator for special schemes (http/https among them).
+    // `http`'s path parser accepts a literal backslash in a request target,
+    // so both arrive over the wire. A filter that only compares raw,
+    // undecoded `/`-split segments against the literal strings `.` and `..`
+    // misses all of these; the containment check below is what actually
+    // closes the class.
+
+    #[test]
+    fn rejects_a_double_dot_disguised_as_lowercase_percent_encoding() {
+        let err =
+            join_upstream(&url("https://host/api/v1/"), "/%2e%2e/%2e%2e/admin", None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn rejects_a_double_dot_disguised_as_uppercase_percent_encoding() {
+        let err =
+            join_upstream(&url("https://host/api/v1/"), "/%2E%2E/%2E%2E/admin", None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn rejects_a_double_dot_disguised_as_mixed_literal_and_encoded_dots() {
+        let err =
+            join_upstream(&url("https://host/api/v1/"), "/.%2e/.%2e/admin", None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn rejects_a_path_containing_a_backslash() {
+        let err = join_upstream(&url("https://host/api/v1/"), "/..\\..\\admin", None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn a_backslash_cannot_be_used_to_cross_into_a_sibling_tenant() {
+        let err = join_upstream(
+            &url("https://host/api/v1/"),
+            "/x/..\\..\\..\\tenant-b/secret",
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+    }
+
+    #[test]
+    fn an_encoded_dot_dot_slash_taken_as_one_segment_is_safe_and_stays_literal() {
+        // `%2e%2e%2f` decodes to `../`, not to a `..` segment (the trailing
+        // `%2f` is not a `/`), so the whole thing is one ordinary segment
+        // that does not traverse. This must keep passing, unrejected: the
+        // rule is equality against a decoded segment, not "contains".
+        let joined = join_upstream(&url("https://host/api/v1/"), "/%2e%2e%2fadmin", None).unwrap();
+        assert_eq!(joined.as_str(), "https://host/api/v1/%2e%2e%2fadmin");
+    }
+
+    #[test]
+    fn a_filename_containing_literal_dots_is_not_mistaken_for_a_dot_segment() {
+        let joined = join_upstream(&url("https://host/api/v1/"), "/file..name.json", None).unwrap();
+        assert_eq!(joined.as_str(), "https://host/api/v1/file..name.json");
+    }
+
+    #[test]
+    fn a_version_like_segment_is_not_mistaken_for_a_dot_segment() {
+        let joined = join_upstream(&url("https://host/api/v1/"), "/v1.2/x", None).unwrap();
+        assert_eq!(joined.as_str(), "https://host/api/v1/v1.2/x");
+    }
+
+    #[test]
+    fn the_containment_check_catches_a_dot_segment_hidden_by_a_stripped_control_character() {
+        // WHATWG URL parsing silently strips ASCII tab/CR/LF from its input
+        // before segmenting it, so a literal tab hidden inside a segment
+        // that is not, on its own, `.` or `..` can still collapse to `..`
+        // once `Url::set_path` strips it -- a case neither the backslash
+        // check nor the decoded-segment check above catches, because ".\t."
+        // is not equal to ".." before that stripping happens. This is
+        // exactly the class of vector the containment check exists for.
+        let path = "/.\t./admin";
+        let err = join_upstream(&url("https://host/api/v1/"), path, None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
     }
 
     #[test]
