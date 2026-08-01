@@ -553,11 +553,10 @@ proxies:
             })
         }
 
-        fn save<'s, 'p1, 'p2, 'out>(
+        fn save<'s, 'p1, 'out>(
             &'s self,
             _config: &'p1 doppel_core::Config,
             _expected: Option<doppel_core::Revision>,
-            _actor: Option<&'p2 str>,
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<
@@ -569,7 +568,6 @@ proxies:
         where
             's: 'out,
             'p1: 'out,
-            'p2: 'out,
             Self: 'out,
         {
             Box::pin(async { unimplemented!("not exercised by this test") })

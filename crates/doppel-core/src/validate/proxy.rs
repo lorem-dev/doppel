@@ -105,11 +105,13 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             v,
         );
 
-        // V15
+        // V15 -- both an invalid name and an invalid value are reported at
+        // the same specific `headers.<name>` path, per the convention that
+        // every message carries the config path of the thing it is about.
         for (name, value) in &proxy.headers {
             v.require(
                 is_valid_header_name(name),
-                format!("{path}.headers"),
+                format!("{path}.headers.{name}"),
                 format!("`{name}` is not a valid header name"),
             );
             v.require(
@@ -364,7 +366,7 @@ proxies:
     fn v15_upstream_headers_must_be_well_formed() {
         assert_violation(
             &good().replace("      Authorization:", "      \"Bad Header\":"),
-            "proxies[0].headers",
+            "proxies[0].headers.Bad Header",
             "not a valid header name",
         );
         assert_violation(

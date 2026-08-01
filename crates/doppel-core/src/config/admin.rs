@@ -177,7 +177,11 @@ impl FromStr for ByteSize {
         let value: u64 = digits
             .parse()
             .map_err(|_| format!("`{digits}` is not a number"))?;
-        let multiplier = match suffix.trim_end_matches('B') {
+        // Strip at most one trailing `B` (`1KB` means the same as `1K`); a
+        // second one is not an alternate spelling but a mistake, so `5BB`
+        // must be rejected rather than silently parsed as 5 bytes.
+        let unit = suffix.strip_suffix('B').unwrap_or(suffix);
+        let multiplier = match unit {
             "" => 1_u64,
             "K" => 1024,
             "M" => 1024 * 1024,
@@ -225,5 +229,48 @@ impl<'de> Deserialize<'de> for ByteSize {
         }
 
         d.deserialize_any(V)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_number_is_bytes() {
+        assert_eq!("4096".parse::<ByteSize>().unwrap().0, 4096);
+    }
+
+    #[test]
+    fn each_suffix_applies_its_multiplier() {
+        assert_eq!("512K".parse::<ByteSize>().unwrap().0, 512 * 1024);
+        assert_eq!("1M".parse::<ByteSize>().unwrap().0, 1024 * 1024);
+        assert_eq!("2G".parse::<ByteSize>().unwrap().0, 2 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn a_single_trailing_b_is_the_same_unit() {
+        assert_eq!(
+            "1KB".parse::<ByteSize>().unwrap().0,
+            "1K".parse::<ByteSize>().unwrap().0
+        );
+        assert_eq!("5B".parse::<ByteSize>().unwrap().0, 5);
+    }
+
+    #[test]
+    fn a_doubled_trailing_b_is_rejected_rather_than_silently_stripped() {
+        // Without the fix, `trim_end_matches('B')` stripped every trailing
+        // `B`, so `5BB` parsed as 5 bytes instead of being rejected.
+        let err = "5BB".parse::<ByteSize>().unwrap_err();
+        assert!(err.contains("unknown size suffix"), "got `{err}`");
+
+        let err = "10KBB".parse::<ByteSize>().unwrap_err();
+        assert!(err.contains("unknown size suffix"), "got `{err}`");
+    }
+
+    #[test]
+    fn an_unknown_suffix_is_rejected() {
+        let err = "5T".parse::<ByteSize>().unwrap_err();
+        assert!(err.contains("unknown size suffix"), "got `{err}`");
     }
 }

@@ -77,7 +77,17 @@ pub fn load_from_path(path: &Path) -> Result<Config, ConfigError> {
 
 /// Serialize a config back to YAML.
 pub fn to_yaml(config: &Config) -> Result<String, serde_norway::Error> {
-    serde_norway::to_string(config)
+    canonical_yaml(config)
+}
+
+/// The single serialization path behind "canonical serialization": both
+/// `to_yaml` and `Revision::of_proxy`/`Revision::of_config` go through this
+/// rather than each calling `serde_norway::to_string` on their own, so the
+/// two can never spell "canonical" differently. Identical to
+/// `serde_norway::to_string` today, but the point is that there is exactly
+/// one place to change if that ever needs to stop being true.
+pub(crate) fn canonical_yaml<T: Serialize>(value: &T) -> Result<String, serde_norway::Error> {
+    serde_norway::to_string(value)
 }
 
 #[cfg(test)]

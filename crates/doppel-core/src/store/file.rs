@@ -91,6 +91,17 @@ impl FileStore {
             source,
         }
     }
+
+    /// Decode a directory entry's raw file name, treating anything that is
+    /// not valid UTF-8 as foreign junk rather than something to report or
+    /// compare under a mangled, `to_string_lossy`-produced stand-in.
+    /// `sanitize` takes a `&str`, so no real template name ever stored
+    /// through `save_template` can fail to decode here; a name that does is
+    /// something else's file, the same treatment `load_templates` already
+    /// gives a name that merely fails `sanitize`.
+    fn decode_template_name(name: std::ffi::OsString) -> Option<String> {
+        name.into_string().ok()
+    }
 }
 
 #[async_trait::async_trait]
@@ -120,7 +131,6 @@ impl ConfigStore for FileStore {
         &self,
         config: &Config,
         expected: Option<Revision>,
-        _actor: Option<&str>,
     ) -> Result<Revision, StoreError> {
         validate(config).map_err(StoreError::Invalid)?;
 
@@ -205,6 +215,22 @@ impl ConfigStore for FileStore {
                 source: e.error,
             })?;
 
+        // The rename itself is atomic and content is never at risk: a
+        // concurrent reader always sees the complete old configuration or
+        // the complete new one (see the comments on locking above), never a
+        // partial write. But the directory entry that now points at the new
+        // inode is not guaranteed durable just because `persist` returned --
+        // on most POSIX filesystems a rename's effect on the directory can
+        // still be sitting in volatile cache, and a crash before it reaches
+        // disk can leave the *old* entry (or, on some filesystems, neither)
+        // after a reboot, even though nothing was ever torn. Opening the
+        // directory and syncing it is what makes the rename survive that
+        // crash, so the durability of the last successful `save` matches
+        // what its caller was told.
+        std::fs::File::open(dir)
+            .and_then(|dir_file| dir_file.sync_all())
+            .map_err(Self::io(dir))?;
+
         Ok(Revision::of_config(config))
     }
 
@@ -222,7 +248,9 @@ impl ConfigStore for FileStore {
             if !entry.file_type().map_err(Self::io(&dir))?.is_file() {
                 continue;
             }
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(name) = Self::decode_template_name(entry.file_name()) else {
+                continue;
+            };
             // A name that fails `sanitize` here is not an operator's template
             // request, it is something else's file sitting in our directory
             // (a `.DS_Store`, an editor swapfile, ...). This is a listing, so
@@ -284,8 +312,14 @@ impl ConfigStore for FileStore {
             if !entry.file_type().map_err(Self::io(&dir))?.is_file() {
                 continue;
             }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if keep.contains(&name) {
+            // A non-UTF-8 name cannot equal anything in `keep` -- `keep` is
+            // only ever built from sanitize-passing, valid-UTF-8 template
+            // names -- so there is no need to mangle it through
+            // `to_string_lossy` just to compare it: treat it the same as any
+            // other name not in `keep`, i.e. delete it below.
+            let keep_this = Self::decode_template_name(entry.file_name())
+                .is_some_and(|name| keep.contains(&name));
+            if keep_this {
                 continue;
             }
             let path = entry.path();
@@ -372,7 +406,7 @@ proxies:
         config.admin.port = config.server.port;
 
         assert!(matches!(
-            store.save(&config, None, None).await,
+            store.save(&config, None).await,
             Err(StoreError::Invalid(_))
         ));
         assert_eq!(std::fs::read_to_string(&config_path).unwrap(), GOOD);
@@ -394,7 +428,7 @@ proxies:
         let store = FileStore::new(config_path, dir.path().join("templates"));
 
         let (before, _) = store.load().await.unwrap();
-        store.save(&before, None, None).await.unwrap();
+        store.save(&before, None).await.unwrap();
         let (after, _) = store.load().await.unwrap();
         assert_eq!(before, after);
     }
@@ -404,7 +438,7 @@ proxies:
         let dir = tempfile::tempdir().unwrap();
         let (store, _) = store(dir.path());
         let (config, _) = store.load().await.unwrap();
-        store.save(&config, None, None).await.unwrap();
+        store.save(&config, None).await.unwrap();
 
         // The lock file is expected to be there; it is not a leftover.
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
@@ -424,8 +458,8 @@ proxies:
         let (store, _) = store(dir.path());
         let (config, _) = store.load().await.unwrap();
 
-        let first = store.save(&config, None, None).await.unwrap();
-        let second = store.save(&config, Some(first), None).await.unwrap();
+        let first = store.save(&config, None).await.unwrap();
+        let second = store.save(&config, Some(first)).await.unwrap();
         assert_eq!(first, second);
     }
 
@@ -435,9 +469,9 @@ proxies:
         let (store, _) = store(dir.path());
         let (mut config, _) = store.load().await.unwrap();
 
-        let before = store.save(&config, None, None).await.unwrap();
+        let before = store.save(&config, None).await.unwrap();
         config.proxies[0].name = "renamed".to_owned();
-        let after = store.save(&config, Some(before), None).await.unwrap();
+        let after = store.save(&config, Some(before)).await.unwrap();
         assert_ne!(before, after);
     }
 
@@ -447,7 +481,7 @@ proxies:
         let (store, _) = store(dir.path());
         let (config, _) = store.load().await.unwrap();
 
-        let saved = store.save(&config, None, None).await.unwrap();
+        let saved = store.save(&config, None).await.unwrap();
         let (_, loaded) = store.load().await.unwrap();
         assert_eq!(saved, loaded);
     }
@@ -512,7 +546,7 @@ proxies:
         let (mut config, _) = store.load().await.unwrap();
         config.proxies[0].name = "renamed".to_owned();
 
-        store.save(&config, None, None).await.unwrap();
+        store.save(&config, None).await.unwrap();
         let reloaded = load_from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
         assert_eq!(reloaded.proxies[0].name, "renamed");
     }
@@ -524,7 +558,7 @@ proxies:
         let (mut config, revision) = store.load().await.unwrap();
         config.proxies[0].name = "renamed".to_owned();
 
-        let new_revision = store.save(&config, Some(revision), None).await.unwrap();
+        let new_revision = store.save(&config, Some(revision)).await.unwrap();
         assert_ne!(new_revision, revision);
     }
 
@@ -538,7 +572,7 @@ proxies:
         // Not the current revision, by construction: `save` has not run yet,
         // so `revision` is the only value currently valid, and this is not it.
         let stale = Revision(revision.0.wrapping_add(1));
-        let err = store.save(&config, Some(stale), None).await.unwrap_err();
+        let err = store.save(&config, Some(stale)).await.unwrap_err();
         let StoreError::RevisionMismatch { expected, actual } = err else {
             panic!("expected RevisionMismatch, got {err:?}");
         };
@@ -557,10 +591,7 @@ proxies:
         let store = FileStore::new(config_path.clone(), dir.path().join("templates"));
         let config = load_from_str(GOOD).unwrap();
 
-        let err = store
-            .save(&config, Some(Revision(123)), None)
-            .await
-            .unwrap_err();
+        let err = store.save(&config, Some(Revision(123))).await.unwrap_err();
         assert!(matches!(err, StoreError::RevisionMismatch { .. }));
         assert!(!config_path.exists());
     }
@@ -589,7 +620,7 @@ proxies:
             let mut config = config.clone();
             config.proxies[0].name = format!("renamed-{i}");
             handles.push(tokio::spawn(async move {
-                store.save(&config, Some(revision), None).await
+                store.save(&config, Some(revision)).await
             }));
         }
 
@@ -614,7 +645,7 @@ proxies:
         let dir = tempfile::tempdir().unwrap();
         let (store, _) = store(dir.path());
         let (config, _) = store.load().await.unwrap();
-        store.save(&config, None, None).await.unwrap();
+        store.save(&config, None).await.unwrap();
 
         assert!(store.lock_path().exists());
     }
@@ -625,11 +656,11 @@ proxies:
         let (store, _) = store(dir.path());
         let (config, _) = store.load().await.unwrap();
 
-        store.save(&config, None, None).await.unwrap();
+        store.save(&config, None).await.unwrap();
         // If the first `save` had left the lock held, this would block
         // forever: it does not, because the lock is released when `save`
         // returns.
-        store.save(&config, None, None).await.unwrap();
+        store.save(&config, None).await.unwrap();
     }
 
     #[tokio::test]
@@ -637,7 +668,7 @@ proxies:
         let dir = tempfile::tempdir().unwrap();
         let (store, config_path) = store(dir.path());
         let (config, _) = store.load().await.unwrap();
-        store.save(&config, None, None).await.unwrap();
+        store.save(&config, None).await.unwrap();
 
         let lock_path = store.lock_path();
         assert_ne!(lock_path, config_path);
@@ -771,5 +802,33 @@ proxies:
             .map(|f| f.name)
             .collect();
         assert_eq!(names, vec!["real.j2".to_owned()]);
+    }
+
+    // A directory entry whose file name is not valid UTF-8 cannot be
+    // fixtured end to end on every filesystem this suite might run on:
+    // APFS (macOS, this workspace's own platform) and most Windows
+    // filesystems reject a non-UTF-8 name at file-creation time, so there is
+    // no on-disk state to point `load_templates`/`retain_templates` at in
+    // the first place on those platforms -- only Linux filesystems such as
+    // ext4, which store names as opaque bytes, would let such a fixture
+    // exist. `decode_template_name` is the whole of the fix for both
+    // methods (see its call sites above), so it is unit-tested directly
+    // instead: the `OsString` here is built in memory with `OsStrExt`,
+    // never written to disk, sidestepping the filesystem's own opinion of
+    // what a valid name is.
+    #[test]
+    #[cfg(unix)]
+    fn decode_template_name_rejects_non_utf8_rather_than_mangling_it() {
+        use std::os::unix::ffi::OsStrExt;
+        let name = std::ffi::OsStr::from_bytes(b"bad-\xff-name.j2").to_owned();
+        assert_eq!(FileStore::decode_template_name(name), None);
+    }
+
+    #[test]
+    fn decode_template_name_accepts_a_normal_name() {
+        assert_eq!(
+            FileStore::decode_template_name(std::ffi::OsString::from("real.j2")),
+            Some("real.j2".to_owned())
+        );
     }
 }

@@ -27,13 +27,19 @@ impl Revision {
     /// change.
     #[must_use]
     pub fn of_config(config: &crate::Config) -> Self {
-        // An in-memory `Config` value always serializes: the failure modes
-        // `to_yaml` exists to report (non-string map keys, and the like) do
-        // not occur in this struct graph. If that ever changes, this
-        // `expect` is the assertion that catches it, rather than silently
-        // handing out a wrong revision.
-        let yaml =
-            crate::config::to_yaml(config).expect("a Config value always serializes to YAML");
+        // Nothing in this codebase builds a `Config` except deserialisation
+        // (see `load_from_str`/`load_from_path`), and everything serde
+        // deserializes into these field types re-serializes cleanly -- with
+        // one caveat: `control.socket` and `templates.dir` are `PathBuf`s,
+        // and serde's YAML serializer fails on a `PathBuf` that is not valid
+        // UTF-8. That failure is unreachable today only because nothing
+        // constructs a `Config` by hand with such a path; it is not
+        // impossible in principle the way "a Config value always
+        // serializes" claimed. If a caller ever does build one directly,
+        // this `expect` is the assertion that catches it, rather than
+        // silently handing out a wrong revision.
+        let yaml = crate::config::canonical_yaml(config)
+            .expect("a Config produced by deserialization always serializes back to YAML");
         Self(fnv1a(yaml.as_bytes()))
     }
 
@@ -44,10 +50,10 @@ impl Revision {
     /// look like a conflict on this one.
     #[must_use]
     pub fn of_proxy(proxy: &ProxyConfig) -> Self {
-        // Same reasoning as `of_config`: serializing a `ProxyConfig` that
-        // already exists in memory cannot fail in practice.
-        let yaml =
-            serde_norway::to_string(proxy).expect("a ProxyConfig value always serializes to YAML");
+        // Same reasoning as `of_config`, and the same helper, so the two can
+        // never spell "canonical serialization" differently.
+        let yaml = crate::config::canonical_yaml(proxy)
+            .expect("a ProxyConfig produced by deserialization always serializes back to YAML");
         Self(fnv1a(yaml.as_bytes()))
     }
 }
@@ -120,11 +126,15 @@ pub trait ConfigStore: Send + Sync {
     /// stored configuration's current revision differs. The check and the
     /// write happen under the same lock, so this is an actual compare-and-
     /// swap and not a comparison racing an unrelated write.
+    ///
+    /// There is no `actor` parameter: an audit trail needs somewhere to put
+    /// an actor, and phase 1 has none, so accepting and discarding one here
+    /// would be a hook with nothing attached. Phase 3 can add it back
+    /// alongside the audit log that gives it meaning.
     async fn save(
         &self,
         config: &crate::Config,
         expected: Option<Revision>,
-        actor: Option<&str>,
     ) -> Result<Revision, StoreError>;
 
     /// Every template file belonging to a proxy. An unknown proxy yields an
