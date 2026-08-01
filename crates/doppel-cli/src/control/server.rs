@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use doppel_core::store::ConfigStore;
-use doppel_core::{Runtime, RuntimeHolder, StoreError};
+use doppel_core::{Config, ErrorCode, Runtime, RuntimeHolder, StoreError};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Take};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
@@ -281,7 +281,7 @@ async fn serve_connection(
         }
         Err(_) => {
             let response = ControlResponse::Error {
-                code: "NOT_FOUND".to_owned(),
+                code: ErrorCode::NotFound,
                 errors: Vec::new(),
             };
             write_response(reader, &response).await
@@ -312,17 +312,33 @@ async fn reload(holder: &RuntimeHolder, store: &dyn ConfigStore) -> ControlRespo
         Ok(loaded) => loaded,
         Err(StoreError::Invalid(errors)) => {
             return ControlResponse::Error {
-                code: "CONFIG_INVALID".to_owned(),
+                code: ErrorCode::ConfigInvalid,
                 errors,
             };
         }
         Err(err) => {
             return ControlResponse::Error {
-                code: "STORE_ERROR".to_owned(),
+                code: ErrorCode::StoreError,
                 errors: vec![doppel_core::Violation::new("", err.to_string())],
             };
         }
     };
+
+    // `Runtime::compile` reads only `config.proxies` (see `runtime.rs`), so
+    // every other top-level section is validated and counted into the new
+    // revision but has no effect on the running process until it is
+    // restarted. Compare against the config the currently installed
+    // `Runtime` was built from -- before the swap below replaces it -- so an
+    // operator who also edited one of those sections is told so, rather than
+    // being left to discover it the hard way.
+    let previous_config = Arc::clone(&holder.load().config);
+    let unapplied = unapplied_sections(&previous_config, &config);
+    if !unapplied.is_empty() {
+        tracing::warn!(
+            sections = ?unapplied,
+            "reload accepted changes to sections that only take effect on restart"
+        );
+    }
 
     // The revision comes from the stored config's content, so a reload that
     // changes nothing reports the same number it did before.
@@ -334,13 +350,42 @@ async fn reload(holder: &RuntimeHolder, store: &dyn ConfigStore) -> ControlRespo
             ControlResponse::Ok {
                 revision: revision.0,
                 proxies,
+                unapplied: unapplied.into_iter().map(str::to_owned).collect(),
             }
         }
         Err(err) => ControlResponse::Error {
-            code: err.code.as_str().to_owned(),
+            code: err.code,
             errors: vec![doppel_core::Violation::new("", err.message)],
         },
     }
+}
+
+/// Top-level sections `Runtime::compile` never reads, named for the section
+/// that changed between `old` and `new`. Each section type already derives
+/// `PartialEq`, so a direct field comparison is all this needs -- no
+/// generic config-diffing machinery, just naming the handful of places a
+/// reload cannot actually reach.
+fn unapplied_sections(old: &Config, new: &Config) -> Vec<&'static str> {
+    let mut sections = Vec::new();
+    if old.server != new.server {
+        sections.push("server");
+    }
+    if old.logging != new.logging {
+        sections.push("logging");
+    }
+    if old.control != new.control {
+        sections.push("control");
+    }
+    if old.templates != new.templates {
+        sections.push("templates");
+    }
+    if old.sentry != new.sentry {
+        sections.push("sentry");
+    }
+    if old.admin != new.admin {
+        sections.push("admin");
+    }
+    sections
 }
 
 #[cfg(test)]
@@ -700,7 +745,10 @@ proxies:
         let response = client::send(&h.socket, ControlRequest::Reload)
             .await
             .unwrap();
-        let ControlResponse::Ok { revision, proxies } = response else {
+        let ControlResponse::Ok {
+            revision, proxies, ..
+        } = response
+        else {
             panic!("expected an ok response, got {response:?}");
         };
         assert_eq!(proxies, 1);
@@ -721,6 +769,48 @@ proxies:
     }
 
     #[tokio::test]
+    async fn reload_names_a_changed_but_unapplied_section() {
+        // `Runtime::compile` only ever reads `config.proxies`; a change to
+        // `logging.level` is validated and counted into the new revision,
+        // but the running process's logger is never touched, so the
+        // response must say so rather than silently reporting success.
+        let h = harness().await;
+        std::fs::write(
+            &h.config_path,
+            GOOD.replace("port: 8080", "port: 8080\nlogging:\n  level: debug"),
+        )
+        .unwrap();
+
+        let response = client::send(&h.socket, ControlRequest::Reload)
+            .await
+            .unwrap();
+        let ControlResponse::Ok { unapplied, .. } = response else {
+            panic!("expected an ok response, got {response:?}");
+        };
+        assert_eq!(unapplied, vec!["logging".to_owned()]);
+        let _ = h.shutdown.send(());
+    }
+
+    #[tokio::test]
+    async fn reload_reports_no_unapplied_sections_when_only_proxies_changed() {
+        let h = harness().await;
+        std::fs::write(
+            &h.config_path,
+            GOOD.replace("  - name: p1", "  - name: p1\n    timeout: 5"),
+        )
+        .unwrap();
+
+        let response = client::send(&h.socket, ControlRequest::Reload)
+            .await
+            .unwrap();
+        let ControlResponse::Ok { unapplied, .. } = response else {
+            panic!("expected an ok response, got {response:?}");
+        };
+        assert!(unapplied.is_empty(), "got {unapplied:?}");
+        let _ = h.shutdown.send(());
+    }
+
+    #[tokio::test]
     async fn reload_rejects_an_invalid_config_and_keeps_serving_the_old_one() {
         let h = harness().await;
         let before = h.holder.load().revision;
@@ -732,7 +822,7 @@ proxies:
         let ControlResponse::Error { code, errors } = response else {
             panic!("expected an error response");
         };
-        assert_eq!(code, "CONFIG_INVALID");
+        assert_eq!(code, ErrorCode::ConfigInvalid);
         assert!(errors.iter().any(|v| v.path == "admin.port"));
         assert_eq!(h.holder.load().revision, before, "runtime must not change");
         let _ = h.shutdown.send(());

@@ -16,12 +16,22 @@ pub async fn reload(args: &ReloadArgs) -> u8 {
     };
 
     match client::send(&socket, ControlRequest::Reload).await {
-        Ok(ControlResponse::Ok { revision, proxies }) => {
+        Ok(ControlResponse::Ok {
+            revision,
+            proxies,
+            unapplied,
+        }) => {
             println!("reloaded: revision {revision}, {proxies} proxies");
+            if !unapplied.is_empty() {
+                println!(
+                    "note: these sections changed but only take effect after a restart: {}",
+                    unapplied.join(", ")
+                );
+            }
             0
         }
         Ok(ControlResponse::Error { code, errors }) => {
-            println!("reload rejected: {code}");
+            println!("reload rejected: {}", code.as_str());
             for violation in errors {
                 println!("{violation}");
             }

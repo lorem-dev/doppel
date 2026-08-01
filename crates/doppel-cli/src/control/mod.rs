@@ -5,7 +5,7 @@
 pub mod client;
 pub mod server;
 
-use doppel_core::Violation;
+use doppel_core::{ErrorCode, Violation};
 use serde::{Deserialize, Serialize};
 
 pub use server::ControlServer;
@@ -22,9 +22,18 @@ pub enum ControlResponse {
     Ok {
         revision: u64,
         proxies: usize,
+        /// Names of top-level sections (`server`, `logging`, `control`,
+        /// `templates`, `sentry`, `admin`) that changed in the newly loaded
+        /// config but were not applied: `Runtime::compile` only ever reads
+        /// `config.proxies`, so a reload that also edited, say,
+        /// `server.port` is validated, counted into the new revision, and
+        /// then quietly has no effect on the running listener. Empty on the
+        /// common case where only `proxies` changed.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        unapplied: Vec<String>,
     },
     Error {
-        code: String,
+        code: ErrorCode,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         errors: Vec<Violation>,
     },
@@ -50,15 +59,30 @@ mod tests {
         let text = serde_json::to_string(&ControlResponse::Ok {
             revision: 3,
             proxies: 2,
+            unapplied: Vec::new(),
         })
         .unwrap();
         assert_eq!(text, r#"{"status":"ok","revision":3,"proxies":2}"#);
     }
 
     #[test]
+    fn ok_response_lists_unapplied_sections_when_present() {
+        let text = serde_json::to_string(&ControlResponse::Ok {
+            revision: 3,
+            proxies: 2,
+            unapplied: vec!["logging".to_owned()],
+        })
+        .unwrap();
+        assert_eq!(
+            text,
+            r#"{"status":"ok","revision":3,"proxies":2,"unapplied":["logging"]}"#
+        );
+    }
+
+    #[test]
     fn error_response_matches_the_documented_shape() {
         let response = ControlResponse::Error {
-            code: "CONFIG_INVALID".to_owned(),
+            code: ErrorCode::ConfigInvalid,
             errors: vec![doppel_core::Violation::new(
                 "proxies[0].latency.min",
                 "min must be <= max",
@@ -73,10 +97,27 @@ mod tests {
     #[test]
     fn error_response_without_errors_omits_the_list() {
         let text = serde_json::to_string(&ControlResponse::Error {
-            code: "NOT_FOUND".to_owned(),
+            code: ErrorCode::NotFound,
             errors: vec![],
         })
         .unwrap();
         assert_eq!(text, r#"{"status":"error","code":"NOT_FOUND"}"#);
+    }
+
+    #[test]
+    fn error_code_round_trips_through_the_control_response() {
+        let text = serde_json::to_string(&ControlResponse::Error {
+            code: ErrorCode::StoreError,
+            errors: Vec::new(),
+        })
+        .unwrap();
+        let parsed: ControlResponse = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            parsed,
+            ControlResponse::Error {
+                code: ErrorCode::StoreError,
+                errors: Vec::new(),
+            }
+        );
     }
 }

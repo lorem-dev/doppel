@@ -88,6 +88,37 @@ impl Serialize for ErrorCode {
     }
 }
 
+/// The reverse of `as_str`. Kept in lockstep with it by hand, same as
+/// `Serialize` above: an unrecognised wire value is a deserialize error, not
+/// a new variant invented on the spot -- the set is closed on both sides of
+/// the wire, not just the Rust one.
+impl<'de> Deserialize<'de> for ErrorCode {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(d)?;
+        match value.as_str() {
+            "PROXY_NOT_RESOLVED" => Ok(Self::ProxyNotResolved),
+            "TEMPLATE_RENDER_ERROR" => Ok(Self::TemplateRenderError),
+            "TEMPLATE_NOT_FOUND" => Ok(Self::TemplateNotFound),
+            "BODY_EXTRACTION_ERROR" => Ok(Self::BodyExtractionError),
+            "UPSTREAM_TIMEOUT" => Ok(Self::UpstreamTimeout),
+            "UPSTREAM_ERROR" => Ok(Self::UpstreamError),
+            "CONFIG_INVALID" => Ok(Self::ConfigInvalid),
+            "UNAUTHORIZED" => Ok(Self::Unauthorized),
+            "FORBIDDEN" => Ok(Self::Forbidden),
+            "NOT_FOUND" => Ok(Self::NotFound),
+            "CONFLICT" => Ok(Self::Conflict),
+            "UPLOAD_TOO_LARGE" => Ok(Self::UploadTooLarge),
+            "TEMPLATE_NOT_DECLARED" => Ok(Self::TemplateNotDeclared),
+            "STORE_ERROR" => Ok(Self::StoreError),
+            "REVISION_MISMATCH" => Ok(Self::RevisionMismatch),
+            "INVALID_REQUEST_PATH" => Ok(Self::InvalidRequestPath),
+            other => Err(serde::de::Error::custom(format!(
+                "unknown error code `{other}`"
+            ))),
+        }
+    }
+}
+
 /// An error that can be reported to a client.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{message}")]
@@ -189,6 +220,38 @@ mod tests {
                 "code": "TEMPLATE_RENDER_ERROR",
             })
         );
+    }
+
+    #[test]
+    fn every_code_round_trips_through_json() {
+        let all = [
+            ErrorCode::ProxyNotResolved,
+            ErrorCode::TemplateRenderError,
+            ErrorCode::TemplateNotFound,
+            ErrorCode::BodyExtractionError,
+            ErrorCode::UpstreamTimeout,
+            ErrorCode::UpstreamError,
+            ErrorCode::ConfigInvalid,
+            ErrorCode::Unauthorized,
+            ErrorCode::Forbidden,
+            ErrorCode::NotFound,
+            ErrorCode::Conflict,
+            ErrorCode::UploadTooLarge,
+            ErrorCode::TemplateNotDeclared,
+            ErrorCode::StoreError,
+            ErrorCode::RevisionMismatch,
+            ErrorCode::InvalidRequestPath,
+        ];
+        for code in all {
+            let text = serde_json::to_string(&code).unwrap();
+            let parsed: ErrorCode = serde_json::from_str(&text).unwrap();
+            assert_eq!(parsed, code, "round trip failed for {text}");
+        }
+    }
+
+    #[test]
+    fn an_unrecognised_code_fails_to_deserialize_rather_than_inventing_a_variant() {
+        assert!(serde_json::from_str::<ErrorCode>(r#""MADE_UP_CODE""#).is_err());
     }
 
     #[test]
