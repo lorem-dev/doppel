@@ -6,5 +6,7 @@
 //! without a network, the same reason validation lives in `doppel-core`.
 
 pub mod extract;
+pub mod render;
 
 pub use extract::{Selector, Variables, parse_body};
+pub use render::Renderer;
