@@ -1,7 +1,7 @@
 //! Accepting and serving control commands.
 
 use std::future::Future;
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,46 +27,74 @@ pub struct ControlServer {
 
 impl ControlServer {
     /// Bind the socket at `path`, replacing a stale file left by an unclean
-    /// shutdown but refusing to take over a live one.
+    /// shutdown but refusing to take over a live one, and never leaving two
+    /// servers silently sharing (or fighting over) the same control channel.
     ///
-    /// The socket is bound under a temporary name in the same directory,
-    /// chmod'd to 0600, and only then renamed into place: `path` never
-    /// exists with a looser mode than 0600, even for a moment. A rename
-    /// keeps the listening inode, so a client connecting to `path` reaches
-    /// the same listener regardless of which name was used to create it.
+    /// The socket is bound inside a private directory created with mode
+    /// 0700 at creation time (`DirBuilder::mode`, so there is no window in
+    /// which the directory itself is more permissive than that) and only
+    /// then published at `path` with `std::fs::hard_link`, which is atomic
+    /// and exclusive: it fails with `AlreadyExists` if `path` is already
+    /// occupied instead of silently overwriting whatever is there. That is
+    /// the property this design cannot give up. An earlier version of this
+    /// function published with `std::fs::rename` instead, which is atomic
+    /// but *not* exclusive: had a second `bind` published its own socket at
+    /// `path` in the window between this function's liveness check and its
+    /// publish step, a `rename`-based publish would have silently clobbered
+    /// it -- no error to either side, and the loser's listener left open
+    /// but unreachable. `hard_link` turns that same race into a loud,
+    /// unambiguous failure (`AlreadyExists`) for whichever `bind` loses it,
+    /// which is what a check-then-act race is allowed to do; staying silent
+    /// is not. See `hard_linking_a_bound_socket_works_and_refuses_to_overwrite`
+    /// in this module's tests for the platform verification this relies on:
+    /// hard-linking a bound Unix domain socket is not guaranteed by POSIX to
+    /// work on every filesystem, only observed to work here.
     ///
     /// Whether `path` may be claimed is checked as late as possible --
-    /// immediately before the rename -- to keep the window between the check
-    /// and the rename as small as reasonably achievable. That window is not
-    /// zero: a concurrent `bind` racing this one between the check and the
-    /// rename is a check-then-act race inherent to this approach (it was
-    /// already present, in the same shape, in the pre-rename design, which
-    /// relied on the same check before its own single `bind` call).
+    /// immediately before the publish -- to keep the window between the
+    /// check and the publish as small as reasonably achievable. That window
+    /// is not zero: a concurrent `bind` racing this one inside it is a
+    /// check-then-act race inherent to this approach. What changed from the
+    /// pre-hard-link design is not the size of that window but what happens
+    /// inside it: landing in it now means this `bind` (or the racing one,
+    /// whichever loses) fails loudly with `AlreadyExists`, never a silent
+    /// takeover in either direction.
     pub fn bind(path: &Path) -> std::io::Result<Self> {
-        let temp = temp_socket_path(path);
+        let temp_dir = temp_socket_dir(path);
         // Clean up a leftover from a previous failed attempt at this exact
         // temporary name; astronomically unlikely (it is derived from the
         // process id and a nanosecond timestamp) but cheap to guard against.
-        let _ = std::fs::remove_file(&temp);
+        let _ = std::fs::remove_dir_all(&temp_dir);
 
-        let listener = UnixListener::bind(&temp)?;
+        std::fs::DirBuilder::new().mode(0o700).create(&temp_dir)?;
+        let temp = temp_dir.join("ctl.sock");
+
+        let listener = match UnixListener::bind(&temp) {
+            Ok(listener) => listener,
+            Err(err) => {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                return Err(err);
+            }
+        };
 
         if let Err(err) =
             std::fs::set_permissions(&temp, std::os::unix::fs::PermissionsExt::from_mode(0o600))
         {
-            let _ = std::fs::remove_file(&temp);
+            let _ = std::fs::remove_dir_all(&temp_dir);
             return Err(err);
         }
 
         if let Err(err) = clear_for_bind(path) {
-            let _ = std::fs::remove_file(&temp);
+            let _ = std::fs::remove_dir_all(&temp_dir);
             return Err(err);
         }
 
-        if let Err(err) = std::fs::rename(&temp, path) {
-            let _ = std::fs::remove_file(&temp);
+        if let Err(err) = std::fs::hard_link(&temp, path) {
+            let _ = std::fs::remove_dir_all(&temp_dir);
             return Err(err);
         }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
 
         Ok(Self {
             listener,
@@ -130,28 +158,45 @@ impl ControlServer {
     }
 }
 
-/// A sibling of `path` with a name derived from the process id and a
-/// nanosecond timestamp, unique enough that two `bind` calls never collide
-/// on it in practice.
-fn temp_socket_path(path: &Path) -> PathBuf {
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("doppel.sock");
+/// A sibling *directory* of `path` (same parent, so later linking onto
+/// `path` stays on one filesystem) with a name derived from the process id
+/// and a timestamp, unique enough that two `bind` calls never collide on it
+/// in practice. The directory, not just the socket file inside it, is what
+/// is made private: see `bind`'s doc comment.
+///
+/// Kept deliberately short: `sockaddr_un.sun_path` has a small, fixed
+/// capacity (on the order of 100 bytes), this directory sits between
+/// `path`'s parent and the socket file inside it, and every byte here comes
+/// out of that shared budget. A verbose name (the process id and a
+/// nanosecond timestamp spelled out in decimal) was tried first and pushed a
+/// path already close to that limit over it in this crate's own tests,
+/// which run under a deeply nested system temporary directory.
+fn temp_socket_dir(path: &Path) -> PathBuf {
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    path.with_file_name(format!(".{file_name}.{}.{nanos}.tmp", std::process::id()))
+    let unique = std::process::id() ^ (nanos as u32);
+    parent.join(format!(".ctl-{unique:x}"))
 }
 
-/// Decide whether `path` may be claimed by a bind that is about to rename a
+/// Decide whether `path` may be claimed by a bind that is about to publish a
 /// new socket onto it.
 ///
 /// - Nothing there: fine, nothing to do.
 /// - A file that is not a Unix socket at all (a stray regular file left by,
-///   say, a fat-fingered redirect): nothing could ever be listening on it,
-///   so removing it is always safe.
+///   say, a fat-fingered redirect, or a directory): nothing socket-shaped
+///   could be listening on it, so `remove_file` is attempted. For a plain
+///   file that succeeds and clears the way. For anything `remove_file`
+///   itself refuses to remove (a directory, for instance, which needs
+///   `remove_dir`/`remove_dir_all` instead), that call's own error is
+///   returned and `bind` fails -- a safe outcome, just not the "always
+///   safe to remove" this comment used to claim; the code does not attempt
+///   anything beyond a plain `remove_file`.
 /// - A socket that accepts a connection: something is listening. Left
 ///   alone, and reported as an error -- this is what stops a bind from
 ///   silently taking over another instance's control channel.
@@ -370,6 +415,256 @@ proxies:
         }
     }
 
+    /// A store whose `load` counts each call and then blocks on `gate`
+    /// until the test releases it, so a test can force two `Reload`
+    /// connections' critical sections to overlap deterministically: no
+    /// timing guesses, no change to production code, both connections
+    /// driven through ordinary `client::send` calls.
+    ///
+    /// `ConfigStore` is defined with `#[async_trait::async_trait]` in
+    /// `doppel-core`, which is what makes `Arc<dyn ConfigStore>` -- used
+    /// throughout this module -- possible: a plain `async fn` in a trait
+    /// cannot be called through a trait object. `doppel-cli` does not (and,
+    /// per this task's constraints, must not) depend on the `async-trait`
+    /// crate itself, so this impl is written by hand in the desugared form
+    /// `async_trait` would otherwise generate -- a plain method returning a
+    /// boxed, pinned future -- rather than pulling in the macro.
+    struct GatedStore {
+        inner: FileStore,
+        enter_count: Arc<std::sync::atomic::AtomicUsize>,
+        gate: Arc<tokio::sync::Notify>,
+    }
+
+    // `async_trait`'s expansion ties every reference parameter's lifetime to
+    // a common trailing lifetime via `where 'pN: 'out` (making them all
+    // early-bound), rather than the late-bound lifetimes plain elision
+    // (`'_`) would produce; an impl using `'_` fails to unify with the
+    // trait's real signature even though the visible types match. The
+    // explicit lifetime parameters and bounds below exist to reproduce that
+    // structure by hand, not for their names, which do not need to match
+    // the macro's own choice of names -- only the early-bound shape does.
+    impl ConfigStore for GatedStore {
+        fn load<'s, 'out>(
+            &'s self,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            (doppel_core::Config, doppel_core::Revision),
+                            doppel_core::StoreError,
+                        >,
+                    > + Send
+                    + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            Self: 'out,
+        {
+            Box::pin(async move {
+                self.enter_count
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.gate.notified().await;
+                self.inner.load().await
+            })
+        }
+
+        fn save<'s, 'p1, 'p2, 'out>(
+            &'s self,
+            _config: &'p1 doppel_core::Config,
+            _expected: Option<doppel_core::Revision>,
+            _actor: Option<&'p2 str>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<doppel_core::Revision, doppel_core::StoreError>,
+                    > + Send
+                    + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            'p1: 'out,
+            'p2: 'out,
+            Self: 'out,
+        {
+            Box::pin(async { unimplemented!("not exercised by this test") })
+        }
+
+        fn load_templates<'s, 'p1, 'out>(
+            &'s self,
+            _proxy: &'p1 str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            Vec<doppel_core::store::TemplateFile>,
+                            doppel_core::StoreError,
+                        >,
+                    > + Send
+                    + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            'p1: 'out,
+            Self: 'out,
+        {
+            Box::pin(async { unimplemented!("not exercised by this test") })
+        }
+
+        fn save_template<'s, 'p1, 'p2, 'p3, 'out>(
+            &'s self,
+            _proxy: &'p1 str,
+            _file: &'p2 str,
+            _bytes: &'p3 [u8],
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), doppel_core::StoreError>> + Send + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            'p1: 'out,
+            'p2: 'out,
+            'p3: 'out,
+            Self: 'out,
+        {
+            Box::pin(async { unimplemented!("not exercised by this test") })
+        }
+
+        fn delete_template<'s, 'p1, 'p2, 'out>(
+            &'s self,
+            _proxy: &'p1 str,
+            _file: &'p2 str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<bool, doppel_core::StoreError>>
+                    + Send
+                    + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            'p1: 'out,
+            'p2: 'out,
+            Self: 'out,
+        {
+            Box::pin(async { unimplemented!("not exercised by this test") })
+        }
+
+        fn retain_templates<'s, 'p1, 'p2, 'out>(
+            &'s self,
+            _proxy: &'p1 str,
+            _keep: &'p2 [String],
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), doppel_core::StoreError>> + Send + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            'p1: 'out,
+            'p2: 'out,
+            Self: 'out,
+        {
+            Box::pin(async { unimplemented!("not exercised by this test") })
+        }
+    }
+
+    /// Poll for `counter` to reach `expected` instead of sleeping a guessed
+    /// delay, with a deadline so a real failure still reports promptly.
+    async fn wait_for_count(counter: &std::sync::atomic::AtomicUsize, expected: usize) {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        while counter.load(std::sync::atomic::Ordering::SeqCst) < expected {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "timed out waiting for load() to be entered {expected} time(s)"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_reload_does_not_start_loading_until_the_previous_ones_response_is_sent() {
+        // Exercises exactly the property `reload_lock` exists for: the
+        // second connection's `store.load()` must not be entered until the
+        // first connection's whole critical section -- load, validate,
+        // compile, swap, and the response write -- has finished, not just
+        // until the swap itself has happened.
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("main.yaml");
+        std::fs::write(&config_path, GOOD).unwrap();
+        let socket = dir.path().join("doppel.sock");
+
+        let inner = FileStore::new(config_path.clone(), dir.path().join("templates"));
+        let (config, revision) = inner.load().await.unwrap();
+        let holder = Arc::new(RuntimeHolder::new(
+            Runtime::compile(Arc::new(config), revision).unwrap(),
+        ));
+
+        let enter_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let store: Arc<dyn ConfigStore> = Arc::new(GatedStore {
+            inner,
+            enter_count: Arc::clone(&enter_count),
+            gate: Arc::clone(&gate),
+        });
+
+        let server = ControlServer::bind(&socket).unwrap();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let run_holder = Arc::clone(&holder);
+        tokio::spawn(async move {
+            server
+                .run(run_holder, store, async {
+                    let _ = rx.await;
+                })
+                .await;
+        });
+        wait_until_accepting(&socket).await;
+
+        let socket_a = socket.clone();
+        let first =
+            tokio::spawn(async move { client::send(&socket_a, ControlRequest::Reload).await });
+        wait_for_count(&enter_count, 1).await;
+
+        let socket_b = socket.clone();
+        let second =
+            tokio::spawn(async move { client::send(&socket_b, ControlRequest::Reload).await });
+
+        // There is no event to poll for an absence, only time to give the
+        // scheduler a fair chance to prove the bug if it exists: in the
+        // correct implementation the second connection is genuinely
+        // blocked on `reload_lock`, so `enter_count` staying at 1 holds no
+        // matter how long this waits, rather than racing a clock. If
+        // serialization were broken, the second connection would reach its
+        // own `load()` (and bump the count) within microseconds of being
+        // scheduled, well inside this window.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            enter_count.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the second reload's load() must not start before the first reload's response is sent"
+        );
+
+        gate.notify_one();
+        let first_response = first.await.unwrap().unwrap();
+        assert!(
+            matches!(first_response, ControlResponse::Ok { .. }),
+            "{first_response:?}"
+        );
+
+        wait_for_count(&enter_count, 2).await;
+        gate.notify_one();
+        let second_response = second.await.unwrap().unwrap();
+        assert!(
+            matches!(second_response, ControlResponse::Ok { .. }),
+            "{second_response:?}"
+        );
+
+        let _ = tx.send(());
+    }
+
     #[tokio::test]
     async fn reload_applies_a_valid_config_and_reports_the_new_revision() {
         let h = harness().await;
@@ -437,6 +732,36 @@ proxies:
         let socket = dir.path().join("stale.sock");
         std::fs::write(&socket, b"not a socket").unwrap();
         assert!(ControlServer::bind(&socket).is_ok());
+    }
+
+    #[test]
+    fn hard_linking_a_bound_socket_works_and_refuses_to_overwrite() {
+        // `bind`'s publish step depends on two properties of
+        // `std::fs::hard_link` applied to a bound Unix domain socket, and
+        // neither is guaranteed by POSIX for every filesystem, so both are
+        // checked here rather than assumed:
+        //
+        // 1. Linking a bound socket to a second path preserves the
+        //    listener: a client connecting through the link reaches it,
+        //    just as if it had been bound there directly.
+        // 2. Linking onto a path that is already occupied fails loudly
+        //    (`AlreadyExists`) instead of silently replacing whatever is
+        //    there -- the property `rename` lacked, which is why `bind`
+        //    no longer uses it.
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join("new.sock");
+        let published = dir.path().join("pub.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&temp).unwrap();
+
+        std::fs::hard_link(&temp, &published).unwrap();
+        std::os::unix::net::UnixStream::connect(&published)
+            .expect("a connection through the hard link must reach the original listener");
+        drop(listener);
+
+        let temp2 = dir.path().join("new2.sock");
+        let _listener2 = std::os::unix::net::UnixListener::bind(&temp2).unwrap();
+        let err = std::fs::hard_link(&temp2, &published).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "got {err:?}");
     }
 
     #[tokio::test]
