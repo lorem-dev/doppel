@@ -1,0 +1,30 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Runtime artifacts
+/templates
+*.sock
+main.yaml
+.env
+
+# mkdocs build output
+/site
+
+# Python tooling for mkdocs
+.venv
+__pycache__/
+
+# Agent workspaces, not shipped
+.superpowers
+.worktrees
+.codegraph
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local notes
+TODO*
