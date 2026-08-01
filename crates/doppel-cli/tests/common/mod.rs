@@ -1,11 +1,18 @@
-//! End-to-end tests: a real binary, a real upstream, real signals.
+//! Shared harness for the end-to-end test binaries under `tests/`.
 //!
-//! These start the actual `doppel` binary as a child process and talk to it
-//! over a real TCP socket and a real Unix control socket. That is slower and
-//! more failure-prone than a unit test, so most of the code below exists to
-//! keep the suite deterministic: every wait is a poll against an observable
-//! condition with a deadline, every failure carries enough context to explain
-//! itself, and every child process is torn down even when a test panics.
+//! This module is compiled independently into each top-level test file that
+//! declares `mod common;` -- that is how Rust integration tests share code,
+//! since every file directly under `tests/` is its own binary crate. Each of
+//! those binaries only exercises a subset of what lives here (`proxying.rs`
+//! never touches `ChildGuard`, `shutdown.rs` never touches `config_validate`
+//! helpers, and so on), so `-D warnings` would flag the untouched parts as
+//! `dead_code` in every binary except the one that happens to use them all.
+//! That is a property of how cargo links integration tests, not a sign that
+//! anything here is actually unused, so the blanket allow below is the
+//! correct fix -- scattering per-item allows would just hide the same
+//! non-problem item by item, and deleting helpers to silence it would break
+//! the binaries that do use them.
+#![allow(dead_code)]
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -32,7 +39,7 @@ use std::time::{Duration, Instant};
 /// The admin port is allocated the same way in `config()` below, but nothing
 /// binds to it in this phase (the admin server does not exist yet), so a
 /// collision there cannot manifest as a test failure at all.
-fn free_port() -> u16 {
+pub fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .unwrap()
         .local_addr()
@@ -40,8 +47,8 @@ fn free_port() -> u16 {
         .port()
 }
 
-struct Upstream {
-    port: u16,
+pub struct Upstream {
+    pub port: u16,
     _handle: std::thread::JoinHandle<()>,
 }
 
@@ -51,7 +58,7 @@ struct Upstream {
 /// bound once, synchronously, right here, and the same listener is moved
 /// into the background thread -- so there is no window in which another
 /// process could steal the port between choosing it and using it.
-fn upstream() -> Upstream {
+pub fn upstream() -> Upstream {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let handle = std::thread::spawn(move || {
@@ -104,7 +111,7 @@ fn read_request_head(stream: &mut TcpStream) -> String {
     String::from_utf8_lossy(&buffer).into_owned()
 }
 
-fn config(server_port: u16, upstream_port: u16, socket: &Path, templates: &Path) -> String {
+pub fn config(server_port: u16, upstream_port: u16, socket: &Path, templates: &Path) -> String {
     format!(
         r#"
 server:
@@ -141,7 +148,7 @@ proxies:
 }
 
 /// A recognizable token value, so a test can assert it never reaches stdout.
-const SECRET_TOKEN: &str = "b6e1f0c2-secret-do-not-log";
+pub const SECRET_TOKEN: &str = "b6e1f0c2-secret-do-not-log";
 
 /// `sockaddr_un.sun_path` has a small, fixed capacity: 104 bytes including
 /// the terminating NUL on macOS/BSD, 108 on Linux. `ControlServer::bind`
@@ -153,7 +160,7 @@ const SECRET_TOKEN: &str = "b6e1f0c2-secret-do-not-log";
 /// `$TMPDIR` fails right here with a message that names the exact cause --
 /// an earlier task in this codebase lost time to this precise limit
 /// surfacing as an opaque bind failure instead.
-fn assert_socket_path_has_headroom(socket: &Path) {
+pub fn assert_socket_path_has_headroom(socket: &Path) {
     const SUN_PATH_LIMIT: usize = 104;
     const STAGING_OVERHEAD: usize = 24; // ".ctl-XXXXXXXX/" plus a safety margin
     let len = socket.as_os_str().len();
@@ -168,7 +175,7 @@ fn assert_socket_path_has_headroom(socket: &Path) {
     );
 }
 
-struct Server {
+pub struct Server {
     // `Option` rather than a bare `Child`: `Server` implements `Drop` (to kill
     // a stray child even when a test panics), and safe Rust does not allow
     // moving a field out of a type that implements `Drop` -- so the two
@@ -177,13 +184,13 @@ struct Server {
     // rather than reaching into this field directly.
     child: Option<Child>,
     port: u16,
-    socket: PathBuf,
-    config_path: PathBuf,
+    pub socket: PathBuf,
+    pub config_path: PathBuf,
     _dir: tempfile::TempDir,
 }
 
 impl Server {
-    fn start(upstream_port: u16) -> Self {
+    pub fn start(upstream_port: u16) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Kept short deliberately: see `assert_socket_path_has_headroom`.
         let socket = dir.path().join("d.sock");
@@ -217,14 +224,14 @@ impl Server {
         }
     }
 
-    fn get(&self, path: &str) -> (u16, String) {
+    pub fn get(&self, path: &str) -> (u16, String) {
         let url = format!("http://127.0.0.1:{}{path}", self.port);
         let response = reqwest::blocking::get(url).unwrap();
         let status = response.status().as_u16();
         (status, response.text().unwrap())
     }
 
-    fn reload(&self) -> std::process::Output {
+    pub fn reload(&self) -> std::process::Output {
         Command::new(env!("CARGO_BIN_EXE_doppel"))
             .args(["config", "reload", "--socket"])
             .arg(&self.socket)
@@ -232,7 +239,7 @@ impl Server {
             .unwrap()
     }
 
-    fn pid(&self) -> u32 {
+    pub fn pid(&self) -> u32 {
         self.child.as_ref().expect("child already taken").id()
     }
 
@@ -240,7 +247,7 @@ impl Server {
     /// by value (`wait`/`wait_with_output`). `Drop` below treats an
     /// already-taken child as nothing left to clean up, so this is safe to
     /// call at any point before `server` goes out of scope.
-    fn into_child(mut self) -> Child {
+    pub fn into_child(mut self) -> Child {
         self.child.take().expect("child already taken")
     }
 }
@@ -265,14 +272,14 @@ impl Drop for Server {
 /// `Server::start`: without this, a panic between `spawn` and the post-signal
 /// `wait` would leak the child process and leave it holding the port and the
 /// control socket for the rest of the run.
-struct ChildGuard(Option<Child>);
+pub struct ChildGuard(Option<Child>);
 
 impl ChildGuard {
-    fn new(child: Child) -> Self {
+    pub fn new(child: Child) -> Self {
         Self(Some(child))
     }
 
-    fn as_mut(&mut self) -> &mut Child {
+    pub fn as_mut(&mut self) -> &mut Child {
         self.0.as_mut().expect("child already taken")
     }
 
@@ -280,7 +287,7 @@ impl ChildGuard {
     /// needs it by value. Mirrors `Server::into_child` for the same reason:
     /// safe Rust does not allow moving a field out of a type that
     /// implements `Drop`.
-    fn into_child(mut self) -> Child {
+    pub fn into_child(mut self) -> Child {
         self.0.take().expect("child already taken")
     }
 }
@@ -302,7 +309,7 @@ impl Drop for ChildGuard {
 /// `try_wait` turns that into an immediate, specific failure that includes
 /// the child's own stderr, which is exactly what would explain a lost race
 /// or any other startup failure.
-fn wait_until_ready(child: &mut Child, port: u16, socket: &Path) {
+pub fn wait_until_ready(child: &mut Child, port: u16, socket: &Path) {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some(status) = child.try_wait().expect("waiting on the child process") {
@@ -369,7 +376,7 @@ fn drain_output(child: &mut Child) -> (String, String) {
 /// out to it sends the identical signal with zero exceptions to the
 /// workspace's `unsafe_code = "forbid"`, which is a strictly better outcome
 /// than any scoped exception would have been.
-fn send_sigterm(pid: u32) {
+pub fn send_sigterm(pid: u32) {
     let status = Command::new("kill")
         .args(["-s", "TERM", &pid.to_string()])
         .status()
@@ -400,7 +407,7 @@ fn send_sigterm(pid: u32) {
 /// number to tune later), all four tests share one deadline: the real
 /// 30-second bound plus a flat margin for process teardown and scheduling
 /// jitter on a loaded machine.
-const SIGNAL_WAIT_DEADLINE: Duration = Duration::from_secs(35);
+pub const SIGNAL_WAIT_DEADLINE: Duration = Duration::from_secs(35);
 
 /// Wait for a child to exit after it has already been sent a signal, with a
 /// deadline -- so a regressed signal handler (the exact failure class this
@@ -426,7 +433,7 @@ const SIGNAL_WAIT_DEADLINE: Duration = Duration::from_secs(35);
 /// with wording that names the timeout specifically ("did not exit within
 /// ... of ...") so it can never be confused with the caller's own "exited
 /// with status X" message for a dirty exit.
-fn wait_after_signal(
+pub fn wait_after_signal(
     mut child: Child,
     reason: &str,
     deadline: Duration,
@@ -478,330 +485,4 @@ fn wait_after_signal(
     );
 
     (status, stdout, stderr)
-}
-
-#[test]
-fn proxies_a_request_end_to_end() {
-    let up = upstream();
-    let server = Server::start(up.port);
-    let (status, body) = server.get("/hello");
-    assert_eq!(status, 200);
-    assert_eq!(body, "upstream saw /hello");
-}
-
-#[test]
-fn reload_applies_a_changed_config() {
-    let up = upstream();
-    let server = Server::start(up.port);
-
-    let text = std::fs::read_to_string(&server.config_path).unwrap();
-    std::fs::write(
-        &server.config_path,
-        text.replace(
-            "      type: default",
-            "      type: default\n    loss:\n      percentage: 1.0\n      status: 503",
-        ),
-    )
-    .unwrap();
-
-    let output = server.reload();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert!(String::from_utf8_lossy(&output.stdout).contains("reloaded"));
-
-    let (status, _) = server.get("/hello");
-    assert_eq!(status, 503, "the new loss setting must be in effect");
-}
-
-#[test]
-fn reload_of_an_invalid_config_is_rejected_and_traffic_keeps_flowing() {
-    let up = upstream();
-    let server = Server::start(up.port);
-
-    let text = std::fs::read_to_string(&server.config_path).unwrap();
-    std::fs::write(
-        &server.config_path,
-        text.replace("percentage", "percentaje"),
-    )
-    .unwrap();
-    std::fs::write(
-        &server.config_path,
-        std::fs::read_to_string(&server.config_path)
-            .unwrap()
-            .replace("    resolve:", "    timeout: 0\n    resolve:"),
-    )
-    .unwrap();
-
-    let output = server.reload();
-    assert!(
-        !output.status.success(),
-        "an invalid config must fail the reload"
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("CONFIG_INVALID"), "got: {stdout}");
-    assert!(stdout.contains("proxies[0].timeout"), "got: {stdout}");
-
-    let (status, body) = server.get("/still-here");
-    assert_eq!(status, 200, "the previous config must still be serving");
-    assert_eq!(body, "upstream saw /still-here");
-}
-
-#[test]
-fn config_validate_exits_zero_on_a_good_config() {
-    let up = upstream();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.yaml");
-    std::fs::write(
-        &path,
-        config(
-            free_port(),
-            up.port,
-            &dir.path().join("s.sock"),
-            &dir.path().join("t"),
-        ),
-    )
-    .unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["config", "validate", "--config"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("configuration is valid"));
-}
-
-#[test]
-fn config_validate_exits_one_and_lists_violations() {
-    let up = upstream();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("main.yaml");
-    let text = config(
-        free_port(),
-        up.port,
-        &dir.path().join("s.sock"),
-        &dir.path().join("t"),
-    )
-    .replace("    resolve:", "    timeout: 0\n    resolve:");
-    std::fs::write(&path, text).unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["config", "validate", "--config"])
-        .arg(&path)
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("proxies[0].timeout"));
-}
-
-#[test]
-fn an_environment_variable_supplies_the_config_path() {
-    let up = upstream();
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("from-env.yaml");
-    std::fs::write(
-        &path,
-        config(
-            free_port(),
-            up.port,
-            &dir.path().join("s.sock"),
-            &dir.path().join("t"),
-        ),
-    )
-    .unwrap();
-
-    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["config", "validate"])
-        .env("DOPPEL_CONFIG_PATH", &path)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-}
-
-#[test]
-fn a_cli_flag_beats_the_environment_variable() {
-    let up = upstream();
-    let dir = tempfile::tempdir().unwrap();
-
-    let good = dir.path().join("good.yaml");
-    std::fs::write(
-        &good,
-        config(
-            free_port(),
-            up.port,
-            &dir.path().join("s.sock"),
-            &dir.path().join("t"),
-        ),
-    )
-    .unwrap();
-
-    let bad = dir.path().join("bad.yaml");
-    std::fs::write(
-        &bad,
-        config(
-            free_port(),
-            up.port,
-            &dir.path().join("s2.sock"),
-            &dir.path().join("t2"),
-        )
-        .replace("    resolve:", "    timeout: 0\n    resolve:"),
-    )
-    .unwrap();
-
-    // The environment points at the invalid config; the flag must win.
-    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["config", "validate", "--config"])
-        .arg(&good)
-        .env("DOPPEL_CONFIG_PATH", &bad)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "the flag must override DOPPEL_CONFIG_PATH, got: {}",
-        String::from_utf8_lossy(&output.stdout)
-    );
-}
-
-#[test]
-fn the_store_can_be_selected_by_environment_variable() {
-    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["serve"])
-        .env("DOPPEL_CONFIG_STORE", "postgres")
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-}
-
-#[test]
-fn postgres_store_exits_two() {
-    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["serve", "--store", "postgres"])
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not available in this build"));
-}
-
-#[test]
-fn sigterm_drains_and_removes_the_socket() {
-    let up = upstream();
-    let server = Server::start(up.port);
-    let socket = server.socket.clone();
-    let pid = server.pid();
-
-    send_sigterm(pid);
-
-    let (status, _stdout, _stderr) =
-        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
-    assert!(status.success(), "expected a clean exit, got {status:?}");
-    assert!(
-        !socket.exists(),
-        "the control socket must be removed on shutdown"
-    );
-}
-
-#[test]
-fn admin_token_values_never_reach_the_logs() {
-    let up = upstream();
-    let server = Server::start(up.port);
-    server.get("/anything");
-
-    send_sigterm(server.pid());
-    let (_status, stdout, stderr) =
-        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
-
-    assert!(
-        !stdout.contains(SECRET_TOKEN),
-        "an admin token leaked into stdout"
-    );
-    assert!(
-        !stderr.contains(SECRET_TOKEN),
-        "an admin token leaked into stderr"
-    );
-}
-
-#[test]
-fn admin_token_values_never_reach_the_logs_at_trace_level() {
-    let up = upstream();
-    let dir = tempfile::tempdir().unwrap();
-    let socket = dir.path().join("d.sock");
-    let config_path = dir.path().join("main.yaml");
-    assert_socket_path_has_headroom(&socket);
-    let port = free_port();
-    std::fs::write(
-        &config_path,
-        config(port, up.port, &socket, &dir.path().join("templates")),
-    )
-    .unwrap();
-
-    let mut child = ChildGuard::new(
-        Command::new(env!("CARGO_BIN_EXE_doppel"))
-            .args(["serve", "--config"])
-            .arg(&config_path)
-            .env("RUST_LOG", "trace")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap(),
-    );
-
-    wait_until_ready(child.as_mut(), port, &socket);
-
-    send_sigterm(child.as_mut().id());
-    let (_status, stdout, stderr) =
-        wait_after_signal(child.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
-    let combined = format!("{stdout}{stderr}");
-    assert!(
-        !combined.is_empty(),
-        "trace level should produce some output"
-    );
-    assert!(
-        !combined.contains(SECRET_TOKEN),
-        "an admin token leaked at trace level"
-    );
-}
-
-#[test]
-fn logs_are_json_and_carry_the_documented_fields() {
-    let up = upstream();
-    let server = Server::start(up.port);
-    server.get("/logged");
-
-    send_sigterm(server.pid());
-    let (_status, stdout, _stderr) =
-        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
-
-    let line = stdout
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find(|value| value["fields"]["message"] == "request proxied")
-        .expect("expected a JSON log line for the proxied request");
-
-    for field in [
-        "request_id",
-        "proxy",
-        "method",
-        "path",
-        "status",
-        "duration_ms",
-        "upstream_contacted",
-        "upstream_status",
-        "upstream_duration_ms",
-        "loss_injected",
-        "latency_injected_ms",
-    ] {
-        assert!(
-            !line["fields"][field].is_null(),
-            "missing field `{field}` in {line}"
-        );
-    }
-    assert_eq!(line["fields"]["path"], "/logged");
-    assert_eq!(line["fields"]["proxy"], "p1");
 }
