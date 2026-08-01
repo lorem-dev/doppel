@@ -167,6 +167,14 @@ impl ConfigStore for FileStore {
         // leaves the lock held for the next caller.
         lock_file.lock().map_err(Self::io(&lock_path))?;
 
+        // WARNING: no `.await` from here to the end of this function. Every
+        // one of the standing comments above this line about `save` being
+        // unable to deadlock (an in-process mutex being unnecessary, an OS
+        // lock queuing threads exactly like processes, and so on) is true
+        // only because this region never suspends while holding the lock.
+        // Adding an `.await` here would let the executor put this task
+        // aside mid-lock, and is the one edit that would turn that argument
+        // false.
         if let Some(expected_revision) = expected {
             let actual = Self::current_revision(&self.config_path)?;
             if actual != expected_revision {

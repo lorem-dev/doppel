@@ -375,12 +375,16 @@ proxies:
     // *declared* at that callsite (`Metadata::fields()`, fixed at compile
     // time from the macro invocation regardless of whether a value was ever
     // recorded for it), and every field name that actually got a value
-    // (`recorded_fields`). `tracing_core::field::Value`'s blanket impl for
-    // `Option<T>` calls the visitor for `Some` and calls nothing at all for
-    // `None` -- so a field that is declared but missing from
-    // `recorded_fields` is exactly the "present and null" case this file's
-    // production code relies on to keep the key set identical across
-    // branches without fabricating a zero.
+    // (`recorded_fields`). Declared-but-not-recorded is not exercised by this
+    // file's production code today: every field named in a `handle` callsite
+    // is always given a value at that callsite (see `assert_full_schema`
+    // below), and the `upstream_contacted` boolean -- rather than an
+    // `Option`-typed `upstream_status`/`upstream_duration_ms` pair -- is
+    // exactly what lets the schema stay uniform without ever needing a
+    // present-but-unrecorded field. `declared_fields` is captured anyway
+    // because it is the only way to see the full, fixed key set a callsite
+    // promises regardless of which branch of `handle` produced the event,
+    // which `assert_full_schema` relies on.
 
     #[derive(Debug, Clone)]
     struct CapturedEvent {

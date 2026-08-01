@@ -446,6 +446,13 @@ mod tests {
         // check nor the decoded-segment check above catches, because ".\t."
         // is not equal to ".." before that stripping happens. This is
         // exactly the class of vector the containment check exists for.
+        //
+        // This is the sole test that actually exercises the containment
+        // check's `starts_with` clause in `join_upstream` -- every other
+        // rejection in this file is already caught earlier by the backslash
+        // or decoded-segment filters, so removing the `starts_with` check
+        // would not fail any test but this one. Do not delete this case as
+        // "redundant" without first checking whether it still is.
         let path = "/.\t./admin";
         let err = join_upstream(&url("https://host/api/v1/"), path, None).unwrap_err();
         assert_eq!(err.code, ErrorCode::InvalidRequestPath);
