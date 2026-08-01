@@ -91,9 +91,26 @@ impl ControlServer {
 
         if let Err(err) = std::fs::hard_link(&temp, path) {
             let _ = std::fs::remove_dir_all(&temp_dir);
+            let err = if err.kind() == std::io::ErrorKind::AlreadyExists {
+                std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    format!(
+                        "lost the race to publish the control socket at {}; another instance's bind won it",
+                        path.display()
+                    ),
+                )
+            } else {
+                err
+            };
             return Err(err);
         }
 
+        // Safe to remove now: this process already holds an open
+        // descriptor to the socket's inode from `UnixListener::bind` above,
+        // and the `hard_link` that just succeeded made `path` a second
+        // directory entry for that same inode, so unlinking the temporary
+        // entry only decrements the link count -- the listener is
+        // unaffected.
         let _ = std::fs::remove_dir_all(&temp_dir);
 
         Ok(Self {
@@ -587,11 +604,16 @@ proxies:
 
     #[tokio::test]
     async fn a_reload_does_not_start_loading_until_the_previous_ones_response_is_sent() {
-        // Exercises exactly the property `reload_lock` exists for: the
-        // second connection's `store.load()` must not be entered until the
-        // first connection's whole critical section -- load, validate,
-        // compile, swap, and the response write -- has finished, not just
-        // until the swap itself has happened.
+        // Establishes the property `reload_lock` exists for: the second
+        // connection's `store.load()` is not entered until the first
+        // connection's critical section has completed, i.e. the two
+        // reloads' critical sections do not interleave. That the critical
+        // section's lock scope (`_guard` in `serve_connection`) extends
+        // through the response write, not just the swap, follows from the
+        // code's structure rather than from anything this test isolates:
+        // on this current-thread test runtime the swap and a non-blocking
+        // response write land in the same scheduling tick, so no gap
+        // between "swap done" and "write done" is observable here.
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("main.yaml");
         std::fs::write(&config_path, GOOD).unwrap();
