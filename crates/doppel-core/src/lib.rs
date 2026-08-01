@@ -2,10 +2,12 @@
 
 pub mod config;
 pub mod error;
+pub mod runtime;
 pub mod store;
 pub mod validate;
 
 pub use config::{Config, ConfigError};
 pub use error::{Error, ErrorBody, ErrorCode};
+pub use runtime::{CompiledProxy, Runtime, RuntimeHolder};
 pub use store::{Revision, StoreError};
 pub use validate::{Violation, validate};
