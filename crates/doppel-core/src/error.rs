@@ -21,6 +21,7 @@ pub enum ErrorCode {
     TemplateNotDeclared,
     StoreError,
     RevisionMismatch,
+    InvalidRequestPath,
 }
 
 impl ErrorCode {
@@ -49,6 +50,11 @@ impl ErrorCode {
             Self::RevisionMismatch => 409,
             Self::UploadTooLarge => 413,
             Self::TemplateNotDeclared => 422,
+            // A client that sends a `.`/`..` segment, or a path that would
+            // otherwise resolve outside the configured upstream, made a bad
+            // request: this is not the upstream's fault, so it is not a
+            // 502/504-class failure.
+            Self::InvalidRequestPath => 400,
         }
     }
 
@@ -71,6 +77,7 @@ impl ErrorCode {
             Self::TemplateNotDeclared => "TEMPLATE_NOT_DECLARED",
             Self::StoreError => "STORE_ERROR",
             Self::RevisionMismatch => "REVISION_MISMATCH",
+            Self::InvalidRequestPath => "INVALID_REQUEST_PATH",
         }
     }
 }
@@ -136,6 +143,7 @@ mod tests {
         assert_eq!(ErrorCode::TemplateNotDeclared.status(), 422);
         assert_eq!(ErrorCode::Conflict.status(), 409);
         assert_eq!(ErrorCode::RevisionMismatch.status(), 409);
+        assert_eq!(ErrorCode::InvalidRequestPath.status(), 400);
     }
 
     #[test]
@@ -146,6 +154,10 @@ mod tests {
             "TEMPLATE_RENDER_ERROR"
         );
         assert_eq!(ErrorCode::RevisionMismatch.as_str(), "REVISION_MISMATCH");
+        assert_eq!(
+            ErrorCode::InvalidRequestPath.as_str(),
+            "INVALID_REQUEST_PATH"
+        );
     }
 
     #[test]

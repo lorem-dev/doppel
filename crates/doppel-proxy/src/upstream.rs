@@ -34,11 +34,35 @@ pub struct UpstreamOutcome {
 /// The base is treated as a directory even when it lacks a trailing slash,
 /// because `Url::join` would otherwise replace its last path segment and
 /// silently drop part of the configured prefix.
+///
+/// Client-controlled input never reaches `Url::join`: per RFC 3986
+/// reference resolution, an absolute or scheme-relative reference (e.g. a
+/// request path of `/https://evil.example.com/x` or `///evil.example.com/x`,
+/// both legal HTTP origin-form request targets) replaces the base's
+/// authority entirely, letting a client redirect the proxy -- with its
+/// configured upstream headers -- to a host of its choosing. Instead, the
+/// path is grafted onto the base by manipulating only the path component
+/// (`Url::set_path`, which cannot touch the scheme or authority), and a
+/// request path containing a `.` or `..` segment is rejected outright rather
+/// than normalised, so it can never walk the result outside the configured
+/// base. A post-condition re-checks that the scheme, host and port did not
+/// move, so the invariant "a proxy for one upstream can only ever talk to
+/// that upstream" is enforced, not merely arranged by the steps above.
 pub fn join_upstream(
     base: &reqwest::Url,
     path: &str,
     query: Option<&str>,
 ) -> Result<reqwest::Url, Error> {
+    if path
+        .split('/')
+        .any(|segment| segment == "." || segment == "..")
+    {
+        return Err(Error::new(
+            ErrorCode::InvalidRequestPath,
+            format!("request path `{path}` contains a `.` or `..` segment"),
+        ));
+    }
+
     let mut base = base.clone();
     if !base.path().ends_with('/') {
         let directory = format!("{}/", base.path());
@@ -46,13 +70,20 @@ pub fn join_upstream(
     }
 
     let relative = path.strip_prefix('/').unwrap_or(path);
-    let mut url = base.join(relative).map_err(|e| {
-        Error::new(
-            ErrorCode::UpstreamError,
-            format!("cannot build upstream url: {e}"),
-        )
-    })?;
+    let mut url = base.clone();
+    url.set_path(&format!("{}{relative}", base.path()));
     url.set_query(query);
+
+    if url.scheme() != base.scheme()
+        || url.host() != base.host()
+        || url.port_or_known_default() != base.port_or_known_default()
+    {
+        return Err(Error::new(
+            ErrorCode::InvalidRequestPath,
+            "request path would resolve outside the configured upstream",
+        ));
+    }
+
     Ok(url)
 }
 
@@ -214,6 +245,86 @@ mod tests {
         assert_eq!(joined.as_str(), "https://host/api/");
     }
 
+    // -- Security: client input must never choose the upstream host --------
+    //
+    // `http`'s origin-form parser accepts `:` in a path, so each of these is
+    // a legal request target and `Uri::path()` returns it verbatim. Under
+    // the old implementation (`base.join(relative)`), RFC 3986 reference
+    // resolution reinterpreted an absolute or scheme-relative reference as
+    // replacing the base's authority, letting a client send the proxy --
+    // with its configured `Authorization` header -- to a host of its
+    // choosing, or escape the configured base path with `..`.
+
+    #[test]
+    fn a_path_disguised_as_an_absolute_https_url_does_not_take_over_the_host() {
+        let joined = join_upstream(
+            &url("https://host/api/v1/"),
+            "/https://evil.example.com/x",
+            None,
+        )
+        .unwrap();
+        assert_eq!(joined.host_str(), Some("host"));
+        assert_eq!(joined.scheme(), "https");
+        assert_eq!(
+            joined.as_str(),
+            "https://host/api/v1/https://evil.example.com/x"
+        );
+    }
+
+    #[test]
+    fn a_path_disguised_as_an_absolute_http_url_does_not_take_over_the_host_or_downgrade_tls() {
+        let joined = join_upstream(
+            &url("https://host/api/v1/"),
+            "/http://evil.example.com/x",
+            None,
+        )
+        .unwrap();
+        assert_eq!(joined.host_str(), Some("host"));
+        assert_eq!(joined.scheme(), "https");
+        assert_eq!(
+            joined.as_str(),
+            "https://host/api/v1/http://evil.example.com/x"
+        );
+    }
+
+    #[test]
+    fn a_scheme_relative_path_does_not_take_over_the_host() {
+        let joined =
+            join_upstream(&url("https://host/api/v1/"), "///evil.example.com/x", None).unwrap();
+        assert_eq!(joined.host_str(), Some("host"));
+        assert_eq!(joined.as_str(), "https://host/api/v1///evil.example.com/x");
+    }
+
+    #[test]
+    fn dot_dot_segments_are_rejected_rather_than_normalised_past_the_base() {
+        // `/../../admin` would resolve to `https://host/admin` under the old
+        // `Url::join`-based implementation, escaping the configured
+        // `api/v1` prefix. This project prefers rejection over silent
+        // normalisation for caller-supplied paths elsewhere, for the same
+        // reason.
+        let err = join_upstream(&url("https://host/api/v1/"), "/../../admin", None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn a_single_dot_segment_is_rejected() {
+        let err = join_upstream(&url("https://host/api/v1/"), "/./admin", None).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidRequestPath);
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn a_percent_encoded_slash_is_forwarded_unchanged_not_decoded_into_a_separator() {
+        // Neither decode nor double-encode client input: `%2F` must reach
+        // the upstream exactly as sent. If it were decoded, `x%2Fy` would
+        // become two path segments (`x`, `y`) instead of the one segment
+        // the client actually named.
+        let joined = join_upstream(&url("https://host/api/v1/"), "/x%2Fy", None).unwrap();
+        assert_eq!(joined.path(), "/api/v1/x%2Fy");
+        assert_eq!(joined.path_segments().unwrap().count(), 3);
+    }
+
     #[test]
     fn hop_by_hop_list_is_lowercase_and_complete() {
         assert!(HOP_BY_HOP.contains(&"connection"));
@@ -236,6 +347,16 @@ mod tests {
             .route(
                 "/echo/big",
                 any(|body: axum::body::Bytes| async move { body.len().to_string() }),
+            )
+            .route(
+                "/redirect",
+                any(|| async {
+                    (
+                        StatusCode::FOUND,
+                        [("location", "http://example.invalid/target")],
+                        "",
+                    )
+                }),
             )
             // The 8 MiB streaming test below exceeds axum's default 2 MiB
             // whole-body extractor limit; this is a property of this mock
@@ -375,6 +496,93 @@ mod tests {
                 .iter()
                 .any(|h| h == "x-forwarded-for=10.0.0.1, 10.0.0.2"),
             "got {headers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_upstream_receives_its_own_host_not_the_clients() {
+        // `headers.remove("host")` has no test of its own anywhere else: if
+        // it were deleted, every other test would still pass, since none of
+        // them inspects the Host the upstream actually received.
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+        let mut req = request(Method::GET, "/thing");
+        req.headers_mut()
+            .insert("host", HeaderValue::from_static("evil.example"));
+
+        let (response, _) = forward(&client, &proxy(&base), req, None).await.unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            !headers
+                .iter()
+                .any(|h| h.as_str().unwrap().starts_with("host=evil.example")),
+            "the client's Host must not reach the upstream, got {headers:?}"
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|h| h.as_str().unwrap().starts_with("host=127.0.0.1")),
+            "reqwest must derive Host from the upstream url, got {headers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_upstream_redirect_is_relayed_rather_than_followed() {
+        // A forwarding proxy must relay a `3xx` to its caller, not resolve
+        // it itself -- the target and the decision belong to the original
+        // client, and a streamed request body cannot be replayed to
+        // wherever the upstream's `Location` points. This mirrors the
+        // client configuration in `doppel_core::Runtime::compile`
+        // (`.redirect(reqwest::redirect::Policy::none())`).
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, outcome) = forward(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "http://example.invalid/target"
+        );
+        assert_eq!(outcome.status, 302);
+    }
+
+    #[tokio::test]
+    async fn error_response_renders_the_documented_envelope_for_upstream_timeout() {
+        let err = Error::new(ErrorCode::UpstreamTimeout, "upstream timed out");
+        let response = error_response(&err);
+        assert_eq!(response.status().as_u16(), 504);
+        assert_eq!(
+            response.headers().get("content-type").unwrap(),
+            "application/json"
+        );
+        assert_eq!(
+            body_string(response).await,
+            r#"{"status":"error","message":"upstream timed out","code":"UPSTREAM_TIMEOUT"}"#
+        );
+    }
+
+    #[tokio::test]
+    async fn error_response_renders_the_documented_envelope_for_invalid_request_path() {
+        let err = Error::new(
+            ErrorCode::InvalidRequestPath,
+            "request path `/../x` contains a `.` or `..` segment",
+        );
+        let response = error_response(&err);
+        assert_eq!(response.status().as_u16(), 400);
+        assert_eq!(
+            body_string(response).await,
+            r#"{"status":"error","message":"request path `/../x` contains a `.` or `..` segment","code":"INVALID_REQUEST_PATH"}"#
         );
     }
 

@@ -310,7 +310,6 @@ dependencies = [
  "bytes",
  "doppel-core",
  "futures-util",
- "http-body-util",
  "rand 0.9.5",
  "reqwest",
  "serde_json",

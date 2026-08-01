@@ -63,12 +63,19 @@ impl Runtime {
             proxies.push(compiled);
         }
 
-        let client = reqwest::Client::builder().build().map_err(|e| {
-            Error::new(
-                ErrorCode::UpstreamError,
-                format!("cannot build http client: {e}"),
-            )
-        })?;
+        // A forwarding proxy must relay a redirect, not resolve it: the
+        // upstream's `3xx` and `Location` belong to the original caller, and
+        // a streamed request body cannot be replayed to the redirect target
+        // the way reqwest's default following behaviour requires.
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| {
+                Error::new(
+                    ErrorCode::UpstreamError,
+                    format!("cannot build http client: {e}"),
+                )
+            })?;
 
         Ok(Self {
             revision,
@@ -263,5 +270,47 @@ proxies:
         assert_eq!(before.proxies.len(), 2);
         assert_eq!(holder.load().proxies.len(), 1);
         assert_eq!(holder.load().revision, Revision(2));
+    }
+
+    /// A minimal HTTP/1.1 server, hand rolled instead of pulled in as a
+    /// dependency, that always answers with a 302 to prove whether the
+    /// client sitting in front of it resolves the redirect itself or hands
+    /// it back untouched.
+    async fn redirecting_server() -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 1024];
+            let _ = stream.read(&mut buf).await;
+            let response = b"HTTP/1.1 302 Found\r\n\
+                Location: http://example.invalid/target\r\n\
+                Content-Length: 0\r\n\
+                Connection: close\r\n\
+                \r\n";
+            let _ = stream.write_all(response).await;
+            let _ = stream.flush().await;
+        });
+        format!("http://{addr}/")
+    }
+
+    #[tokio::test]
+    async fn the_compiled_client_relays_upstream_redirects_instead_of_following_them() {
+        // A forwarding proxy must relay a `3xx` to its caller, not resolve it
+        // itself: the target and the decision belong to the original client,
+        // and a streamed request body cannot be replayed to wherever the
+        // upstream's `Location` points.
+        let rt = compile(TWO_PROXIES);
+        let base = redirecting_server().await;
+
+        let response = rt.client.get(base).send().await.unwrap();
+
+        assert_eq!(response.status(), 302);
+        assert_eq!(
+            response.headers().get("location").unwrap(),
+            "http://example.invalid/target"
+        );
     }
 }
