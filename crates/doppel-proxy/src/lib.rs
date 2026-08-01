@@ -1,1 +1,5 @@
-//! See the crate manifest for the crate's role in the workspace.
+//! HTTP proxying: resolution, fault injection, upstream forwarding.
+
+pub mod fault;
+
+pub use fault::{FaultDecision, OsSampler, Sampler, SequenceSampler, decide};
