@@ -7,8 +7,29 @@ use crate::config::{MockRequest, MockResponse, ProxyConfig};
 
 /// Methods Doppel will match on. Deliberately a closed list: a typo like
 /// `FETCH` should be a config error, not a mock that silently never matches.
-const KNOWN_METHODS: [&str; 9] = [
-    "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE", "CONNECT",
+/// This is a typo guard, not a protocol restriction -- a method that is
+/// genuinely non-standard just needs to be added here.
+const KNOWN_METHODS: &[&str] = &[
+    "GET",
+    "HEAD",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "OPTIONS",
+    "TRACE",
+    "CONNECT",
+    // The safe, idempotent method for a request that carries a body -- the
+    // "GET with a body" gap.
+    "QUERY",
+    // WebDAV methods (RFC 4918).
+    "PROPFIND",
+    "PROPPATCH",
+    "MKCOL",
+    "COPY",
+    "MOVE",
+    "LOCK",
+    "UNLOCK",
 ];
 
 /// Statuses that must not carry a body, per RFC 9110.
@@ -46,12 +67,28 @@ pub(super) fn check(proxy: &ProxyConfig, proxy_path: &str, v: &mut Violations) {
 
 fn check_request(request: &MockRequest, path: &str, v: &mut Violations) {
     // V17
-    let method = request.method.to_ascii_uppercase();
-    v.require(
-        KNOWN_METHODS.contains(&method.as_str()),
-        format!("{path}.request.method"),
-        format!("unknown HTTP method `{}`", request.method),
-    );
+    let method = request.method.as_str();
+    let uppercase = method.to_ascii_uppercase();
+    if method != uppercase {
+        // Do not silently uppercase it: the mock stores `method` verbatim,
+        // and HTTP methods are case-sensitive, so a stored `get` would never
+        // match an incoming `GET` -- exactly the "silently never matches"
+        // outcome this rule exists to prevent. Refusing the value is
+        // preferred to rewriting what the operator wrote.
+        v.push(
+            format!("{path}.request.method"),
+            format!("HTTP methods are case-sensitive; use `{uppercase}`, not `{method}`"),
+        );
+    } else {
+        v.require(
+            KNOWN_METHODS.contains(&method),
+            format!("{path}.request.method"),
+            format!(
+                "`{method}` is not a method Doppel knows; this list is a typo guard, not a \
+                 protocol restriction, so if it is genuinely non-standard, add it to the list"
+            ),
+        );
+    }
 
     // V18
     let captures: BTreeSet<String> = match regex::Regex::new(&request.url) {
@@ -217,7 +254,42 @@ proxies:
         assert_violation(
             &good().replace("method: GET", "method: FETCH"),
             "proxies[0].mocks[0].request.method",
-            "unknown HTTP method `FETCH`",
+            "not a method Doppel knows",
+        );
+        assert_violation(
+            &good().replace("method: GET", "method: FETCH"),
+            "proxies[0].mocks[0].request.method",
+            "add it",
+        );
+    }
+
+    #[test]
+    fn v17_query_is_a_known_method() {
+        assert_eq!(
+            validate(&load_from_str(&good().replace("method: GET", "method: QUERY")).unwrap()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn v17_webdav_methods_are_known() {
+        assert_eq!(
+            validate(&load_from_str(&good().replace("method: GET", "method: PROPFIND")).unwrap()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn v17_method_must_already_be_uppercase() {
+        assert_violation(
+            &good().replace("method: GET", "method: get"),
+            "proxies[0].mocks[0].request.method",
+            "case-sensitive",
+        );
+        assert_violation(
+            &good().replace("method: GET", "method: get"),
+            "proxies[0].mocks[0].request.method",
+            "use `GET`",
         );
     }
 
