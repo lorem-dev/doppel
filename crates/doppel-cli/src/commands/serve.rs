@@ -5,21 +5,33 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use doppel_core::store::ConfigStore;
-use doppel_core::{Runtime, RuntimeHolder};
+use doppel_core::{Config, Revision, Runtime, RuntimeHolder};
 use doppel_proxy::{ProxyState, serve as serve_proxy};
 
-use crate::cli::{CliError, ServeArgs};
+use crate::cli::CliError;
 use crate::control::ControlServer;
 
 /// How long in-flight requests get to finish after a shutdown signal.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(30);
 
-pub async fn serve(args: &ServeArgs) -> Result<(), CliError> {
-    let store: Arc<dyn ConfigStore> = args.store.open()?;
-    let (config, revision) = store
-        .load()
-        .await
-        .map_err(|err| CliError::Failed(err.to_string()))?;
+/// `store` and `config` are the ones `StoreArgs::open()` already produced
+/// from its single parse of the configuration file -- `main`'s entry point
+/// opens the store synchronously, before this crate's tokio runtime is even
+/// built, because sizing that runtime from `config.server.workers` requires
+/// the config to exist first. Accepting them as parameters rather than
+/// re-deriving them here (via a second `open()`/`store.load()` pair) is what
+/// keeps that one parse the only parse: the worker count the runtime was
+/// already sized with and the config compiled into the `Runtime` below are
+/// guaranteed to come from the exact same read of the file.
+pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), CliError> {
+    doppel_core::validate::validate(&config).map_err(|violations| {
+        let text = violations
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        CliError::Failed(format!("configuration is invalid:\n{text}"))
+    })?;
 
     doppel_telemetry::init_logging(config.logging.level, config.logging.format)
         .map_err(|err| CliError::Failed(err.to_string()))?;
@@ -28,6 +40,7 @@ pub async fn serve(args: &ServeArgs) -> Result<(), CliError> {
 
     let addr = SocketAddr::new(config.server.host, config.server.port);
     let socket_path = config.control.socket.clone();
+    let revision = Revision::of_config(&config);
     let config = Arc::new(config);
 
     let runtime = Runtime::compile(Arc::clone(&config), revision)

@@ -1,6 +1,6 @@
 //! `doppel config validate`.
 
-use doppel_core::{StoreError, Violation};
+use doppel_core::Violation;
 
 use crate::cli::StoreArgs;
 
@@ -29,8 +29,11 @@ impl Report {
 }
 
 pub async fn validate(args: &StoreArgs) -> Report {
-    let store = match args.open() {
-        Ok(store) => store,
+    // `open()` does the one parse this command needs; what remains is purely
+    // the semantic rule checks, so there is no second read of the file the
+    // way a `store.load()` call would add.
+    let (_store, config) = match args.open() {
+        Ok(opened) => opened,
         Err(err) => {
             return Report {
                 violations: Vec::new(),
@@ -40,16 +43,11 @@ pub async fn validate(args: &StoreArgs) -> Report {
         }
     };
 
-    match store.load().await {
-        Ok(_) => Report::default(),
-        Err(StoreError::Invalid(violations)) => Report {
+    match doppel_core::validate::validate(&config) {
+        Ok(()) => Report::default(),
+        Err(violations) => Report {
             violations,
             message: None,
-            code: None,
-        },
-        Err(err) => Report {
-            violations: Vec::new(),
-            message: Some(err.to_string()),
             code: None,
         },
     }

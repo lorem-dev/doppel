@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use doppel_core::Config;
 use doppel_core::store::{ConfigStore, FileStore};
 
 #[derive(Debug, Parser)]
@@ -122,18 +123,27 @@ impl CliError {
 }
 
 impl StoreArgs {
-    /// Build the store. Reading `templates.dir` requires parsing the config
-    /// once, which is why this is fallible.
-    pub fn open(&self) -> Result<Arc<dyn ConfigStore>, CliError> {
+    /// Build the store and return the configuration this single parse
+    /// produced, so a caller that also needs a value out of the config (the
+    /// worker thread count `serve` sizes its runtime with, for instance)
+    /// reads the same bytes the store was built from rather than parsing the
+    /// file a second time. Two separate parses used to be how the store's
+    /// `templates.dir` could end up disagreeing with the config the server
+    /// actually ran: the first parse (here) silently fell back to a default
+    /// on any error, and a second parse later on (`store.load()`) was the one
+    /// that actually surfaced a bad config. Now there is exactly one parse,
+    /// and its error -- a missing file, bad YAML, anything -- is reported
+    /// directly rather than swallowed.
+    pub fn open(&self) -> Result<(Arc<dyn ConfigStore>, Config), CliError> {
         match self.store {
             StoreKind::Postgres => Err(CliError::StoreUnavailable {
                 dsn: self.database_url.as_deref().map(mask_dsn),
             }),
             StoreKind::File => {
-                let templates_dir = doppel_core::config::load_from_path(&self.config)
-                    .map(|config| config.templates.dir)
-                    .unwrap_or_else(|_| PathBuf::from("./templates"));
-                Ok(Arc::new(FileStore::new(self.config.clone(), templates_dir)))
+                let config = doppel_core::config::load_from_path(&self.config)
+                    .map_err(|err| CliError::Failed(err.to_string()))?;
+                let store = FileStore::new(self.config.clone(), config.templates.dir.clone());
+                Ok((Arc::new(store), config))
             }
         }
     }
