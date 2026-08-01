@@ -147,17 +147,25 @@ impl ConfigStore for FileStore {
         // one process: each thread opens its own file description on
         // `lock_path`, and the OS advisory lock queues those exactly as it
         // would two separate processes, so no second, in-process lock is
-        // kept alongside this one. Every early return below (via `?`) still
-        // drops `lock_file` on its way out, which closes the descriptor and
-        // releases the lock, so a rejected save never leaves it held for the
-        // next caller.
+        // kept alongside this one.
         //
-        // Called through the trait (`fs4::FileExt::lock`, not
-        // `lock_file.lock()`) so this stays pinned to the `fs4` crate the
-        // spec calls for, rather than silently resolving to the
-        // now-also-stable, but separately maintained, inherent
-        // `std::fs::File::lock` if the two ever drift in behavior.
-        fs4::FileExt::lock(&lock_file).map_err(Self::io(&lock_path))?;
+        // This is locked on `lock_path` (`<config>.lock`), never on
+        // `self.config_path` itself: see `lock_path` for why locking the
+        // config file directly would be a bug that looks correct (the
+        // rename below replaces its inode, so a lock on the pre-rename
+        // inode would guard a path a second process has already moved on
+        // from). Reads (`load`) take no lock at all: `save`'s final rename
+        // is atomic, so a concurrent reader always observes either the
+        // complete old configuration or the complete new one, never a
+        // partial write, and there is nothing for a lock to protect there.
+        //
+        // No explicit `unlock` call: dropping `lock_file` closes its
+        // descriptor, and the OS releases an advisory lock when the last
+        // descriptor referring to it closes. Every early return below (via
+        // `?`) still drops `lock_file` on its way out on a normal return
+        // path (this is not a panic unwind), so a rejected save never
+        // leaves the lock held for the next caller.
+        lock_file.lock().map_err(Self::io(&lock_path))?;
 
         if let Some(expected_revision) = expected {
             let actual = Self::current_revision(&self.config_path)?;
