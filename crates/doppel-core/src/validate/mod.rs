@@ -289,4 +289,15 @@ proxies:
         assert!(is_valid_header_value("Bearer abc"));
         assert!(!is_valid_header_value("bad\nvalue"));
     }
+
+    #[test]
+    fn reference_config_is_valid() {
+        let text = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../main.example.yaml"
+        ))
+        .unwrap();
+        let config = load_from_str(&text).unwrap();
+        assert_eq!(validate(&config), Ok(()), "main.example.yaml must be valid");
+    }
 }
