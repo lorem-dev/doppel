@@ -65,6 +65,19 @@ async fn handle(
         Ok(proxy) => proxy,
         Err(err) => {
             let response = error_response(&err);
+            // `upstream_contacted` is a bool, not an `Option`-typed null: the
+            // `tracing::Value` impl for `Option<T>` records nothing at all
+            // when the value is `None`, so the JSON layer omits a null field
+            // rather than emitting `null` for it -- verified against this
+            // workspace's pinned `tracing-subscriber` 0.3.23, which never
+            // shows the key when `None` is recorded. A null-based scheme
+            // therefore cannot express "no upstream was involved" in the
+            // rendered log line at all. A boolean is also simply the better
+            // design here regardless of that library quirk: a null status
+            // still invites a consumer to plot it, where a boolean says what
+            // actually happened. `upstream_status` and `upstream_duration_ms`
+            // are emitted only when `upstream_contacted` is true, which is
+            // also the only case where `forward` actually produced them.
             tracing::info!(
                 request_id,
                 proxy = "",
@@ -72,8 +85,7 @@ async fn handle(
                 path,
                 status = response.status().as_u16(),
                 duration_ms = started.elapsed().as_millis(),
-                upstream_status = Option::<u16>::None,
-                upstream_duration_ms = Option::<u128>::None,
+                upstream_contacted = false,
                 loss_injected = false,
                 latency_injected_ms = 0u128,
                 error_code = err.code.as_str(),
@@ -101,8 +113,7 @@ async fn handle(
             path,
             status,
             duration_ms = started.elapsed().as_millis(),
-            upstream_status = Option::<u16>::None,
-            upstream_duration_ms = Option::<u128>::None,
+            upstream_contacted = false,
             loss_injected = true,
             latency_injected_ms = 0u128,
             "request dropped"
@@ -127,8 +138,9 @@ async fn handle(
                 path,
                 status = response.status().as_u16(),
                 duration_ms = started.elapsed().as_millis(),
-                upstream_status = Some(outcome.status),
-                upstream_duration_ms = Some(outcome.duration.as_millis()),
+                upstream_contacted = true,
+                upstream_status = outcome.status,
+                upstream_duration_ms = outcome.duration.as_millis(),
                 loss_injected = false,
                 latency_injected_ms = latency_ms,
                 "request proxied"
@@ -138,15 +150,20 @@ async fn handle(
         Err(err) => {
             let response = error_response(&err);
             // `forward` validates the request path before it ever opens a
-            // connection (see `join_upstream`), so a 4xx here means the
-            // request was rejected on the way in, not that the upstream
-            // misbehaved or was unreachable -- and either way, `forward`
-            // returns before it ever builds an `UpstreamOutcome`, so there is
-            // no status or duration to report; both fields are `None` here
-            // just like the resolve-error and loss branches above. A client
+            // connection (see `join_upstream`), so a 4xx here (always
+            // `InvalidRequestPath` today) means the request was rejected on
+            // the way in: `upstream_contacted` is false, and there is no
+            // status or duration to report, because `forward` returned
+            // before ever building an `UpstreamOutcome`. A 5xx here
+            // (`UpstreamTimeout`/`UpstreamError`) means a connection really
+            // was attempted and failed -- `upstream_contacted` is true, but
+            // there is still no status or duration to report, since a failed
+            // attempt never produced an `UpstreamOutcome` either. A client
             // mistake is not an operational upstream failure, and paging
             // someone for it would be wrong, so the two cases log at
-            // different levels.
+            // different levels; `err.status() >= 500` is the same test
+            // already used to pick the level, so it is reused rather than
+            // re-derived.
             //
             // `tracing::event!` requires its level to be a compile-time
             // constant -- each callsite bakes one fixed `Level` into its
@@ -166,8 +183,7 @@ async fn handle(
                         path,
                         status = response.status().as_u16(),
                         duration_ms = started.elapsed().as_millis(),
-                        upstream_status = Option::<u16>::None,
-                        upstream_duration_ms = Option::<u128>::None,
+                        upstream_contacted = err.status() >= 500,
                         loss_injected = false,
                         latency_injected_ms = latency_ms,
                         error_code = err.code.as_str(),
@@ -450,18 +466,20 @@ proxies:
         (response, events)
     }
 
-    /// The ten fields every completion log carries, per the design spec's
-    /// logging section: the key set is identical on every branch, including
-    /// the three where no upstream was contacted.
-    const REQUIRED_FIELDS: [&str; 10] = [
+    /// The nine fields every completion log carries on every branch, per the
+    /// design spec's logging section -- `upstream_contacted` included,
+    /// `upstream_status`/`upstream_duration_ms` excluded, since those two are
+    /// present only when `upstream_contacted` is true (see the doc comment on
+    /// the resolve-error branch in `handle` for why this is a bool and not a
+    /// null-valued pair of fields).
+    const REQUIRED_FIELDS: [&str; 9] = [
         "request_id",
         "proxy",
         "method",
         "path",
         "status",
         "duration_ms",
-        "upstream_status",
-        "upstream_duration_ms",
+        "upstream_contacted",
         "loss_injected",
         "latency_injected_ms",
     ];
@@ -475,14 +493,43 @@ proxies:
         }
     }
 
-    fn assert_upstream_fields_are_null(event: &CapturedEvent) {
+    fn assert_upstream_contacted(event: &CapturedEvent, expected: bool) {
+        assert_eq!(
+            event.recorded_fields.get("upstream_contacted"),
+            Some(&expected.to_string()),
+            "wrong upstream_contacted in {event:?}"
+        );
+    }
+
+    /// Asserts `upstream_status`/`upstream_duration_ms` are absent outright --
+    /// not present-and-null, since `tracing` cannot express that -- which is
+    /// the correct shape whenever no upstream was actually contacted, or a
+    /// connection was attempted but never produced an `UpstreamOutcome`.
+    fn assert_upstream_fields_absent(event: &CapturedEvent) {
         assert!(
-            !event.recorded_fields.contains_key("upstream_status"),
-            "upstream_status should be null (declared but unrecorded) in {event:?}"
+            !event
+                .declared_fields
+                .iter()
+                .any(|name| name == "upstream_status"),
+            "upstream_status should be absent, not declared, in {event:?}"
         );
         assert!(
-            !event.recorded_fields.contains_key("upstream_duration_ms"),
-            "upstream_duration_ms should be null (declared but unrecorded) in {event:?}"
+            !event
+                .declared_fields
+                .iter()
+                .any(|name| name == "upstream_duration_ms"),
+            "upstream_duration_ms should be absent, not declared, in {event:?}"
+        );
+    }
+
+    fn assert_upstream_fields_present(event: &CapturedEvent) {
+        assert!(
+            event.recorded_fields.contains_key("upstream_status"),
+            "upstream_status should be recorded when the upstream was contacted, got {event:?}"
+        );
+        assert!(
+            event.recorded_fields.contains_key("upstream_duration_ms"),
+            "upstream_duration_ms should be recorded when the upstream was contacted, got {event:?}"
         );
     }
 
@@ -521,7 +568,7 @@ proxies:
     }
 
     #[tokio::test]
-    async fn resolve_error_branch_has_the_full_schema_with_null_upstream_fields() {
+    async fn resolve_error_branch_has_the_full_schema_with_upstream_contacted_false() {
         let text = config_with("").replace(
             "      type: default",
             "      type: header\n      header: X-Proxy-Name",
@@ -530,31 +577,52 @@ proxies:
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(events.len(), 1, "{events:?}");
         assert_full_schema(&events[0]);
-        assert_upstream_fields_are_null(&events[0]);
+        assert_upstream_contacted(&events[0], false);
+        assert_upstream_fields_absent(&events[0]);
     }
 
     #[tokio::test]
-    async fn loss_branch_has_the_full_schema_with_null_upstream_fields() {
+    async fn loss_branch_has_the_full_schema_with_upstream_contacted_false() {
         let text = config_with("    loss:\n      percentage: 1.0\n      status: 503");
         let (response, events) = run_captured(state(&text, vec![0.0]), get("/anything")).await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(events.len(), 1, "{events:?}");
         assert_full_schema(&events[0]);
-        assert_upstream_fields_are_null(&events[0]);
+        assert_upstream_contacted(&events[0], false);
+        assert_upstream_fields_absent(&events[0]);
     }
 
     #[tokio::test]
-    async fn forward_error_branch_has_the_full_schema_with_null_upstream_fields() {
+    async fn forward_error_branch_has_the_full_schema_with_upstream_contacted_true() {
+        // Connection to loopback port 1 is refused: a genuine upstream
+        // failure, so `upstream_contacted` is true even though `forward`
+        // never got far enough to produce a status or duration to report.
         let (response, events) =
             run_captured(state(&config_with(""), vec![]), get("/anything")).await;
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
         assert_eq!(events.len(), 1, "{events:?}");
         assert_full_schema(&events[0]);
-        assert_upstream_fields_are_null(&events[0]);
+        assert_upstream_contacted(&events[0], true);
+        assert_upstream_fields_absent(&events[0]);
     }
 
     #[tokio::test]
-    async fn forward_success_branch_has_the_full_schema_with_real_upstream_fields() {
+    async fn client_rejected_path_has_the_full_schema_with_upstream_contacted_false() {
+        // `/../secret` fails `join_upstream`'s path validation before any
+        // connection is attempted, so unlike the genuine failure above,
+        // `upstream_contacted` is false here even though both are logged
+        // from the same `Err(err)` arm in `handle`.
+        let (response, events) =
+            run_captured(state(&config_with(""), vec![]), get("/../secret")).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_full_schema(&events[0]);
+        assert_upstream_contacted(&events[0], false);
+        assert_upstream_fields_absent(&events[0]);
+    }
+
+    #[tokio::test]
+    async fn forward_success_branch_has_the_full_schema_with_upstream_contacted_true() {
         let base = spawn_ok_upstream().await;
         let text = config_pointing_at(&base, "");
         let (response, events) = run_captured(state(&text, vec![]), get("/anything")).await;
@@ -562,14 +630,8 @@ proxies:
         assert_eq!(events.len(), 1, "{events:?}");
         let event = &events[0];
         assert_full_schema(event);
-        assert!(
-            event.recorded_fields.contains_key("upstream_status"),
-            "upstream_status should be recorded once the upstream answers, got {event:?}"
-        );
-        assert!(
-            event.recorded_fields.contains_key("upstream_duration_ms"),
-            "upstream_duration_ms should be recorded once the upstream answers, got {event:?}"
-        );
+        assert_upstream_contacted(event, true);
+        assert_upstream_fields_present(event);
     }
 
     #[tokio::test]
