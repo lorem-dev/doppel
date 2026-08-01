@@ -105,6 +105,13 @@ impl ConfigStore for FileStore {
                 continue;
             }
             let name = entry.file_name().to_string_lossy().into_owned();
+            // A name that fails `sanitize` here is not an operator's template
+            // request, it is something else's file sitting in our directory
+            // (a `.DS_Store`, an editor swapfile, ...). This is a listing, so
+            // silently leave it off the list rather than erroring out.
+            if sanitize(&name).is_err() {
+                continue;
+            }
             let content = std::fs::read(entry.path()).map_err(Self::io(&entry.path()))?;
             files.push(TemplateFile { name, content });
         }
@@ -140,9 +147,34 @@ impl ConfigStore for FileStore {
                 Err(source) => Err(StoreError::Io { path: dir, source }),
             };
         }
-        for file in self.load_templates(proxy).await? {
-            if !keep.contains(&file.name) {
-                self.delete_template(proxy, &file.name).await?;
+
+        // This is a directory cleanup, not an operator request, so it walks
+        // `read_dir` directly instead of going through `load_templates` and
+        // `delete_template`. Every name here came from the directory listing:
+        // by construction it is already a single path component inside `dir`,
+        // never an operator-supplied string that could escape it. Re-running
+        // `sanitize` on it would buy no safety and would leave foreign files
+        // such as `.DS_Store` undeletable, breaking the "drop everything not
+        // kept" contract.
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(source) => return Err(StoreError::Io { path: dir, source }),
+        };
+        for entry in entries {
+            let entry = entry.map_err(Self::io(&dir))?;
+            if !entry.file_type().map_err(Self::io(&dir))?.is_file() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if keep.contains(&name) {
+                continue;
+            }
+            let path = entry.path();
+            match std::fs::remove_file(&path) {
+                Ok(()) => {}
+                Err(source) if source.kind() == std::io::ErrorKind::NotFound => {}
+                Err(source) => return Err(StoreError::Io { path, source }),
             }
         }
         Ok(())
@@ -366,5 +398,38 @@ proxies:
             store.save_template("../p1", "a.j2", b"x").await,
             Err(StoreError::BadTemplateName { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn retain_templates_deletes_a_foreign_file_sanitize_would_reject() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        store.save_template("p1", "keep.j2", b"x").await.unwrap();
+        std::fs::write(dir.path().join("templates/p1/.DS_Store"), b"junk").unwrap();
+
+        store
+            .retain_templates("p1", &["keep.j2".to_owned()])
+            .await
+            .unwrap();
+
+        assert!(!dir.path().join("templates/p1/.DS_Store").exists());
+        assert!(dir.path().join("templates/p1/keep.j2").exists());
+    }
+
+    #[tokio::test]
+    async fn load_templates_does_not_report_a_foreign_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let (store, _) = store(dir.path());
+        store.save_template("p1", "real.j2", b"x").await.unwrap();
+        std::fs::write(dir.path().join("templates/p1/.DS_Store"), b"junk").unwrap();
+
+        let names: Vec<_> = store
+            .load_templates("p1")
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|f| f.name)
+            .collect();
+        assert_eq!(names, vec!["real.j2".to_owned()]);
     }
 }
