@@ -37,11 +37,24 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
 
         // V8
         match reqwest::Url::parse(&proxy.url) {
-            Ok(url) => v.require(
-                matches!(url.scheme(), "http" | "https"),
-                format!("{path}.url"),
-                "url scheme must be http or https",
-            ),
+            Ok(url) => {
+                v.require(
+                    matches!(url.scheme(), "http" | "https"),
+                    format!("{path}.url"),
+                    "url scheme must be http or https",
+                );
+                // V32: `join_upstream` (doppel-proxy) replaces the whole
+                // query wholesale with the incoming request's, so a query
+                // configured here would be silently dropped on every
+                // request rather than merged with it. Rejecting the
+                // configuration is simpler and more honest than teaching
+                // the URL builder to merge two query strings.
+                v.require(
+                    url.query().is_none() && url.fragment().is_none(),
+                    format!("{path}.url"),
+                    "a query string or fragment is not supported on an upstream base url",
+                );
+            }
             Err(err) => {
                 v.push(
                     format!("{path}.url"),
@@ -241,6 +254,26 @@ proxies:
             &good().replace("https://example.com/", "ftp://example.com/"),
             "proxies[0].url",
             "http or https",
+        );
+    }
+
+    #[test]
+    fn v32_a_query_or_fragment_on_the_upstream_url_is_rejected() {
+        assert_violation(
+            &good().replace(
+                r#""https://example.com/""#,
+                r#""https://example.com/?key=abc""#,
+            ),
+            "proxies[0].url",
+            "query string or fragment",
+        );
+        assert_violation(
+            &good().replace(
+                r#""https://example.com/""#,
+                r#""https://example.com/#frag""#,
+            ),
+            "proxies[0].url",
+            "query string or fragment",
         );
     }
 

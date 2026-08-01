@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 
 use super::{Violations, is_valid_header_name};
 use crate::config::{MockRequest, MockResponse, ProxyConfig};
+use crate::store::StoreError;
+use crate::store::name::sanitize;
 
 /// Methods Doppel will match on. Deliberately a closed list: a typo like
 /// `FETCH` should be a config error, not a mock that silently never matches.
@@ -166,6 +168,21 @@ fn check_response(response: &MockResponse, path: &str, v: &mut Violations) {
             response.body_sources() == 0,
             format!("{path}.response"),
             format!("status {} forbids a body", response.status),
+        );
+    }
+
+    // V31: `response.template` becomes a file name joined to
+    // `templates_dir/<proxy>/` in phase 2 (see `store::name::sanitize`'s doc
+    // comment), so it gets the same name check every operator-supplied
+    // template name gets from `FileStore` -- this only checks the name's
+    // shape, not whether the file exists (the spec is explicit that
+    // existence is a phase 2 concern).
+    if let Some(template) = &response.template
+        && let Err(StoreError::BadTemplateName { reason, .. }) = sanitize(template)
+    {
+        v.push(
+            format!("{path}.response.template"),
+            format!("`{template}` is not a valid template file name: {reason}"),
         );
     }
 
@@ -441,6 +458,32 @@ proxies:
             &text,
             "proxies[0].mocks[0].response",
             "status 304 forbids a body",
+        );
+    }
+
+    #[test]
+    fn v31_a_normal_template_name_passes() {
+        let text = good()
+            .replace(r#"          json: '{"id": "{{ id }}"}'"#, "")
+            .replace(
+                "          status: 200",
+                "          status: 200\n          template: put.json.j2",
+            );
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
+    }
+
+    #[test]
+    fn v31_a_traversal_template_name_is_rejected() {
+        let text = good()
+            .replace(r#"          json: '{"id": "{{ id }}"}'"#, "")
+            .replace(
+                "          status: 200",
+                "          status: 200\n          template: ../../etc/passwd",
+            );
+        assert_violation(
+            &text,
+            "proxies[0].mocks[0].response.template",
+            "not a valid template file name",
         );
     }
 
