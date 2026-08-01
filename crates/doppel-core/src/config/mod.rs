@@ -204,4 +204,21 @@ proxies:
     fn parse_subjects(yaml: &str) -> Subjects {
         serde_norway::from_str(yaml).unwrap()
     }
+
+    #[test]
+    fn subjects_serialization_agrees_with_deserialization_for_the_public_shapes() {
+        // `Names(vec![])` and a `Names` list containing `"public"` both parse
+        // back as `Public` (see `subjects_accept_all_three_spellings` above),
+        // so serializing either of those two shapes must also produce
+        // `"public"` -- otherwise a round trip through YAML would silently
+        // change what a config means.
+        for names in [Vec::new(), vec!["public".to_owned()]] {
+            let yaml = serde_norway::to_string(&Subjects::Names(names.clone())).unwrap();
+            assert_eq!(
+                yaml.trim(),
+                "public",
+                "Names({names:?}) must serialize as `public`"
+            );
+        }
+    }
 }

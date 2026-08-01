@@ -59,8 +59,18 @@ pub enum Subjects {
 
 impl Serialize for Subjects {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        // `Names(vec![])` and a `Names` list containing the literal string
+        // `"public"` both parse back as `Public` (see `Deserialize` below),
+        // so they must also *serialize* as `"public"` -- otherwise
+        // `to_yaml(parse(to_yaml(x)))` would differ from `to_yaml(x)` for
+        // those two shapes, and two `Config` values that mean the same
+        // thing (one built in memory, one round-tripped through YAML) would
+        // disagree on `Revision::of_config`.
         match self {
             Self::Public => s.serialize_str("public"),
+            Self::Names(names) if names.is_empty() || names.iter().any(|name| name == "public") => {
+                s.serialize_str("public")
+            }
             Self::Names(names) => s.collect_seq(names),
         }
     }

@@ -146,6 +146,50 @@ mod tests {
     use super::*;
     use crate::config::{ProxyKind, ResolveConfig};
 
+    const GOOD: &str = r#"
+server:
+  host: "127.0.0.1"
+  port: 8080
+admin:
+  host: "127.0.0.1"
+  port: 8081
+  tokens: []
+  access: {}
+  upload:
+    limit: 1M
+proxies:
+  - name: p1
+    type: http
+    url: "https://example.com/"
+"#;
+
+    #[test]
+    fn revision_of_config_agrees_across_a_save_and_load_round_trip_for_both_public_shapes() {
+        // `Subjects::Names(vec![])` and `Subjects::Names(vec!["public"])`
+        // both mean the same thing as `Subjects::Public`, and both parse
+        // back as `Public`. Before the `Serialize` fix this test guards,
+        // `to_yaml` on either shape produced something other than
+        // `"public"`, so a `Revision` computed directly from an in-memory
+        // `Config` (as `save` does) disagreed with the `Revision` computed
+        // after parsing that same config back out of YAML (as `load`
+        // does) -- two representations of one configuration that could
+        // never compare-and-swap against each other.
+        for names in [Vec::new(), vec!["public".to_owned()]] {
+            let mut config = crate::config::load_from_str(GOOD).unwrap();
+            config.admin.access.read = crate::config::Subjects::Names(names.clone());
+
+            let direct = Revision::of_config(&config);
+            let yaml = crate::config::to_yaml(&config).unwrap();
+            let reparsed = crate::config::load_from_str(&yaml).unwrap();
+            let round_tripped = Revision::of_config(&reparsed);
+
+            assert_eq!(
+                direct, round_tripped,
+                "Names({names:?}) disagreed with its own round trip"
+            );
+        }
+    }
+
     fn proxy(url: &str) -> ProxyConfig {
         ProxyConfig {
             name: "p1".to_owned(),
