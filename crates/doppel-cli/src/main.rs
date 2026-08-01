@@ -44,6 +44,21 @@ fn run(command: Command) -> u8 {
 /// runtime that is about to serve traffic, rather than being read and
 /// silently discarded while tokio picked its own default
 /// (`available_parallelism`) regardless of what the operator configured.
+///
+/// Validation runs synchronously, here, before `build_runtime`: every
+/// semantic rule -- including V3, `server.workers` must be at least 1 --
+/// has to be checked before anything acts on the value it governs.
+/// `build_runtime` passes `workers` straight into
+/// `tokio::runtime::Builder::worker_threads`, which panics on `0` rather
+/// than returning an error, so a config that reached `build_runtime`
+/// unvalidated would take the process down with exit code 101 instead of
+/// failing cleanly with the documented "config rejected" code 1.
+/// `doppel_core::validate::validate` is a plain synchronous function over
+/// an already-parsed `Config`, so it runs here on the same plain thread
+/// that opened the store, before any tokio runtime exists. `serve` below
+/// validates again once it is handed the config; that second check is
+/// harmless (the config already passed) and keeps `serve` correct on its
+/// own if it is ever called from anywhere else.
 fn run_serve(args: ServeArgs) -> u8 {
     let (store, config) = match args.store.open() {
         Ok(opened) => opened,
@@ -52,6 +67,13 @@ fn run_serve(args: ServeArgs) -> u8 {
             return err.exit_code();
         }
     };
+
+    if let Err(violations) = doppel_core::validate::validate(&config) {
+        for violation in &violations {
+            eprintln!("{violation}");
+        }
+        return 1;
+    }
 
     let runtime = match build_runtime(config.server.workers) {
         Ok(runtime) => runtime,

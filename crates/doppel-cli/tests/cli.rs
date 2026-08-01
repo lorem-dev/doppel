@@ -1,5 +1,5 @@
 //! End-to-end: `config validate` exit codes, config-path environment
-//! variables, and the postgres-store refusals.
+//! variables, `serve` startup validation, and the postgres-store refusals.
 
 mod common;
 
@@ -144,4 +144,49 @@ fn postgres_store_exits_two() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("not available in this build"));
+}
+
+#[test]
+fn serve_rejects_zero_workers_with_exit_code_one_not_a_panic() {
+    // `server.workers: 0` must be caught by validation rule V3 before
+    // anything acts on it. `build_runtime` calls
+    // `tokio::runtime::Builder::worker_threads`, which panics (exit code
+    // 101, not a catchable error) if the config is read before it is
+    // validated -- exactly the ordering bug this test guards against. A
+    // config typo must fail with exit code 1 and a message naming the
+    // rule, never take the process down with a panic.
+    let up = upstream();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.yaml");
+    let text = config(
+        free_port(),
+        up.port,
+        &dir.path().join("s.sock"),
+        &dir.path().join("t"),
+    )
+    .replace("\nlogging:", "\n  workers: 0\nlogging:");
+    std::fs::write(&path, text).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
+        .args(["serve", "--config"])
+        .arg(&path)
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "expected exit code 1, got {:?}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
+        output.status.code()
+    );
+    assert!(
+        stderr.contains("server.workers"),
+        "expected the error to name the rule, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "must fail validation, not panic: {stderr}"
+    );
 }
