@@ -1,10 +1,35 @@
-// The control channel's public API (`ControlServer::bind`/`run`, `client::send`)
-// has no caller yet: `main` is wired up to it in Task 16. Until then the plain
-// (non-test) binary target has no path that reaches any of it, which `cargo
-// clippy --all-targets -- -D warnings` would otherwise report as dead code.
-#[allow(dead_code)]
+//! The `doppel` binary.
+
+mod cli;
+mod commands;
 mod control;
 
-fn main() {
-    println!("doppel");
+use std::process::ExitCode;
+
+use clap::Parser;
+
+use crate::cli::{Cli, Command, ConfigCommand};
+
+#[tokio::main]
+async fn main() -> ExitCode {
+    let code = match Cli::parse().command {
+        Command::Version => {
+            println!("doppel {}", env!("CARGO_PKG_VERSION"));
+            0
+        }
+        Command::Config {
+            command: ConfigCommand::Validate(args),
+        } => commands::validate::print(&commands::validate::validate(&args).await),
+        Command::Config {
+            command: ConfigCommand::Reload(args),
+        } => commands::reload::reload(&args).await,
+        Command::Serve(args) => match commands::serve::serve(&args).await {
+            Ok(()) => 0,
+            Err(err) => {
+                eprintln!("{err}");
+                err.exit_code()
+            }
+        },
+    };
+    ExitCode::from(code)
 }

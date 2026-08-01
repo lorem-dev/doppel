@@ -16,13 +16,14 @@ doppel-telemetry = { path = "../doppel-telemetry" }
 anyhow.workspace = true
 arc-swap.workspace = true
 clap.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-reqwest.workspace = true
 tempfile.workspace = true
 
 [lints]

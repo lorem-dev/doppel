@@ -8,9 +8,6 @@ pub mod server;
 use doppel_core::Violation;
 use serde::{Deserialize, Serialize};
 
-// Unused until Task 16 calls `ControlServer::bind` through this path; see the
-// `#[allow(dead_code)]` on `mod control` in `main.rs` for the full reasoning.
-#[allow(unused_imports)]
 pub use server::ControlServer;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
