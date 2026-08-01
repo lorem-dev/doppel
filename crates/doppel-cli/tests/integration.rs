@@ -259,6 +259,41 @@ impl Drop for Server {
     }
 }
 
+/// The same guarantee `Server`'s `Drop` gives every other live-server test in
+/// this file, for the one test (`admin_token_values_never_reach_the_logs_at_trace_level`)
+/// that spawns its `doppel` process directly instead of going through
+/// `Server::start`: without this, a panic between `spawn` and the post-signal
+/// `wait` would leak the child process and leave it holding the port and the
+/// control socket for the rest of the run.
+struct ChildGuard(Option<Child>);
+
+impl ChildGuard {
+    fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+
+    fn as_mut(&mut self) -> &mut Child {
+        self.0.as_mut().expect("child already taken")
+    }
+
+    /// Take ownership of the child, for `wait_after_signal` below, which
+    /// needs it by value. Mirrors `Server::into_child` for the same reason:
+    /// safe Rust does not allow moving a field out of a type that
+    /// implements `Drop`.
+    fn into_child(mut self) -> Child {
+        self.0.take().expect("child already taken")
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 /// Poll for readiness against a deadline -- the right shape for "wait until a
 /// condition holds" -- but also watch for the child exiting on its own.
 /// Without that second check, a `doppel` that failed to bind (for instance
@@ -706,19 +741,22 @@ fn admin_token_values_never_reach_the_logs_at_trace_level() {
     )
     .unwrap();
 
-    let mut child = Command::new(env!("CARGO_BIN_EXE_doppel"))
-        .args(["serve", "--config"])
-        .arg(&config_path)
-        .env("RUST_LOG", "trace")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
+    let mut child = ChildGuard::new(
+        Command::new(env!("CARGO_BIN_EXE_doppel"))
+            .args(["serve", "--config"])
+            .arg(&config_path)
+            .env("RUST_LOG", "trace")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap(),
+    );
 
-    wait_until_ready(&mut child, port, &socket);
+    wait_until_ready(child.as_mut(), port, &socket);
 
-    send_sigterm(child.id());
-    let (_status, stdout, stderr) = wait_after_signal(child, "SIGTERM", SIGNAL_WAIT_DEADLINE);
+    send_sigterm(child.as_mut().id());
+    let (_status, stdout, stderr) =
+        wait_after_signal(child.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
     let combined = format!("{stdout}{stderr}");
     assert!(
         !combined.is_empty(),
