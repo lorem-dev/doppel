@@ -154,7 +154,7 @@ pub trait ConfigStore: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ProxyKind, ResolveConfig};
+    use crate::config::{ByteSize, ProxyKind, ResolveConfig};
 
     const GOOD: &str = r#"
 server:
@@ -212,6 +212,7 @@ proxies:
             loss: None,
             latency: None,
             replace: None,
+            body_limit: ByteSize(1024 * 1024),
             mocks: Vec::new(),
         }
     }

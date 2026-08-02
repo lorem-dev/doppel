@@ -59,6 +59,7 @@ proxies:
       min: 0.05         # seconds
       max: 0.2
     replace: 1.0  # serve mocks for 100 percent of matching requests
+    body_limit: 1M  # bounds the body buffered for mocks that extract from it (mock2, mock6 below); default 1M
     mocks:
       - name: mock1
         request:

@@ -211,6 +211,22 @@ proxies:
         assert!(err.is_err());
     }
 
+    #[test]
+    fn body_limit_defaults_to_one_mebibyte_when_absent() {
+        let config = load_from_str(MINIMAL).unwrap();
+        assert_eq!(config.proxies[0].body_limit.0, 1024 * 1024);
+    }
+
+    #[test]
+    fn body_limit_written_as_512k_parses_through_byte_size() {
+        let text = MINIMAL.replace(
+            "    url: \"https://example.com/\"",
+            "    url: \"https://example.com/\"\n    body_limit: 512K",
+        );
+        let config = load_from_str(&text).unwrap();
+        assert_eq!(config.proxies[0].body_limit.0, 512 * 1024);
+    }
+
     fn parse_subjects(yaml: &str) -> Subjects {
         serde_norway::from_str(yaml).unwrap()
     }

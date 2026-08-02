@@ -1,4 +1,4 @@
-//! Rules V5..V15 and V32, plus dispatch into the mock rules.
+//! Rules V5..V15, V32 and V33, plus dispatch into the mock rules.
 
 use std::collections::BTreeSet;
 
@@ -120,6 +120,17 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
                 "value is not a valid header value",
             );
         }
+
+        // V33: a body-extracting mock (phase 2) must buffer the whole
+        // request body to read it, which `body_limit` bounds. A configured
+        // zero would collapse that bound to nothing, rejecting every body
+        // that reaches such a mock, so it is caught here rather than left
+        // to surface as a confusing runtime 413 on every request.
+        v.require(
+            proxy.body_limit.0 > 0,
+            format!("{path}.body_limit"),
+            "body_limit must be greater than 0",
+        );
 
         mock::check(proxy, &path, v);
     }
@@ -373,6 +384,15 @@ proxies:
             &good().replace(r#""Bearer x""#, r#""bad\nvalue""#),
             "proxies[0].headers.Authorization",
             "not a valid header value",
+        );
+    }
+
+    #[test]
+    fn v33_body_limit_must_be_greater_than_zero() {
+        assert_violation(
+            &(good() + "    body_limit: 0\n"),
+            "proxies[0].body_limit",
+            "body_limit must be greater than 0",
         );
     }
 }

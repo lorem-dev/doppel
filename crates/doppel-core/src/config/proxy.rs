@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::admin::ProxyAccessConfig;
+use super::admin::{ByteSize, ProxyAccessConfig};
 use super::mock::MockConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +79,17 @@ pub struct ProxyConfig {
     pub latency: Option<LatencyConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replace: Option<f64>,
+    /// Bounds the request body a matched mock is allowed to buffer in order
+    /// to extract from it; phase 1 streams bodies deliberately, and reading
+    /// `.content.items` needs the whole thing in hand. See rule V33.
+    #[serde(default = "default_body_limit")]
+    pub body_limit: ByteSize,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mocks: Vec<MockConfig>,
+}
+
+/// 1 MiB: enough for a typical JSON body without making an unbounded buffer
+/// the default for every proxy.
+fn default_body_limit() -> ByteSize {
+    ByteSize(1024 * 1024)
 }
