@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="/docs/assets/logo.svg" width="64" alt="Doppel Logo">
+    <img src="/docs/assets/icon.svg" width="64" alt="Doppel Logo">
 </p>
 
 <h1 align="center">$$Doppel{\color{lightblue}ganger}$$</h1>
@@ -15,7 +15,17 @@
 
 ---
 
-## What phase 1 does
+## Installing
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/scripts/install.sh | sh
+```
+
+Prebuilt binaries are published for macOS on Apple Silicon and Linux on x86-64
+and arm64. Anywhere else, `cargo install --path crates/doppel-cli`. See
+[the documentation](docs/usage/installation.md).
+
+## What it does
 
 - Forwards HTTP requests to a configured upstream, streaming both request and
   response bodies rather than buffering them.
@@ -36,16 +46,6 @@
   `--store`, with `config push` and `config pull` to move a configuration
   between the two. See [the documentation](docs/usage/storage.md).
 
-## Installing
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/scripts/install.sh | sh
-```
-
-Prebuilt binaries are published for macOS on Apple Silicon and Linux on x86-64
-and arm64. Anywhere else, `cargo install --path crates/doppel-cli`. See
-[the documentation](docs/usage/installation.md).
-
 ## What it does not do yet
 
 - No TCP proxying. A `type: tcp` proxy is rejected at load with a message
@@ -62,6 +62,9 @@ theme. Python tooling here is driven by `uv`, never `pip`:
 ```bash
 uv run --with-requirements docs/requirements.txt mkdocs serve
 ```
+
+The workspace layout -- the crates, what each owns, and the dependency
+direction -- is in [the architecture page](docs/development/architecture.md).
 
 `.superpowers/specs/` holds the design documents; that directory is git-ignored
 and not shipped.
@@ -123,17 +126,3 @@ See `main.example.yaml` at the repository root for a fuller reference covering
 tokens, access control, and fault injection. Note that every admin action --
 reads included -- defaults to the `admin` group: a proxy document carries the
 headers that proxy injects upstream, so a public listing would publish them.
-
-## Where the crates live
-
-A Cargo workspace under `crates/`; each crate owns one responsibility, and
-dependencies point one way, into `doppel-core`:
-
-| Crate | Owns |
-|---|---|
-| `doppel-core` | Configuration model, YAML loading, validation, the `ConfigStore` trait and its file-backed implementation, the compiled runtime, the error model. |
-| `doppel-proxy` | The proxy listener, request resolution, fault injection, and upstream forwarding. |
-| `doppel-render` | Mock matching and Jinja2 rendering. |
-| `doppel-admin` | The admin HTTP API: access control, proxy CRUD, templates, reload, status, metrics, OpenAPI. |
-| `doppel-telemetry` | Logging initialization and optional Sentry. |
-| `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other crates together. |
