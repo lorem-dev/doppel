@@ -359,21 +359,12 @@ proxies:
     }
 
     #[test]
-    fn v29_upload_limit_must_be_positive() {
-        assert_violation(
-            &good().replace("limit: 1Mi", "limit: 0"),
-            "admin.upload.limit",
-            "greater than 0",
-        );
-    }
-
-    #[test]
     fn all_violations_are_reported_at_once() {
         // Two rule violations, not a parse failure and a rule violation:
         // parsing stops at the first error, so a document that fails to parse
         // could never demonstrate that the rule set collects.
         let text = good().replace("port: 8081", "port: 8080");
-        let text = text.replace("limit: 1Mi", "limit: 0");
+        let text = text.replace("    update: user1", "    update: nobody");
         let found = violations(&text);
         assert!(
             found.len() >= 2,

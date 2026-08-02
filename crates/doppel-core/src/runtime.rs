@@ -194,7 +194,7 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
             ResolveKind::Default => None,
         },
         mocks,
-        body_limit: proxy.body_limit.0,
+        body_limit: proxy.body_limit.get(),
     })
 }
 

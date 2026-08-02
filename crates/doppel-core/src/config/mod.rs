@@ -8,6 +8,7 @@ pub mod port;
 pub mod proxy;
 pub mod ratio;
 pub mod server;
+pub mod size;
 pub mod status;
 pub mod token;
 
@@ -17,8 +18,7 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::method::{HttpMethod, MethodError};
 pub use admin::{
-    AccessConfig, AdminConfig, AuthConfig, ByteSize, ProxyAccessConfig, Subjects, TokenConfig,
-    UploadConfig,
+    AccessConfig, AdminConfig, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig, UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
@@ -29,6 +29,7 @@ pub use ratio::{Ratio, RatioError};
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,
 };
+pub use size::{ByteSize, ByteSizeError};
 pub use status::{HttpStatus, StatusError};
 pub use token::{Token, TokenError};
 
@@ -224,24 +225,27 @@ proxies:
     fn upload_limit_plain_integer_deserializes() {
         let text = MINIMAL.replace("limit: 1Mi", "limit: 4096");
         let config = load_from_str(&text).unwrap();
-        assert_eq!(config.admin.upload.limit.0, 4096);
-
-        let text = MINIMAL.replace("limit: 1Mi", "limit: 0");
-        let config = load_from_str(&text).unwrap();
-        assert_eq!(config.admin.upload.limit.0, 0);
+        assert_eq!(config.admin.upload.limit.get(), 4096);
     }
 
     #[test]
-    fn upload_limit_negative_integer_is_rejected() {
-        let text = MINIMAL.replace("limit: 1Mi", "limit: -1");
-        let err = load_from_str(&text);
-        assert!(err.is_err());
+    fn a_limit_of_zero_or_less_does_not_load() {
+        // Zero was rule V29 (`upload.limit`) and rule V33 (`body_limit`) --
+        // the same sentence twice, about the same type. It is now one check
+        // in `ByteSize`, and the document does not parse.
+        for bad in ["0", "-1", "2Gi"] {
+            let text = MINIMAL.replace("limit: 1Mi", &format!("limit: {bad}"));
+            assert!(
+                load_from_str(&text).is_err(),
+                "`limit: {bad}` must not load"
+            );
+        }
     }
 
     #[test]
     fn body_limit_defaults_to_one_mebibyte_when_absent() {
         let config = load_from_str(MINIMAL).unwrap();
-        assert_eq!(config.proxies[0].body_limit.0, 1024 * 1024);
+        assert_eq!(config.proxies[0].body_limit.get(), 1024 * 1024);
     }
 
     #[test]
@@ -251,7 +255,7 @@ proxies:
             "    url: \"https://example.com/\"\n    body_limit: 512Ki",
         );
         let config = load_from_str(&text).unwrap();
-        assert_eq!(config.proxies[0].body_limit.0, 512 * 1024);
+        assert_eq!(config.proxies[0].body_limit.get(), 512 * 1024);
     }
 
     fn parse_subjects(yaml: &str) -> Subjects {

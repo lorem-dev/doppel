@@ -276,7 +276,7 @@ proxies:
             loss: None,
             latency: None,
             replace: None,
-            body_limit: ByteSize(1024 * 1024),
+            body_limit: ByteSize::parse(1024 * 1024).unwrap(),
             mocks: Vec::new(),
         }
     }

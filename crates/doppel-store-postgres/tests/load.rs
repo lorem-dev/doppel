@@ -128,7 +128,7 @@ async fn insert(schema: &TestSchema, name: &str, config: &doppel_core::Config, r
             admin.host,
             admin.port,
             admin.auth.header,
-            admin.upload.limit.0,
+            admin.upload.limit.get(),
             serde_json::to_string(&admin.access).unwrap(),
         ))
         .await;
@@ -163,7 +163,7 @@ async fn insert(schema: &TestSchema, name: &str, config: &doppel_core::Config, r
                 serde_json::to_value(proxy.kind).unwrap().as_str().unwrap(),
                 proxy.url,
                 nullable(proxy.timeout.map(|t| t.to_string())),
-                proxy.body_limit.0,
+                proxy.body_limit.get(),
                 nullable(proxy.replace.map(|r| r.to_string())),
                 serde_json::to_value(proxy.resolve.kind)
                     .unwrap()

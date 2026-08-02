@@ -1,4 +1,6 @@
-//! Rules V26, V27, V29 and V34. V28 is enforced by `ProxyAccessConfig`.
+//! Rules V26, V27 and V34. V28 is enforced by `ProxyAccessConfig`, and V29
+//! by `ByteSize`, which refuses a limit of zero for every field that uses
+//! it rather than once per field.
 
 use std::collections::BTreeSet;
 
@@ -27,13 +29,6 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             v.push(format!("admin.tokens[{i}].token"), "duplicate token value");
         }
     }
-
-    // V29
-    v.require(
-        config.admin.upload.limit.0 > 0,
-        "admin.upload.limit",
-        "upload limit must be greater than 0",
-    );
 
     // V34: a write action granted to `public` lets any unauthenticated caller
     // rewrite the proxy set. That is far more often a mistake than an intent,

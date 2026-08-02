@@ -276,6 +276,25 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Sizes
+
+`admin.upload.limit` and a proxy's `body_limit` are byte counts, from 1 byte
+to 1 GiB. Both bound something Doppel holds in memory, so a number past that
+is not a larger limit but the absence of one.
+
+Write a plain integer, or a suffix: `Ki`, `Mi`, `Gi` are binary (1024-based)
+and `kB`, `MB`, `GB` are decimal (1000-based). A bare `K`, `M` or `G` is
+refused rather than guessed at -- it meant the binary unit in this project's
+own past, which contradicts SI, and reinterpreting it silently would resize
+every configured buffer without a word. The message names both replacements.
+
+A limit of 0 is refused: it rejects everything, which shows up as a confusing
+413 on every request rather than as the configuration mistake it is. Rules
+**V29** and **V33** said that once per field and are gone.
+
+Whatever spelling is used, the value is written back as a plain integer, so
+`1Mi` and `1048576` produce the same revision.
+
 ## Numbers with units
 
 | Field | Type | Range |

@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::admin::{ByteSize, ProxyAccessConfig};
+use super::admin::ProxyAccessConfig;
 use super::mock::MockConfig;
+use super::size::ByteSize;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -91,5 +92,5 @@ pub struct ProxyConfig {
 /// 1 MiB: enough for a typical JSON body without making an unbounded buffer
 /// the default for every proxy.
 fn default_body_limit() -> ByteSize {
-    ByteSize(1024 * 1024)
+    ByteSize::parse(1024 * 1024).expect("1 MiB is within the accepted range")
 }

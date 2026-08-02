@@ -1,10 +1,11 @@
-//! Rules V5..V8, V10..V11, V14..V15, V32 and V33, plus dispatch into the
-//! mock rules.
+//! Rules V5..V8, V10..V11, V14..V15 and V32, plus dispatch into the mock
+//! rules.
 //!
 //! V9 (a positive timeout), V12 and V13 (a probability in 0..=1, a status in
 //! 100..=599) and the non-negative half of V14 are gone: `TimeoutSeconds`,
 //! `Ratio`, `HttpStatus` and `Seconds` refuse those values while the document
-//! is being parsed.
+//! is being parsed. So is V33: `ByteSize` refuses a limit of zero, which is
+//! what that rule said about `body_limit` and V29 said about `upload.limit`.
 //!
 //! V35 is gone: it applied `sanitize` to a proxy name, and `config::Name` now
 //! refuses the same shapes while the document is being parsed. One check, at
@@ -116,17 +117,6 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
                 "value is not a valid header value",
             );
         }
-
-        // V33: a body-extracting mock (phase 2) must buffer the whole
-        // request body to read it, which `body_limit` bounds. A configured
-        // zero would collapse that bound to nothing, rejecting every body
-        // that reaches such a mock, so it is caught here rather than left
-        // to surface as a confusing runtime 413 on every request.
-        v.require(
-            proxy.body_limit.0 > 0,
-            format!("{path}.body_limit"),
-            "body_limit must be greater than 0",
-        );
 
         mock::check(proxy, &path, v);
     }
@@ -412,11 +402,15 @@ proxies:
     }
 
     #[test]
-    fn v33_body_limit_must_be_greater_than_zero() {
-        assert_violation(
-            &(good() + "    body_limit: 0\n"),
-            "proxies[0].body_limit",
-            "body_limit must be greater than 0",
-        );
+    fn a_body_limit_that_is_not_a_limit_fails_at_load() {
+        // This was V33, and V29 said the same thing about `upload.limit`.
+        // Both are now one check in `ByteSize`.
+        for bad in ["0", "-1", "2Gi"] {
+            let text = good() + &format!("    body_limit: {bad}\n");
+            assert!(
+                load_from_str(&text).is_err(),
+                "`body_limit: {bad}` must not load"
+            );
+        }
     }
 }

@@ -147,7 +147,7 @@ pub(crate) async fn upload(
         .into());
     }
 
-    let bytes = read_body(body, &headers, config.admin.upload.limit.0).await?;
+    let bytes = read_body(body, &headers, config.admin.upload.limit.get()).await?;
     state
         .store()
         .save_template(&name, &file, &bytes)

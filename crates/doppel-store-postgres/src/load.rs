@@ -90,13 +90,7 @@ impl PostgresStore {
             tokens,
             access: json_column::<AccessConfig>(row, "admin_access")?,
             upload: UploadConfig {
-                limit: ByteSize(
-                    u64::try_from(
-                        row.try_get::<i64, _>("admin_upload_limit")
-                            .map_err(query_failed)?,
-                    )
-                    .map_err(|_| corrupt("admin_upload_limit", "is negative"))?,
-                ),
+                limit: byte_size(row, "admin_upload_limit")?,
             },
         })
     }
@@ -136,10 +130,7 @@ impl PostgresStore {
                 loss: loss_from(row)?,
                 latency: latency_from(row)?,
                 replace: optional_ratio(row, "replace_ratio")?,
-                body_limit: ByteSize(
-                    u64::try_from(row.try_get::<i64, _>("body_limit").map_err(query_failed)?)
-                        .map_err(|_| corrupt("proxies.body_limit", "is negative"))?,
-                ),
+                body_limit: byte_size(row, "body_limit")?,
             });
         }
         Ok(proxies)
@@ -349,6 +340,13 @@ fn optional_ratio(
 /// A stored latency, checked on the way in.
 fn seconds(value: f64, column: &str) -> Result<doppel_core::config::Seconds, StoreError> {
     doppel_core::config::Seconds::parse(value).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored byte limit, checked on the way in.
+fn byte_size(row: &PgRow, column: &str) -> Result<ByteSize, StoreError> {
+    let value: i64 = row.try_get(column).map_err(query_failed)?;
+    let unsigned = u64::try_from(value).map_err(|_| corrupt(column, "is negative"))?;
+    ByteSize::parse(unsigned).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 fn optional_u64(row: &PgRow, column: &str) -> Result<Option<u64>, StoreError> {

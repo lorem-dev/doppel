@@ -187,7 +187,7 @@ impl PostgresStore {
                 .timeout
                 .map(|t| i64::try_from(t.get()).unwrap_or(i64::MAX)),
         )
-        .bind(i64::try_from(proxy.body_limit.0).unwrap_or(i64::MAX))
+        .bind(i64::try_from(proxy.body_limit.get()).unwrap_or(i64::MAX))
         .bind(proxy.replace.map(doppel_core::config::Ratio::get))
         .bind(as_text(&proxy.resolve.kind)?)
         .bind(proxy.resolve.header.as_deref())
@@ -292,7 +292,7 @@ impl<'q> BindHeader<'q> for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgA
             .bind(config.admin.host.to_string())
             .bind(i32::from(config.admin.port.get()))
             .bind(config.admin.auth.header.clone())
-            .bind(i64::try_from(config.admin.upload.limit.0).unwrap_or(i64::MAX))
+            .bind(i64::try_from(config.admin.upload.limit.get()).unwrap_or(i64::MAX))
             .bind(serde_json::to_value(&config.admin.access).unwrap_or(serde_json::Value::Null))
     }
 }

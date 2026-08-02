@@ -133,9 +133,14 @@ proxies:
     #[tokio::test]
     async fn an_invalid_config_lists_every_violation_and_exits_1() {
         let dir = tempfile::tempdir().unwrap();
-        let text = GOOD
-            .replace("port: 8081", "port: 8080")
-            .replace("limit: 1Mi", "limit: 0");
+        // Two violations that are genuinely rules. A bad single value stops
+        // the parse now, and a document that does not parse produces no
+        // violations at all -- so it could not show that the rule set
+        // collects rather than stopping at the first failure.
+        let text = GOOD.replace("port: 8081", "port: 8080").replace(
+            "    url: \"https://example.com/\"",
+            "    url: \"https://example.com/\"\n    latency:\n      percentage: 0.5\n      min: 0.9\n      max: 0.1",
+        );
         let report = validate(&args(dir.path(), &text)).await;
         assert_eq!(report.exit_code(), 1);
         assert!(report.violations.iter().any(|v| v.path == "admin.port"));
@@ -143,7 +148,7 @@ proxies:
             report
                 .violations
                 .iter()
-                .any(|v| v.path == "admin.upload.limit")
+                .any(|v| v.path == "proxies[0].latency.min")
         );
     }
 
