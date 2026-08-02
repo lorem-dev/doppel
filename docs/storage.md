@@ -71,6 +71,25 @@ the command.
 Running `config migrate` twice is safe; the second run reports that there was
 nothing to do.
 
+### Checking what is applied
+
+```bash
+doppel config migrate --status
+```
+
+Changes nothing, and exits `0` only when every migration this binary carries
+is applied, complete, and unchanged since it was applied -- so a deploy gate
+can branch on the code without parsing the output. Otherwise it exits `1` and
+says which of those three is false.
+
+There is deliberately no separate table holding a single revision number.
+It would be the same fact written twice, and two copies of one fact disagree
+eventually. sqlx's table already carries what a number cannot: a row per
+migration, with a checksum, so it can tell "version 1 is applied" apart from
+"version 1 is applied and the file that produced it has since been edited".
+`--status` reports the highest applied version, which is the revision number a
+single-row table would have held.
+
 sqlx records a checksum per applied migration and refuses to start against a
 database whose applied file no longer matches. Until the first release that
 protection is being spent deliberately: schema changes are merged into the

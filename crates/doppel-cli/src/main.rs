@@ -51,8 +51,8 @@ fn run(command: Command) -> u8 {
         } => run_on_light_runtime(async move {
             match commands::migrate::migrate(&args).await {
                 Ok(report) => {
-                    println!("{report}");
-                    0
+                    println!("{}", report.text);
+                    report.code
                 }
                 Err(err) => {
                     eprintln!("{err}");

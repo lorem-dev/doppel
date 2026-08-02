@@ -99,6 +99,29 @@ Applies any migrations the database has not seen, and reports how many ran.
 Safe to run twice. Never run at startup -- see
 [Configuration storage](storage.md#migrations).
 
+### `config migrate --status`
+
+Reports the schema state and changes nothing.
+
+```
+schema version 1; 1 migration applied
+up to date
+```
+
+Exit `0` when every embedded migration is applied, complete and unchanged;
+`1` otherwise, with a line per problem:
+
+```
+schema version 1; 1 migration applied
+changed: migration 1 (initial) does not match the file this binary carries
+run `doppel config migrate`
+```
+
+A migration applied to the database that this binary does not carry is
+reported as `unknown` and does not make the command exit `1` -- everything
+this binary requires is still applied, and the usual cause is an older binary
+looking at a database a newer one has migrated.
+
 ## `config validate`
 
 Reports every violation, not just the first, each with its path in the

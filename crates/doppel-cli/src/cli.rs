@@ -145,6 +145,13 @@ pub struct MigrateArgs {
     /// environment migrate the wrong database.
     #[arg(long, env = "DOPPEL_DATABASE_URL")]
     pub database_url: String,
+    /// Report the schema state and change nothing.
+    ///
+    /// Exits 0 when every embedded migration is applied and unchanged, 1
+    /// otherwise -- so a deploy gate can branch on it without parsing the
+    /// output.
+    #[arg(long)]
+    pub status: bool,
 }
 
 /// Hand-written, like `StoreArgs`'s, so `{:?}` cannot print the password.
