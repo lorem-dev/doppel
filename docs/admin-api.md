@@ -18,6 +18,9 @@ A token arrives in the header named by `admin.auth.header`, default
 `X-Proxy-Authorization`, as `Bearer {token}`, and must match one entry of
 `admin.tokens`.
 
+`doppel token add` issues one on a running server; see the
+[CLI reference](cli.md#token-add).
+
 ```bash
 curl -H 'X-Proxy-Authorization: Bearer c0a721e2-...' \
      http://localhost:8081/api/v1/proxies
@@ -26,6 +29,13 @@ curl -H 'X-Proxy-Authorization: Bearer c0a721e2-...' \
 An absent token and an unrecognised one are both anonymous. They are not
 distinguished on purpose: telling them apart would confirm which tokens
 exist, and both answer `401`.
+
+Every request is judged against the configuration the last reload put into
+effect, never against whatever the store holds at that moment. That is what
+stops someone who can write the configuration out of band, but holds no token,
+from granting themselves one and using it immediately. Handlers read and write
+their *data* through the store; only the policy comes from the running
+configuration.
 
 The comparison against a configured token does not stop at the first differing
 byte, so how long a rejection takes does not depend on how much of a guess was
