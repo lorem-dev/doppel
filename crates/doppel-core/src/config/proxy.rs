@@ -47,7 +47,7 @@ impl Default for ResolveConfig {
 #[serde(deny_unknown_fields)]
 pub struct LossConfig {
     pub percentage: f64,
-    pub status: u16,
+    pub status: super::HttpStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]

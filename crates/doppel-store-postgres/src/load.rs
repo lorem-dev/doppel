@@ -157,7 +157,7 @@ impl PostgresStore {
                 Ok(MockConfig {
                     name: name(row, "name")?,
                     request: MockRequest {
-                        method: text(row, "method")?,
+                        method: method(row, "method")?,
                         url: text(row, "url_pattern")?,
                         headers: json_column(row, "request_headers")?,
                         query: json_column(row, "request_query")?,
@@ -229,8 +229,7 @@ fn loss_from(row: &PgRow) -> Result<Option<LossConfig>, StoreError> {
         (None, None) => Ok(None),
         (Some(percentage), Some(status)) => Ok(Some(LossConfig {
             percentage,
-            status: u16::try_from(status)
-                .map_err(|_| corrupt("proxies.loss_status", "is not a status"))?,
+            status: narrow_status(status, "proxies.loss_status")?,
         })),
         _ => Err(corrupt(
             "proxies.loss_*",
@@ -293,9 +292,28 @@ fn port(row: &PgRow, column: &str) -> Result<doppel_core::config::Port, StoreErr
     doppel_core::config::Port::parse(narrowed).map_err(|err| corrupt(column, &err.to_string()))
 }
 
-fn status(row: &PgRow, column: &str) -> Result<u16, StoreError> {
+/// A stored status, checked on the way in.
+///
+/// Two halves, as with `port`: the `i32` column has to narrow to a `u16` at
+/// all, and then the number has to be one `HttpStatus` accepts. Both are
+/// reachable from a hand-edited row and neither is reachable from YAML.
+fn status(row: &PgRow, column: &str) -> Result<doppel_core::config::HttpStatus, StoreError> {
     let value: i32 = row.try_get(column).map_err(query_failed)?;
-    u16::try_from(value).map_err(|_| corrupt(column, &format!("is {value}, not a status")))
+    narrow_status(value, column)
+}
+
+fn narrow_status(value: i32, column: &str) -> Result<doppel_core::config::HttpStatus, StoreError> {
+    let narrowed =
+        u16::try_from(value).map_err(|_| corrupt(column, &format!("is {value}, not a status")))?;
+    doppel_core::config::HttpStatus::parse(narrowed)
+        .map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored method, checked on the way in.
+fn method(row: &PgRow, column: &str) -> Result<doppel_core::config::HttpMethod, StoreError> {
+    let raw: String = row.try_get(column).map_err(query_failed)?;
+    raw.parse()
+        .map_err(|err: doppel_core::config::MethodError| corrupt(column, &err.to_string()))
 }
 
 fn optional_u64(row: &PgRow, column: &str) -> Result<Option<u64>, StoreError> {

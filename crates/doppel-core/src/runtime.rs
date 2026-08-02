@@ -42,7 +42,7 @@ pub struct CompiledProxy {
 #[derive(Debug, Clone)]
 pub struct CompiledMock {
     pub name: String,
-    pub method: String,
+    pub method: crate::config::HttpMethod,
     pub pattern: regex::Regex,
     /// Named capture groups, in the order the pattern declares them.
     pub capture_names: Vec<String>,
@@ -261,13 +261,13 @@ fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Err
 
     Ok(CompiledMock {
         name: mock.name.to_string(),
-        method: mock.request.method.clone(),
+        method: mock.request.method,
         pattern,
         capture_names,
         header_vars,
         query_vars,
         body_vars,
-        status: mock.response.status,
+        status: mock.response.status.get(),
         body,
         headers,
         replace,
@@ -616,7 +616,7 @@ proxies:
             assert_eq!(mock(proxy1, "mock6").replace, None);
             assert_eq!(mock(proxy1, "mock6").latency, None);
             assert!(mock(proxy1, "mock6").loss.is_some());
-            assert_eq!(mock(proxy1, "mock6").loss.unwrap().status, 503);
+            assert_eq!(mock(proxy1, "mock6").loss.unwrap().status.get(), 503);
         }
 
         #[test]

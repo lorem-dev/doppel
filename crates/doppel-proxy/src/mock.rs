@@ -8,8 +8,9 @@ use doppel_render::{Selector, Variables};
 /// the request, and binds its named capture groups into [`Variables`].
 ///
 /// A mock matches when its method equals `method` exactly -- case-sensitive,
-/// since V17 already rejects a lowercase method at config load -- and its
-/// pattern matches somewhere in `path`.
+/// since `config::HttpMethod` only admits the upper-case spelling, so a
+/// configuration cannot hold a `get` that would have to be folded here -- and
+/// its pattern matches somewhere in `path`.
 ///
 /// The pattern is unanchored, deliberately (spec section 4, section 10): a
 /// pattern for `/api/v1/resource/` also matches `/api/v1/resource/42/`,
@@ -23,7 +24,10 @@ pub fn match_mock<'a>(
     path: &str,
 ) -> Option<(&'a CompiledMock, Variables)> {
     proxy.mocks.iter().find_map(|mock| {
-        if mock.method != method.as_str() {
+        // `as_str` on both sides, and no case folding: a mock can only
+        // declare a method the type knows, and an incoming method that is
+        // not one of those matches nothing -- which is the right answer.
+        if mock.method.as_str() != method.as_str() {
             return None;
         }
 
@@ -129,7 +133,7 @@ mod tests {
         let capture_names = regex.capture_names().flatten().map(str::to_owned).collect();
         CompiledMock {
             name: name.to_owned(),
-            method: method.to_owned(),
+            method: method.parse().unwrap(),
             pattern: regex,
             capture_names,
             header_vars: Vec::new(),

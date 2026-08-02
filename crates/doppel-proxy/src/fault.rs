@@ -72,7 +72,7 @@ pub fn decide(
         && fires(loss.percentage, sampler)
     {
         return FaultDecision {
-            loss_status: Some(loss.status),
+            loss_status: Some(loss.status.get()),
             latency: None,
         };
     }
@@ -112,7 +112,7 @@ mod tests {
     fn loss(percentage: f64) -> LossConfig {
         LossConfig {
             percentage,
-            status: 503,
+            status: doppel_core::config::HttpStatus::parse(503).unwrap(),
         }
     }
 

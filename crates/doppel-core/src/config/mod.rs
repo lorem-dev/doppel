@@ -6,12 +6,14 @@ pub mod name;
 pub mod port;
 pub mod proxy;
 pub mod server;
+pub mod status;
 pub mod token;
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::method::{HttpMethod, MethodError};
 pub use admin::{
     AccessConfig, AdminConfig, AuthConfig, ByteSize, ProxyAccessConfig, Subjects, TokenConfig,
     UploadConfig,
@@ -23,6 +25,7 @@ pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,
 };
+pub use status::{HttpStatus, StatusError};
 pub use token::{Token, TokenError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -276,6 +276,23 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Methods and statuses
+
+A mock's `request.method` is one of the methods Doppel knows, spelled in upper
+case. The list is a typo guard, not a protocol restriction: `FETCH` is refused
+because it is far more often a mistake than an intent, and a genuinely
+non-standard method needs adding to the list. The value is not upper-cased for
+you -- HTTP methods are case-sensitive, so a stored `get` would never match an
+incoming `GET`, and a document writing it is told to write `GET` instead.
+
+A status -- `response.status`, and `loss.status` -- is a number from 100 to
+599. Rules **V17** and **V22** did these checks and are gone; the types do
+them now, at parse time.
+
+Rule **V30** still applies: 204 and 304 forbid a body, so a mock declaring one
+alongside either status is refused. That compares the status against what the
+response declares, which is two fields.
+
 ## Ports
 
 `server.port` and `admin.port` are numbers from 1 to 65535. Port 0 is refused

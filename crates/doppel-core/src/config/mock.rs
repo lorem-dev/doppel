@@ -19,7 +19,7 @@ pub struct MockConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockRequest {
-    pub method: String,
+    pub method: crate::config::HttpMethod,
     pub url: String,
     /// Variable name -> request header name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -35,7 +35,7 @@ pub struct MockRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockResponse {
-    pub status: u16,
+    pub status: crate::config::HttpStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

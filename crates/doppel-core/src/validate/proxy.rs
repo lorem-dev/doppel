@@ -155,11 +155,6 @@ pub(super) fn check_faults(
             format!("{path}.loss.percentage"),
             "must be between 0.0 and 1.0",
         );
-        v.require(
-            (100..=599).contains(&loss.status),
-            format!("{path}.loss.status"),
-            "must be between 100 and 599",
-        );
     }
     if let Some(latency) = latency {
         v.require(
@@ -391,12 +386,17 @@ proxies:
     }
 
     #[test]
-    fn v13_loss_status_must_be_a_real_status() {
-        assert_violation(
-            &good().replace("status: 503", "status: 99"),
-            "proxies[0].loss.status",
-            "between 100 and 599",
-        );
+    fn a_loss_status_outside_the_http_range_fails_at_load() {
+        // This was the second half of V13. `config::HttpStatus` refuses the
+        // value while the document is being parsed; the claim that a document
+        // carrying one must not load is still worth pinning here.
+        for bad in ["99", "600", "700"] {
+            let text = good().replace("status: 503", &format!("status: {bad}"));
+            let err = load_from_str(&text)
+                .expect_err(&format!("status {bad} must not parse"))
+                .to_string();
+            assert!(err.contains("100 to 599"), "{bad}: {err}");
+        }
     }
 
     #[test]

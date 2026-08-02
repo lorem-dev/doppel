@@ -1,15 +1,16 @@
-//! Rules V16..V25, V30, and V31.
+//! Rules V16, V18..V21, V23..V25, V30 and V31.
+//!
+//! V17 (a known, upper-case method) and V22 (a status in 100..=599) are gone:
+//! `config::HttpMethod` and `config::HttpStatus` refuse the same values while
+//! the document is being parsed, with the same messages. What is left here
+//! needs more than one field to decide.
 
 use std::collections::BTreeSet;
 
 use super::{Violations, is_valid_header_name};
 use crate::config::{MockRequest, MockResponse, ProxyConfig};
-use crate::method::KNOWN_METHODS;
 use crate::store::StoreError;
 use crate::store::name::sanitize;
-
-/// Statuses that must not carry a body, per RFC 9110.
-const BODILESS_STATUSES: [u16; 2] = [204, 304];
 
 pub(super) fn check(proxy: &ProxyConfig, proxy_path: &str, v: &mut Violations) {
     let mut seen = BTreeSet::new();
@@ -42,30 +43,6 @@ pub(super) fn check(proxy: &ProxyConfig, proxy_path: &str, v: &mut Violations) {
 }
 
 fn check_request(request: &MockRequest, path: &str, v: &mut Violations) {
-    // V17
-    let method = request.method.as_str();
-    let uppercase = method.to_ascii_uppercase();
-    if method != uppercase {
-        // Do not silently uppercase it: the mock stores `method` verbatim,
-        // and HTTP methods are case-sensitive, so a stored `get` would never
-        // match an incoming `GET` -- exactly the "silently never matches"
-        // outcome this rule exists to prevent. Refusing the value is
-        // preferred to rewriting what the operator wrote.
-        v.push(
-            format!("{path}.request.method"),
-            format!("HTTP methods are case-sensitive; use `{uppercase}`, not `{method}`"),
-        );
-    } else {
-        v.require(
-            KNOWN_METHODS.contains(&method),
-            format!("{path}.request.method"),
-            format!(
-                "`{method}` is not a method Doppel knows; this list is a typo guard, not a \
-                 protocol restriction, so if it is genuinely non-standard, add it to the list"
-            ),
-        );
-    }
-
     // V18
     let captures: BTreeSet<String> = match regex::Regex::new(&request.url) {
         Ok(re) => re.capture_names().flatten().map(str::to_owned).collect(),
@@ -122,13 +99,6 @@ fn check_selector(selector: &str) -> Result<(), String> {
 }
 
 fn check_response(response: &MockResponse, path: &str, v: &mut Violations) {
-    // V22
-    v.require(
-        (100..=599).contains(&response.status),
-        format!("{path}.response.status"),
-        "must be between 100 and 599",
-    );
-
     // V20
     v.require(
         response.body_sources() <= 1,
@@ -137,7 +107,7 @@ fn check_response(response: &MockResponse, path: &str, v: &mut Violations) {
     );
 
     // V30
-    if BODILESS_STATUSES.contains(&response.status) {
+    if response.status.forbids_a_body() {
         v.require(
             response.body_sources() == 0,
             format!("{path}.response"),
@@ -241,21 +211,20 @@ proxies:
     }
 
     #[test]
-    fn v17_method_must_be_known() {
-        assert_violation(
-            &good().replace("method: GET", "method: FETCH"),
-            "proxies[0].mocks[0].request.method",
-            "not a method Doppel knows",
-        );
-        assert_violation(
-            &good().replace("method: GET", "method: FETCH"),
-            "proxies[0].mocks[0].request.method",
-            "add it",
-        );
+    fn an_unknown_method_fails_at_load() {
+        // This was V17. `config::HttpMethod` refuses the value while the
+        // document is being parsed, with the same message; what is asserted
+        // here is that the document does not load, and that the message still
+        // says the list is a typo guard rather than a protocol restriction.
+        let err = load_from_str(&good().replace("method: GET", "method: FETCH"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("not a method Doppel knows"), "{err}");
+        assert!(err.contains("add it"), "{err}");
     }
 
     #[test]
-    fn v17_query_is_a_known_method() {
+    fn query_is_a_known_method() {
         assert_eq!(
             validate(&load_from_str(&good().replace("method: GET", "method: QUERY")).unwrap()),
             Ok(())
@@ -263,7 +232,7 @@ proxies:
     }
 
     #[test]
-    fn v17_webdav_methods_are_known() {
+    fn webdav_methods_are_known() {
         assert_eq!(
             validate(&load_from_str(&good().replace("method: GET", "method: PROPFIND")).unwrap()),
             Ok(())
@@ -271,17 +240,15 @@ proxies:
     }
 
     #[test]
-    fn v17_method_must_already_be_uppercase() {
-        assert_violation(
-            &good().replace("method: GET", "method: get"),
-            "proxies[0].mocks[0].request.method",
-            "case-sensitive",
-        );
-        assert_violation(
-            &good().replace("method: GET", "method: get"),
-            "proxies[0].mocks[0].request.method",
-            "use `GET`",
-        );
+    fn a_lower_case_method_fails_at_load_and_says_what_to_write() {
+        // The other half of V17, and the reason the method type hand-writes
+        // its `Deserialize`: a derived one would answer `get` by listing
+        // seventeen variants rather than naming the one that was meant.
+        let err = load_from_str(&good().replace("method: GET", "method: get"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("case-sensitive"), "{err}");
+        assert!(err.contains("use `GET`"), "{err}");
     }
 
     #[test]
@@ -360,12 +327,15 @@ proxies:
     }
 
     #[test]
-    fn v22_status_must_be_a_real_status() {
-        assert_violation(
-            &good().replace("status: 200", "status: 700"),
-            "proxies[0].mocks[0].response.status",
-            "between 100 and 599",
-        );
+    fn a_status_outside_the_http_range_fails_at_load() {
+        // This was V22, now `config::HttpStatus`.
+        for bad in ["99", "600", "700"] {
+            let text = good().replace("status: 200", &format!("status: {bad}"));
+            let err = load_from_str(&text)
+                .expect_err(&format!("status {bad} must not parse"))
+                .to_string();
+            assert!(err.contains("100 to 599"), "{bad}: {err}");
+        }
     }
 
     #[test]
