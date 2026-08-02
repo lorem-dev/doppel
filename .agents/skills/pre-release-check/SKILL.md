@@ -85,6 +85,30 @@ grep -n 'images:\|tags:' -A6 .github/workflows/release.yml | sed -n '/metadata-a
 `latest=false` must still be there. A moving tag is one an unpinned deployment
 follows into a release nobody reviewed, and a pre-release would take it.
 
+## Then check that every action reference resolves
+
+`actionlint` validates syntax and inputs. It does not, and cannot without the
+network, check that the tag you pinned exists. A reference to a tag that does
+not is not caught until the job fails at "Set up job", before a single step
+runs.
+
+```bash
+for ref in $(grep -rhoE 'uses: [a-zA-Z0-9/_.-]+@[a-zA-Z0-9._-]+' .github/workflows/ \
+             | sed 's/uses: //' | sort -u); do
+  repo="${ref%@*}"; tag="${ref#*@}"
+  code=$(curl -o /dev/null -s -w '%{http_code}' \
+         "https://api.github.com/repos/$repo/git/ref/tags/$tag")
+  [ "$code" = "200" ] && echo "OK      $ref" || echo "MISSING $ref"
+done
+```
+
+**Do not derive a major tag from a release number.** `releases/latest`
+returning `v9.0.0` does not mean `@v9` exists: publishing a sliding major tag
+is a convention, not a rule, and maintainers drop it. `astral-sh/setup-uv`
+publishes `v9.0.0` and stops its major tags at `v7`; assuming otherwise put two
+workflows in the repository that could not start. Ask for the ref you intend to
+write.
+
 ## Then check the release key
 
 The signature is worth nothing if the published public key has expired or no
