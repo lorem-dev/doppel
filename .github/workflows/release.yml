@@ -253,7 +253,7 @@ jobs:
       #
       # Skipped for a pre-release, on the same reasoning as the moving tags: the
       # page would tell everyone to pull an rc.
-      - name: Point the overview at the version being released
+      - name: Prepare the overview for the version being released
         if: ${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -264,6 +264,15 @@ jobs:
           # uses bare `1.2.3-alpine` to show the shape and is left alone.
           sed -i -E "s|loremdev/doppel:[0-9][^[:space:]]*-alpine|loremdev/doppel:${version}-alpine|g" \
             DOCKERHUB.md
+          # Drop the file's own note to maintainers. Docker Hub renders
+          # markdown, and every overview on the hub that shows an image uses
+          # `![]()` rather than a tag -- so whether it strips HTML or escapes
+          # it is not something to find out on a live page. Deleting the
+          # comment makes the question moot. The range form assumes the
+          # comment does not wrap anything meant to be published, which is
+          # what the one at the top of DOCKERHUB.md says it is for.
+          sed -i '/<!--/,/-->/d' DOCKERHUB.md
+          head -4 DOCKERHUB.md
           grep -n 'loremdev/doppel:' DOCKERHUB.md
 
       - name: Push the overview to Docker Hub
