@@ -1,11 +1,17 @@
-# Doppel
+<h1 align="center">
+  <img src="/docs/assets/logo.svg" width="24" alt="Doppel Logo"> Doppel
+</h1>
 
-Doppel is a CLI-driven HTTP reverse proxy. The name is from "doppelganger": it
-stands in front of, or in place of, a real backend, so clients of that backend
-can be developed and tested against a realistic, deliberately degraded, or
-entirely absent upstream. It forwards traffic to a configured upstream,
-injects controlled latency and loss, and (in a later phase) replaces selected
-endpoints with templated mock responses.
+<p align="center">
+    Doppel is a CLI-driven HTTP reverse proxy. The name is from "doppelganger": it
+    stands in front of, or in place of, a real backend, so clients of that backend
+    can be developed and tested against a realistic, deliberately degraded, or
+    entirely absent upstream. It forwards traffic to a configured upstream,
+    injects controlled latency and loss, and (in a later phase) replaces selected
+    endpoints with templated mock responses.
+</p>
+
+---
 
 ## What phase 1 does
 

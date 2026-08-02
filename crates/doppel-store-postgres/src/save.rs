@@ -32,7 +32,10 @@ impl PostgresStore {
             .map_err(|err| StoreError::Unavailable(format!("cannot begin: {err}")))?;
 
         match expected {
-            Some(expected) => self.update_header(&mut tx, config, revision, expected).await?,
+            Some(expected) => {
+                self.update_header(&mut tx, config, revision, expected)
+                    .await?
+            }
             None => self.upsert_header(&mut tx, config, revision).await?,
         }
 
@@ -64,7 +67,8 @@ impl PostgresStore {
         }
 
         for (ordinal, proxy) in config.proxies.iter().enumerate() {
-            self.insert_proxy(&mut tx, proxy, ordinal_of(ordinal)?).await?;
+            self.insert_proxy(&mut tx, proxy, ordinal_of(ordinal)?)
+                .await?;
             for (mock_ordinal, mock) in proxy.mocks.iter().enumerate() {
                 self.insert_mock(&mut tx, &proxy.name, mock, ordinal_of(mock_ordinal)?)
                     .await?;
@@ -90,28 +94,26 @@ impl PostgresStore {
         revision: Revision,
         expected: Revision,
     ) -> Result<(), StoreError> {
-        let affected = sqlx::query(&format!(
-            "UPDATE configurations SET revision = $1, {} WHERE name = $2 AND revision = $3",
-            header_assignments(4)
-        ))
-        .bind(as_i64(revision))
-        .bind(&self.config_name)
-        .bind(as_i64(expected))
-        .pipe_header(config)
-        .execute(&mut **tx)
-        .await
-        .map_err(write_failed)?
-        .rows_affected();
+        let affected = sqlx::query(UPDATE_HEADER)
+            .bind(as_i64(revision))
+            .bind(&self.config_name)
+            .bind(as_i64(expected))
+            .pipe_header(config)
+            .execute(&mut **tx)
+            .await
+            .map_err(write_failed)?
+            .rows_affected();
 
         if affected == 1 {
             return Ok(());
         }
 
-        let actual: Option<i64> = sqlx::query_scalar("SELECT revision FROM configurations WHERE name = $1")
-            .bind(&self.config_name)
-            .fetch_optional(&mut **tx)
-            .await
-            .map_err(write_failed)?;
+        let actual: Option<i64> =
+            sqlx::query_scalar("SELECT revision FROM configurations WHERE name = $1")
+                .bind(&self.config_name)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(write_failed)?;
 
         Err(match actual {
             Some(actual) => StoreError::RevisionMismatch {
@@ -128,26 +130,28 @@ impl PostgresStore {
         config: &Config,
         revision: Revision,
     ) -> Result<(), StoreError> {
-        sqlx::query(&format!(
-            "INSERT INTO configurations (name, revision, server_host, server_port, log_level, \
-             log_format, control_socket, templates_dir, sentry_dsn, admin_host, admin_port, \
-             admin_auth_header, admin_upload_limit, admin_access) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
-             ON CONFLICT (name) DO UPDATE SET revision = $2, {}, updated_at = now()",
-            header_assignments(3)
-        ))
-        .bind(&self.config_name)
-        .bind(as_i64(revision))
-        .pipe_header(config)
-        .execute(&mut **tx)
-        .await
-        .map_err(write_failed)?;
+        sqlx::query(UPSERT_HEADER)
+            .bind(&self.config_name)
+            .bind(as_i64(revision))
+            .pipe_header(config)
+            .execute(&mut **tx)
+            .await
+            .map_err(write_failed)?;
         Ok(())
     }
 
     async fn clear_children(&self, tx: &mut Transaction<'_, Postgres>) -> Result<(), StoreError> {
-        for table in ["mocks", "admin_tokens", "proxies"] {
-            sqlx::query(&format!("DELETE FROM {table} WHERE config = $1"))
+        // Written out rather than looped over a table name, so no SQL here is
+        // built by formatting. Order matters only in that `proxies` comes
+        // last: `mocks` cascades from it, and deleting the parent first would
+        // make the explicit child delete a no-op that reads as if it did
+        // something.
+        for statement in [
+            "DELETE FROM mocks WHERE config = $1",
+            "DELETE FROM admin_tokens WHERE config = $1",
+            "DELETE FROM proxies WHERE config = $1",
+        ] {
+            sqlx::query(statement)
                 .bind(&self.config_name)
                 .execute(&mut **tx)
                 .await
@@ -226,35 +230,35 @@ impl PostgresStore {
     }
 }
 
-/// The header's assignment list, starting at `$n`.
+/// The two header statements, written out rather than assembled.
 ///
-/// Written once and used by both the conditional update and the upsert, so the
-/// two cannot drift into writing different sets of columns -- which would show
-/// up as a configuration that changes depending on whether it was created or
-/// updated.
-fn header_assignments(first: usize) -> String {
-    HEADER_COLUMNS
-        .iter()
-        .enumerate()
-        .map(|(offset, column)| format!("{column} = ${}", first + offset))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
+/// Assembling them from a shared column list would keep them in step
+/// automatically, but only by building SQL with `format!` -- which sqlx
+/// refuses by design, because that is where injection lives, and silencing
+/// the refusal here would weaken it everywhere. They are literals instead,
+/// and `the_two_header_statements_write_the_same_columns` below is what keeps
+/// them in step: a column added to one and forgotten in the other would make
+/// a configuration differ depending on whether it was created or updated.
+///
+/// The bind order is the one `pipe_header` writes, and the tests below
+/// check the statements against it.
+const UPDATE_HEADER: &str = "UPDATE configurations SET revision = $1, \
+     server_host = $4, server_port = $5, log_level = $6, log_format = $7, \
+     control_socket = $8, templates_dir = $9, sentry_dsn = $10, admin_host = $11, \
+     admin_port = $12, admin_auth_header = $13, admin_upload_limit = $14, \
+     admin_access = $15, updated_at = now() \
+     WHERE name = $2 AND revision = $3";
 
-const HEADER_COLUMNS: &[&str] = &[
-    "server_host",
-    "server_port",
-    "log_level",
-    "log_format",
-    "control_socket",
-    "templates_dir",
-    "sentry_dsn",
-    "admin_host",
-    "admin_port",
-    "admin_auth_header",
-    "admin_upload_limit",
-    "admin_access",
-];
+const UPSERT_HEADER: &str = "INSERT INTO configurations \
+     (name, revision, server_host, server_port, log_level, log_format, control_socket, \
+      templates_dir, sentry_dsn, admin_host, admin_port, admin_auth_header, \
+      admin_upload_limit, admin_access) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
+     ON CONFLICT (name) DO UPDATE SET revision = $2, \
+     server_host = $3, server_port = $4, log_level = $5, log_format = $6, \
+     control_socket = $7, templates_dir = $8, sentry_dsn = $9, admin_host = $10, \
+     admin_port = $11, admin_auth_header = $12, admin_upload_limit = $13, \
+     admin_access = $14, updated_at = now()";
 
 /// Bind the header values in `HEADER_COLUMNS` order.
 ///
@@ -266,9 +270,7 @@ trait BindHeader<'q> {
     fn pipe_header(self, config: &'q Config) -> Self;
 }
 
-impl<'q> BindHeader<'q>
-    for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments>
-{
+impl<'q> BindHeader<'q> for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments> {
     fn pipe_header(self, config: &'q Config) -> Self {
         self.bind(config.server.host.to_string())
             .bind(i32::from(config.server.port))
@@ -327,4 +329,96 @@ fn from_i64(value: i64) -> Revision {
 
 fn write_failed(err: sqlx::Error) -> StoreError {
     StoreError::Unavailable(format!("write failed: {err}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The header columns, in the order `pipe_header` binds them.
+    ///
+    /// Lives here rather than beside the statements because only these tests
+    /// consume it, and a constant nothing in the binary reads is dead code the
+    /// compiler is right to refuse.
+    const HEADER_BINDS: &[&str] = &[
+        "server_host",
+        "server_port",
+        "log_level",
+        "log_format",
+        "control_socket",
+        "templates_dir",
+        "sentry_dsn",
+        "admin_host",
+        "admin_port",
+        "admin_auth_header",
+        "admin_upload_limit",
+        "admin_access",
+    ];
+
+    /// Every `column = $n` assignment in a statement.
+    fn assigned_columns(sql: &str) -> Vec<&str> {
+        sql.split(',')
+            .filter_map(|fragment| fragment.split_once('='))
+            .map(|(column, _)| column.trim().rsplit(' ').next().unwrap_or(column).trim())
+            .filter(|column| !column.is_empty())
+            .collect()
+    }
+
+    #[test]
+    fn the_two_header_statements_write_the_same_columns() {
+        // The one thing a shared, formatted column list would have given for
+        // free, bought back with a test instead -- because building SQL by
+        // formatting is what sqlx refuses, and silencing that refusal here
+        // would weaken it everywhere else in the crate.
+        //
+        // A column added to one statement and forgotten in the other makes a
+        // configuration differ depending on whether it was created or
+        // updated, which is the kind of bug that only appears on the second
+        // deployment.
+        let mut update: Vec<_> = assigned_columns(UPDATE_HEADER)
+            .into_iter()
+            .filter(|column| *column != "revision" && *column != "name")
+            .collect();
+        let mut upsert: Vec<_> = assigned_columns(UPSERT_HEADER)
+            .into_iter()
+            .filter(|column| *column != "revision")
+            .collect();
+        update.sort_unstable();
+        upsert.sort_unstable();
+        assert_eq!(update, upsert, "the two header statements have drifted");
+    }
+
+    #[test]
+    fn both_statements_write_exactly_the_columns_pipe_header_binds() {
+        // The other half: the statements agreeing with each other is no use if
+        // they disagree with the bind order.
+        let mut expected: Vec<_> = HEADER_BINDS.to_vec();
+        expected.push("updated_at");
+        expected.sort_unstable();
+
+        let mut written: Vec<_> = assigned_columns(UPDATE_HEADER)
+            .into_iter()
+            .filter(|column| *column != "revision" && *column != "name")
+            .collect();
+        written.sort_unstable();
+        assert_eq!(written, expected);
+    }
+
+    #[test]
+    fn a_revision_survives_the_trip_through_a_signed_column() {
+        // PostgreSQL has no unsigned 64-bit integer, and a hash above
+        // `i64::MAX` is perfectly ordinary. The mapping reuses the bits rather
+        // than converting the value, so it has to be exactly reversible.
+        for raw in [0, 1, u64::MAX, u64::MAX / 2, 0x8000_0000_0000_0000] {
+            assert_eq!(from_i64(as_i64(Revision(raw))), Revision(raw));
+        }
+    }
+
+    #[test]
+    fn an_ordinal_that_cannot_fit_is_refused_rather_than_wrapped() {
+        // Wrapping would reorder the document silently, and order decides
+        // which mock answers a request.
+        assert!(ordinal_of(0).is_ok());
+        assert!(ordinal_of(usize::MAX).is_err());
+    }
 }

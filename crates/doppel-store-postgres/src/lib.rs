@@ -5,6 +5,7 @@
 //! proxy, the renderer or the admin API, none of which talk to a database.
 
 mod load;
+mod save;
 
 use doppel_core::store::StoreError;
 use sqlx::PgPool;
