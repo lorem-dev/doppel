@@ -31,7 +31,7 @@ curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/scripts/insta
 
 Prebuilt binaries are published for macOS on Apple Silicon and Linux on x86-64
 and arm64. Anywhere else, `cargo install --path crates/doppel-cli`. See
-[the documentation](docs/usage/installation.md).
+[the documentation](https://lorem-dev.github.io/doppel/usage/installation/).
 
 Or run the image:
 
@@ -42,7 +42,8 @@ docker run --rm -p 8080:8080 -p 8081:8081 \
 ```
 
 Published for `linux/amd64` and `linux/arm64`, with no `latest` tag -- pin the
-version. See [Running in Docker](docs/usage/docker.md).
+version. See
+[Running in Docker](https://lorem-dev.github.io/doppel/usage/docker/).
 
 ## What it does
 
@@ -59,11 +60,12 @@ version. See [Running in Docker](docs/usage/docker.md).
 - Serves an admin HTTP API on a second port: proxy CRUD with optimistic
   concurrency, template upload, reload, a status endpoint, Prometheus metrics
   and a generated Swagger UI, behind token access control. See
-  [the documentation](docs/usage/admin-api.md).
+  [the documentation](https://lorem-dev.github.io/doppel/usage/admin-api/).
 - Reports errors to Sentry, optionally, behind the `sentry` cargo feature.
 - Stores its configuration in a YAML file or in PostgreSQL, selected by
   `--store`, with `config push` and `config pull` to move a configuration
-  between the two. See [the documentation](docs/usage/storage.md).
+  between the two. See
+  [the documentation](https://lorem-dev.github.io/doppel/usage/storage/).
 
 ## What it does not do yet
 
@@ -71,19 +73,22 @@ version. See [Running in Docker](docs/usage/docker.md).
   saying so, rather than being quietly ignored.
 
 Mocked responses and Jinja2 templating are implemented -- see
-[the documentation](docs/usage/mocks.md).
+[the documentation](https://lorem-dev.github.io/doppel/usage/mocks/).
 
 ## Documentation
 
-The full documentation lives in `docs/` and builds with mkdocs and the Material
-theme. Python tooling here is driven by `uv`, never `pip`:
+The full documentation is published at
+<https://lorem-dev.github.io/doppel/>. Its source is `docs/`, and it builds
+with mkdocs and the Material theme; Python tooling here is driven by `uv`,
+never `pip`:
 
 ```bash
 uv run --with-requirements docs/requirements.txt mkdocs serve
 ```
 
 The workspace layout -- the crates, what each owns, and the dependency
-direction -- is in [the architecture page](docs/development/architecture.md).
+direction -- is in
+[the architecture page](https://lorem-dev.github.io/doppel/development/architecture/).
 
 `.superpowers/specs/` holds the design documents; that directory is git-ignored
 and not shipped.
