@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use arc_swap::{ArcSwap, Guard};
 
-use crate::config::{Config, LatencyConfig, LossConfig, ProxyConfig, ResolveKind};
+use crate::config::{Config, LatencyConfig, LossConfig, MockConfig, ProxyConfig, ResolveKind};
 use crate::store::Revision;
 use crate::{Error, ErrorCode};
 
@@ -25,6 +25,66 @@ pub struct CompiledProxy {
     pub latency: Option<LatencyConfig>,
     pub replace: f64,
     pub resolve_header: Option<String>,
+    /// Mocks in configuration order. Matching is first-wins, so this order
+    /// is load-bearing, not incidental.
+    pub mocks: Vec<CompiledMock>,
+    /// Bytes a body-extracting mock may buffer from the request body before
+    /// `UPLOAD_TOO_LARGE`. Always set: the config field this comes from
+    /// resolves its own default at parse time.
+    pub body_limit: u64,
+}
+
+/// A mock with everything the hot path needs already parsed: its pattern
+/// compiled, its extraction sources split out by kind, and its response
+/// shape resolved to a single variant. Mocks match first-wins (section 4 of
+/// the design), so `Runtime::compile` keeps this in the same order as the
+/// `mocks` list it came from.
+#[derive(Debug, Clone)]
+pub struct CompiledMock {
+    pub name: String,
+    pub method: String,
+    pub pattern: regex::Regex,
+    /// Named capture groups, in the order the pattern declares them.
+    pub capture_names: Vec<String>,
+    /// Variable name -> request header name, lowercased so the request path
+    /// never has to case-fold a header name again.
+    pub header_vars: Vec<(String, String)>,
+    /// Variable name -> raw `.a.b` query selector.
+    pub query_vars: Vec<(String, String)>,
+    /// Variable name -> raw `.a.b` body selector.
+    pub body_vars: Vec<(String, String)>,
+    pub status: u16,
+    pub body: MockBody,
+    /// Response header name -> template source, rendered per request.
+    pub headers: Vec<(String, String)>,
+    pub replace: Option<f64>,
+    pub loss: Option<LossConfig>,
+    pub latency: Option<LatencyConfig>,
+}
+
+/// The response body a mock produces, resolved from whichever of the three
+/// mutually exclusive `response` fields the config declared (validation rule
+/// V20 guarantees at most one).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MockBody {
+    /// No body field was set; only valid for a bodiless status (rule V30).
+    None,
+    /// `response.body`: a template rendered to bytes and returned as-is.
+    Text(String),
+    /// `response.json`: a template whose rendered output is additionally
+    /// checked as JSON before being sent.
+    Json(String),
+    /// `response.template`: names a file under `<templates.dir>/<proxy>/`.
+    ///
+    /// This carries only the file name, not its contents. Every other field
+    /// compiled here obeys "nothing parses on the hot path" -- this is the
+    /// one deliberate exception. Phase 3 uploads template files at runtime,
+    /// so a mock may legitimately name a file that does not exist yet, and a
+    /// config reload has to pick up whatever is on disk *at that moment*,
+    /// not whatever existed when the config was last compiled. Reading the
+    /// file therefore happens per request (Task 6), where a missing file is
+    /// a `TEMPLATE_NOT_FOUND` at request time rather than a reload failure.
+    Template(String),
 }
 
 /// An immutable snapshot of everything derived from one configuration.
@@ -106,6 +166,11 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
         )
     })?;
 
+    let mut mocks = Vec::with_capacity(proxy.mocks.len());
+    for mock in &proxy.mocks {
+        mocks.push(compile_mock(mock, &proxy.name)?);
+    }
+
     Ok(CompiledProxy {
         name: proxy.name.clone(),
         base_url,
@@ -126,6 +191,88 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
                 .map(|h| h.to_ascii_lowercase()),
             ResolveKind::Default => None,
         },
+        mocks,
+        body_limit: proxy.body_limit.0,
+    })
+}
+
+/// Compiles one mock: the regex once, here (a failure is defence in depth
+/// behind rule V18, which already rejects an unparseable pattern), the three
+/// extraction maps split out by source, and the response resolved to a
+/// single `MockBody`. See `MockBody::Template` for why the template case does
+/// not read the file it names.
+fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Error> {
+    let pattern = regex::Regex::new(&mock.request.url).map_err(|e| {
+        Error::new(
+            ErrorCode::ConfigInvalid,
+            format!(
+                "proxy `{proxy_name}` mock `{}` has an unusable url pattern: {e}",
+                mock.name
+            ),
+        )
+    })?;
+
+    let capture_names = pattern
+        .capture_names()
+        .flatten()
+        .map(str::to_owned)
+        .collect();
+
+    let header_vars = mock
+        .request
+        .headers
+        .iter()
+        .map(|(var, header)| (var.clone(), header.to_ascii_lowercase()))
+        .collect();
+    let query_vars = mock
+        .request
+        .query
+        .iter()
+        .map(|(var, selector)| (var.clone(), selector.clone()))
+        .collect();
+    let body_vars = mock
+        .request
+        .body
+        .iter()
+        .map(|(var, selector)| (var.clone(), selector.clone()))
+        .collect();
+
+    let body = if let Some(text) = &mock.response.body {
+        MockBody::Text(text.clone())
+    } else if let Some(json) = &mock.response.json {
+        MockBody::Json(json.clone())
+    } else if let Some(template) = &mock.response.template {
+        MockBody::Template(template.clone())
+    } else {
+        MockBody::None
+    };
+
+    let headers = mock
+        .response
+        .headers
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    let (replace, loss, latency) = match &mock.proxy {
+        Some(over) => (over.replace, over.loss, over.latency),
+        None => (None, None, None),
+    };
+
+    Ok(CompiledMock {
+        name: mock.name.clone(),
+        method: mock.request.method.clone(),
+        pattern,
+        capture_names,
+        header_vars,
+        query_vars,
+        body_vars,
+        status: mock.response.status,
+        body,
+        headers,
+        replace,
+        loss,
+        latency,
     })
 }
 
@@ -334,5 +481,176 @@ proxies:
             response.headers().get("location").unwrap(),
             "http://example.invalid/target"
         );
+    }
+
+    mod mocks {
+        use super::*;
+
+        const WITH_MOCKS: &str = r#"
+server:
+  host: "127.0.0.1"
+  port: 8080
+admin:
+  host: "127.0.0.1"
+  port: 8081
+  tokens: []
+  access: {}
+  upload:
+    limit: 1M
+proxies:
+  - name: p1
+    type: http
+    url: "https://example.com/"
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /api/(?P<first>\d+)/(?P<second>\w+)/
+        response:
+          status: 200
+          body: 'plain'
+"#;
+
+        fn reference_config() -> Config {
+            let text = std::fs::read_to_string(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../main.example.yaml"
+            ))
+            .unwrap();
+            load_from_str(&text).unwrap()
+        }
+
+        fn compile_reference() -> Runtime {
+            Runtime::compile(Arc::new(reference_config()), Revision(1)).unwrap()
+        }
+
+        #[test]
+        fn every_mock_in_the_reference_config_compiles_with_the_right_counts_per_proxy() {
+            let rt = compile_reference();
+
+            let proxy1 = rt.proxy_by_name("proxy1").unwrap();
+            assert_eq!(proxy1.mocks.len(), 6);
+            let proxy2 = rt.proxy_by_name("proxy2").unwrap();
+            assert_eq!(proxy2.mocks.len(), 0);
+        }
+
+        #[test]
+        fn a_proxy_with_no_mocks_compiles_to_an_empty_vector_rather_than_failing() {
+            let rt = compile(TWO_PROXIES);
+            assert!(rt.proxies[0].mocks.is_empty());
+            assert!(rt.proxies[1].mocks.is_empty());
+        }
+
+        #[test]
+        fn capture_names_are_extracted_in_declaration_order_for_multiple_groups() {
+            let config = Arc::new(load_from_str(WITH_MOCKS).unwrap());
+            let rt = Runtime::compile(config, Revision(1)).unwrap();
+            assert_eq!(
+                rt.proxies[0].mocks[0].capture_names,
+                vec!["first".to_owned(), "second".to_owned()]
+            );
+        }
+
+        #[test]
+        fn a_mock_with_no_captures_yields_an_empty_capture_names() {
+            let rt = compile_reference();
+            let mock1 = &rt.proxy_by_name("proxy1").unwrap().mocks[0];
+            assert_eq!(mock1.name, "mock1");
+            assert!(mock1.capture_names.is_empty());
+        }
+
+        #[test]
+        fn the_three_config_body_fields_map_to_the_matching_mock_body_variant() {
+            let rt = compile_reference();
+            let proxy1 = rt.proxy_by_name("proxy1").unwrap();
+
+            assert_eq!(proxy1.mocks[0].name, "mock1");
+            assert_eq!(
+                proxy1.mocks[0].body,
+                MockBody::Text(r#"{"message": "Success"}"#.to_owned())
+            );
+
+            assert_eq!(proxy1.mocks[1].name, "mock2");
+            assert!(matches!(proxy1.mocks[1].body, MockBody::Json(_)));
+
+            assert_eq!(proxy1.mocks[5].name, "mock6");
+            assert_eq!(
+                proxy1.mocks[5].body,
+                MockBody::Template("put.json.j2".to_owned())
+            );
+
+            // mock5 answers 204, which forbids a body (rule V30).
+            assert_eq!(proxy1.mocks[4].name, "mock5");
+            assert_eq!(proxy1.mocks[4].body, MockBody::None);
+        }
+
+        #[test]
+        fn a_mock_proxy_override_survives_compilation_and_a_mock_without_one_leaves_them_none() {
+            let rt = compile_reference();
+            let proxy1 = rt.proxy_by_name("proxy1").unwrap();
+
+            // mock1 declares no per-mock override at all.
+            assert_eq!(proxy1.mocks[0].name, "mock1");
+            assert_eq!(proxy1.mocks[0].replace, None);
+            assert_eq!(proxy1.mocks[0].loss, None);
+            assert_eq!(proxy1.mocks[0].latency, None);
+
+            // mock3 overrides replace and latency, but not loss.
+            assert_eq!(proxy1.mocks[2].name, "mock3");
+            assert_eq!(proxy1.mocks[2].replace, Some(0.5));
+            assert_eq!(proxy1.mocks[2].loss, None);
+            assert!(proxy1.mocks[2].latency.is_some());
+            assert!((proxy1.mocks[2].latency.unwrap().percentage - 0.5).abs() < f64::EPSILON);
+
+            // mock6 overrides loss only.
+            assert_eq!(proxy1.mocks[5].name, "mock6");
+            assert_eq!(proxy1.mocks[5].replace, None);
+            assert_eq!(proxy1.mocks[5].latency, None);
+            assert!(proxy1.mocks[5].loss.is_some());
+            assert_eq!(proxy1.mocks[5].loss.unwrap().status, 503);
+        }
+
+        #[test]
+        fn header_variable_names_are_lowercased() {
+            let rt = compile_reference();
+            let proxy1 = rt.proxy_by_name("proxy1").unwrap();
+
+            // mock4 declares `requestId: X-Request-ID`.
+            assert_eq!(proxy1.mocks[3].name, "mock4");
+            assert_eq!(
+                proxy1.mocks[3].header_vars,
+                vec![("requestId".to_owned(), "x-request-id".to_owned())]
+            );
+        }
+
+        #[test]
+        fn query_and_body_vars_carry_the_raw_selector_unmodified() {
+            let rt = compile_reference();
+            let proxy1 = rt.proxy_by_name("proxy1").unwrap();
+
+            // mock2 declares query.filter/.sort and three body selectors.
+            assert_eq!(proxy1.mocks[1].name, "mock2");
+            assert!(
+                proxy1.mocks[1]
+                    .query_vars
+                    .contains(&("filter".to_owned(), ".filter".to_owned()))
+            );
+            assert!(
+                proxy1.mocks[1]
+                    .body_vars
+                    .contains(&("resourceItems".to_owned(), ".content.items".to_owned()))
+            );
+        }
+
+        #[test]
+        fn body_limit_reaches_compiled_proxy() {
+            let text =
+                TWO_PROXIES.replace("    timeout: 5", "    timeout: 5\n    body_limit: 512K");
+            let rt = compile(&text);
+            assert_eq!(rt.proxies[0].body_limit, 512 * 1024);
+            // p2 never sets body_limit, so it falls back to the config
+            // model's own default rather than picking up p1's value.
+            assert_eq!(rt.proxies[1].body_limit, 1024 * 1024);
+        }
     }
 }

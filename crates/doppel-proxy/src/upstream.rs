@@ -614,6 +614,8 @@ mod tests {
             latency: None,
             replace: 1.0,
             resolve_header: None,
+            mocks: Vec::new(),
+            body_limit: 1024 * 1024,
         }
     }
 
