@@ -272,8 +272,14 @@ dependencies = [
 name = "doppel-admin"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "doppel-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
  "tracing",
 ]
 

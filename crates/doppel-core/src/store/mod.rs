@@ -58,6 +58,46 @@ impl Revision {
     }
 }
 
+/// The wire form of a revision: exactly sixteen lowercase hex digits, always
+/// zero-padded. Fixed width so that the string a client stores, compares or
+/// puts in an `ETag` never depends on how many leading zeroes the hash
+/// happened to produce -- `Revision(1)` and `Revision(0x1000...)` must not
+/// differ in length or a naive client's comparison starts depending on
+/// formatting.
+impl std::fmt::Display for Revision {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
+}
+
+/// A revision string that is not sixteen hex digits.
+#[derive(Debug, Clone, thiserror::Error)]
+#[error("a revision is exactly 16 hexadecimal digits")]
+pub struct RevisionParseError;
+
+/// The exact inverse of `Display`, and deliberately strict.
+///
+/// A shorter string is not accepted even though it would parse as a number:
+/// the only way a client obtains a revision is by reading one from this API,
+/// so anything of the wrong shape is a truncation, a hand-edit or a
+/// different value entirely. Accepting it would turn a malformed request
+/// into a revision mismatch, which tells the client to re-read and try again
+/// -- advice that cannot ever fix the actual problem.
+impl std::str::FromStr for Revision {
+    type Err = RevisionParseError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        // `from_str_radix` alone would accept a leading `+` and reject
+        // nothing about the length, so the shape is checked here first.
+        if text.len() != 16 || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(RevisionParseError);
+        }
+        u64::from_str_radix(text, 16)
+            .map(Revision)
+            .map_err(|_| RevisionParseError)
+    }
+}
+
 /// A stable, non-cryptographic 64-bit hash (FNV-1a), used by both
 /// `Revision::of_config` and `Revision::of_proxy` to turn a canonical YAML
 /// serialization into a revision.

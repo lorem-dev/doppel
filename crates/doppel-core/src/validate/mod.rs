@@ -35,7 +35,15 @@ impl Violation {
 
 impl std::fmt::Display for Violation {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}: {}", self.path, self.message)
+        // A violation with no path is one about the document as a whole --
+        // a parse failure, say -- rather than about a field. Printing the
+        // usual `path: message` for it produces a leading `: `, which reads
+        // like a missing value rather than an absent one.
+        if self.path.is_empty() {
+            write!(f, "{}", self.message)
+        } else {
+            write!(f, "{}: {}", self.path, self.message)
+        }
     }
 }
 

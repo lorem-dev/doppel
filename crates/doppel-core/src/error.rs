@@ -21,6 +21,7 @@ pub enum ErrorCode {
     TemplateNotDeclared,
     StoreError,
     RevisionMismatch,
+    RevisionRequired,
     InvalidRequestPath,
 }
 
@@ -48,6 +49,13 @@ impl ErrorCode {
             // (`REVISION_MISMATCH`).
             Self::Conflict => 409,
             Self::RevisionMismatch => 409,
+            // 428 Precondition Required (RFC 6585), which exists for
+            // precisely this: the server insists the request be conditional
+            // so that a lost update cannot happen. It is deliberately not
+            // 409 -- nothing conflicted, because nothing was compared -- and
+            // deliberately not a generic 400, because the fix is specific
+            // and mechanical: re-read, then send the revision you got back.
+            Self::RevisionRequired => 428,
             Self::UploadTooLarge => 413,
             Self::TemplateNotDeclared => 422,
             // A client that sends a `.`/`..` segment, or a path that would
@@ -77,6 +85,7 @@ impl ErrorCode {
             Self::TemplateNotDeclared => "TEMPLATE_NOT_DECLARED",
             Self::StoreError => "STORE_ERROR",
             Self::RevisionMismatch => "REVISION_MISMATCH",
+            Self::RevisionRequired => "REVISION_REQUIRED",
             Self::InvalidRequestPath => "INVALID_REQUEST_PATH",
         }
     }
@@ -111,6 +120,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "TEMPLATE_NOT_DECLARED" => Ok(Self::TemplateNotDeclared),
             "STORE_ERROR" => Ok(Self::StoreError),
             "REVISION_MISMATCH" => Ok(Self::RevisionMismatch),
+            "REVISION_REQUIRED" => Ok(Self::RevisionRequired),
             "INVALID_REQUEST_PATH" => Ok(Self::InvalidRequestPath),
             other => Err(serde::de::Error::custom(format!(
                 "unknown error code `{other}`"
@@ -168,14 +178,14 @@ mod tests {
     /// HTTP status. `all_codes_map_to_their_documented_status`,
     /// `all_codes_map_to_their_documented_wire_string` and
     /// `every_code_round_trips_through_json` below are all driven from this
-    /// one list rather than each hand-listing the sixteen variants
+    /// one list rather than each hand-listing the seventeen variants
     /// separately, so a code missing from one of them cannot happen without
     /// being missing from all.
     ///
     /// `all_codes_are_listed_exactly_once` is what keeps this list itself
     /// honest: `assert_listed`'s match has no wildcard arm, so the compiler
     /// refuses to build this test suite at all the moment `ErrorCode` gains
-    /// a seventeenth variant without a corresponding arm added there --
+    /// an eighteenth variant without a corresponding arm added there --
     /// regardless of whether that arm is ever reached at runtime. Each arm
     /// also asserts its variant appears in `ALL_CODES` exactly once, so an
     /// entry that is present in the enum but quietly dropped from this list
@@ -196,6 +206,7 @@ mod tests {
         (ErrorCode::TemplateNotDeclared, "TEMPLATE_NOT_DECLARED", 422),
         (ErrorCode::StoreError, "STORE_ERROR", 500),
         (ErrorCode::RevisionMismatch, "REVISION_MISMATCH", 409),
+        (ErrorCode::RevisionRequired, "REVISION_REQUIRED", 428),
         (ErrorCode::InvalidRequestPath, "INVALID_REQUEST_PATH", 400),
     ];
 
@@ -219,6 +230,7 @@ mod tests {
             | ErrorCode::TemplateNotDeclared
             | ErrorCode::StoreError
             | ErrorCode::RevisionMismatch
+            | ErrorCode::RevisionRequired
             | ErrorCode::InvalidRequestPath => {
                 let count = ALL_CODES.iter().filter(|(c, _, _)| *c == code).count();
                 assert_eq!(count, 1, "{code:?} must appear exactly once in ALL_CODES");

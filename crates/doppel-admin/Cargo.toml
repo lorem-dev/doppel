@@ -8,7 +8,15 @@ license.workspace = true
 [dependencies]
 doppel-core = { path = "../doppel-core" }
 axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+async-trait.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
+tower.workspace = true
 
 [lints]
 workspace = true
