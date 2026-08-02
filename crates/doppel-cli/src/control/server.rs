@@ -5,6 +5,7 @@ use std::os::unix::fs::{DirBuilderExt, FileTypeExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use doppel_core::config::EnvTokens;
 use doppel_core::store::ConfigStore;
 use doppel_core::{Config, ErrorCode, RuntimeHolder};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Take};
@@ -147,6 +148,7 @@ impl ControlServer {
         holder: Arc<RuntimeHolder>,
         store: Arc<dyn ConfigStore>,
         startup_config: Arc<Config>,
+        env_tokens: Arc<EnvTokens>,
         reload_lock: Arc<Mutex<()>>,
         shutdown: impl Future<Output = ()> + Send,
     ) {
@@ -159,11 +161,18 @@ impl ControlServer {
                         let holder = Arc::clone(&holder);
                         let store = Arc::clone(&store);
                         let startup_config = Arc::clone(&startup_config);
+                        let env_tokens = Arc::clone(&env_tokens);
                         let reload_lock = Arc::clone(&reload_lock);
                         tokio::spawn(async move {
-                            if let Err(err) =
-                                serve_connection(stream, holder, store, startup_config, reload_lock)
-                                    .await
+                            if let Err(err) = serve_connection(
+                                stream,
+                                holder,
+                                store,
+                                startup_config,
+                                env_tokens,
+                                reload_lock,
+                            )
+                            .await
                             {
                                 tracing::warn!(error = %err, "control connection failed");
                             }
@@ -277,6 +286,7 @@ async fn serve_connection(
     holder: Arc<RuntimeHolder>,
     store: Arc<dyn ConfigStore>,
     startup_config: Arc<Config>,
+    env_tokens: Arc<EnvTokens>,
     reload_lock: Arc<Mutex<()>>,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.take(MAX_REQUEST_LINE_BYTES));
@@ -301,8 +311,15 @@ async fn serve_connection(
             // swap in a runtime built from the configuration as it was before
             // the append.
             let _guard = reload_lock.lock().await;
-            let response =
-                super::token::add(&holder, store.as_ref(), &startup_config, name, group).await;
+            let response = super::token::add(
+                &holder,
+                store.as_ref(),
+                &startup_config,
+                &env_tokens,
+                name,
+                group,
+            )
+            .await;
             write_response(reader, &response).await
         }
         Err(_) => {
@@ -426,6 +443,7 @@ proxies:
                     run_holder,
                     store,
                     startup_config,
+                    Arc::new(doppel_core::config::EnvTokens::default()),
                     Arc::new(Mutex::new(())),
                     async {
                         let _ = rx.await;
@@ -656,6 +674,7 @@ proxies:
                     run_holder,
                     store,
                     startup_config,
+                    Arc::new(doppel_core::config::EnvTokens::default()),
                     Arc::new(Mutex::new(())),
                     async {
                         let _ = rx.await;

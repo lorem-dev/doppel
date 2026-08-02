@@ -12,7 +12,7 @@ use doppel_core::validate::validate;
 use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::{Deserialize, Serialize};
 
-use crate::access::{Action, authorize, caller_from_headers, policy};
+use crate::access::{Action, authorize, caller_from_headers_with_env, policy};
 use crate::body::{MAX_DOCUMENT_BYTES, read_body};
 use crate::response::{ApiError, config_invalid, store_error};
 use crate::state::AdminState;
@@ -86,7 +86,7 @@ pub(crate) async fn list(
     // Policy from the running configuration, data from the store: see
     // `access::policy`.
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     authorize(&policy.admin, None, Action::List, &caller)?;
 
     let config = load(&state).await?;
@@ -110,7 +110,7 @@ pub(crate) async fn read(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     // Authorization first, existence second. Swapping these turns the pair of
     // statuses into a way to enumerate proxy names -- see `authorize`.
     //
@@ -142,7 +142,7 @@ pub(crate) async fn create(
     body: Body,
 ) -> Result<Response, ApiError> {
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     authorize(&policy.admin, None, Action::Create, &caller)?;
     drop(policy);
 
@@ -229,7 +229,7 @@ pub(crate) async fn update(
     body: Body,
 ) -> Result<Response, ApiError> {
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     authorize(&policy.admin, find(&policy, &name), Action::Update, &caller)?;
     drop(policy);
 
@@ -298,7 +298,7 @@ pub(crate) async fn remove(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     authorize(&policy.admin, find(&policy, &name), Action::Delete, &caller)?;
     drop(policy);
 

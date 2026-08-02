@@ -454,3 +454,162 @@ fn an_illegal_token_name_is_refused_before_anything_is_sent() {
     let output = server.token_add("a/b", None);
     assert_eq!(output.status.code(), Some(2), "{output:?}");
 }
+
+/// A token value long enough for `Token`, recognisable in an assertion.
+const ENV_TOKEN: &str = "env-supplied-token-0000000000000000";
+
+fn start_with_env_tokens(json: &str) -> (Server, Admin, common::Upstream) {
+    let up = upstream();
+    let server = Server::start_with_env(
+        up.port,
+        config_with_a_mock,
+        &[("DOPPEL_ADMIN_TOKENS", json)],
+    );
+    let admin = Admin {
+        port: server.admin_port(),
+    };
+    (server, admin, up)
+}
+
+#[test]
+fn a_token_from_the_environment_authenticates_without_touching_the_document() {
+    let (_server, admin, _up) = start_with_env_tokens(&format!(
+        r#"{{"ci": {{"token": "{ENV_TOKEN}", "group": "admin"}}}}"#
+    ));
+
+    let (status, body) = admin.request("GET", "/api/v1/proxies", Some(ENV_TOKEN), None);
+    assert_eq!(status, 200, "{body}");
+    // And it carries the group it was given, so it may write.
+    let (status, body) = admin.request("POST", "/api/v1/config/reload", Some(ENV_TOKEN), None);
+    assert_eq!(status, 200, "{body}");
+}
+
+#[test]
+fn an_environment_token_defaults_to_the_user_group() {
+    let (_server, admin, _up) =
+        start_with_env_tokens(&format!(r#"{{"ci": {{"token": "{ENV_TOKEN}"}}}}"#));
+
+    let (status, body) = admin.request("POST", "/api/v1/config/reload", Some(ENV_TOKEN), None);
+    assert_eq!(status, 403, "a defaulted group must not write: {body}");
+}
+
+#[test]
+fn an_environment_token_shadows_the_configured_one_of_the_same_name() {
+    // The configured fixture calls its token `user1`. Claiming that name in
+    // the environment replaces it: the new value works and the old one stops
+    // working, rather than both being live for one identity.
+    let (_server, admin, _up) = start_with_env_tokens(&format!(
+        r#"{{"user1": {{"token": "{ENV_TOKEN}", "group": "admin"}}}}"#
+    ));
+
+    let (status, body) = admin.request("GET", "/api/v1/proxies", Some(ENV_TOKEN), None);
+    assert_eq!(status, 200, "the environment's value must work: {body}");
+
+    let (status, body) = admin.request("GET", "/api/v1/proxies", Some(SECRET_TOKEN), None);
+    assert_eq!(
+        status, 401,
+        "the shadowed configured value must stop working: {body}"
+    );
+}
+
+#[test]
+fn a_configured_token_the_environment_does_not_claim_keeps_working() {
+    // The other half: shadowing is by name, not wholesale replacement.
+    let (_server, admin, _up) = start_with_env_tokens(&format!(
+        r#"{{"ci": {{"token": "{ENV_TOKEN}", "group": "admin"}}}}"#
+    ));
+
+    let (status, body) = admin.request("GET", "/api/v1/proxies", Some(SECRET_TOKEN), None);
+    assert_eq!(status, 200, "{body}");
+}
+
+#[test]
+fn a_malformed_token_variable_fails_startup_rather_than_being_skipped() {
+    // An operator who provisioned a token and saw no error believes they have
+    // access. This is checked with a raw spawn, because the harness's
+    // `start_with_env` waits for a server that is never going to come up.
+    let up = upstream();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.yaml");
+    std::fs::write(
+        &path,
+        config(
+            Ports {
+                server: common::free_port(),
+                admin: common::free_port(),
+                upstream: up.port,
+            },
+            &dir.path().join("s.sock"),
+            &dir.path().join("t"),
+        ),
+    )
+    .unwrap();
+
+    for bad in [
+        "not json",
+        r#"{"ci": {"token": "tooshort"}}"#,
+        r#"{"a/b": {"token": "env-supplied-token-0000000000000000"}}"#,
+    ] {
+        // Spawned and waited on with a deadline rather than `output()`. A
+        // regression here means the server *starts*, and `output()` would
+        // then wait for a process that never exits -- a hanging test instead
+        // of a failing one, which is the worse of the two by a distance.
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_doppel"))
+            .args(["serve", "--config"])
+            .arg(&path)
+            .env("DOPPEL_ADMIN_TOKENS", bad)
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break Some(status);
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        let output = child.wait_with_output().unwrap();
+        let status = status.unwrap_or_else(|| {
+            panic!(
+                "`{bad}` started a server instead of failing; it was killed after 10s\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+        assert!(
+            !status.success(),
+            "`{bad}` must not start: {:?}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("DOPPEL_ADMIN_TOKENS"),
+            "the message must name the variable: {stderr}"
+        );
+        assert!(
+            !stderr.contains("tooshort"),
+            "and must not carry the value: {stderr}"
+        );
+    }
+}
+
+#[test]
+fn a_name_the_environment_claims_cannot_be_issued_over_the_socket() {
+    // Issuing it would store a token that never authenticates, because the
+    // environment is searched first. A credential that looks issued and is
+    // not is the worst outcome available here.
+    let (server, _admin, _up) = start_with_env_tokens(&format!(
+        r#"{{"ci": {{"token": "{ENV_TOKEN}", "group": "admin"}}}}"#
+    ));
+
+    let output = server.token_add("ci", None);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!output.status.success(), "{stdout}");
+    assert!(stdout.contains("supplied by the environment"), "{stdout}");
+    assert!(stdout.contains("would never authenticate"), "{stdout}");
+}

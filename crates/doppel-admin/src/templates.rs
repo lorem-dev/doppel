@@ -11,7 +11,7 @@ use doppel_core::store::name::sanitize;
 use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 
-use crate::access::{Action, authorize, caller_from_headers, policy};
+use crate::access::{Action, authorize, caller_from_headers_with_env, policy};
 use crate::body::read_body;
 use crate::proxies::{find, load, not_found};
 use crate::response::{ApiError, store_error};
@@ -83,7 +83,7 @@ pub(crate) async fn list(
     // Policy from the running configuration, data from the store: see
     // `access::policy`.
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     // Listing a proxy's files is a read of that proxy, so `read` governs it
     // rather than `upload`: seeing which templates are present is not a
     // change.
@@ -132,7 +132,7 @@ pub(crate) async fn upload(
     body: Body,
 ) -> Result<Response, ApiError> {
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     authorize(&policy.admin, find(&policy, &name), Action::Upload, &caller)?;
 
     let config = load(&state).await?;
@@ -188,7 +188,7 @@ pub(crate) async fn remove(
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     let policy = policy(&state);
-    let caller = caller_from_headers(&policy.admin, &headers);
+    let caller = caller_from_headers_with_env(&policy.admin, state.env_tokens(), &headers);
     authorize(&policy.admin, find(&policy, &name), Action::Upload, &caller)?;
 
     let config = load(&state).await?;

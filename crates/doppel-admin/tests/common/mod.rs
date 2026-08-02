@@ -185,6 +185,7 @@ impl Harness {
             Arc::clone(&self.store),
             Arc::clone(&self.holder),
             Arc::clone(&self.startup),
+            Arc::new(doppel_core::config::EnvTokens::default()),
             Arc::clone(&self.reload_lock),
             self.recorder.handle(),
             Instant::now(),

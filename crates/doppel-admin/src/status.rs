@@ -10,7 +10,7 @@ use doppel_core::redact_credentials;
 use doppel_core::{Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 
-use crate::access::{Action, authorize, caller_from_headers};
+use crate::access::{Action, authorize, caller_from_headers_with_env};
 use crate::response::{ApiError, config_invalid};
 use crate::state::AdminState;
 
@@ -142,7 +142,7 @@ pub(crate) async fn reload(
     // write the file out of band could grant themselves the right to make
     // the process run it.
     let running = state.holder().load();
-    let caller = caller_from_headers(&running.config.admin, &headers);
+    let caller = caller_from_headers_with_env(&running.config.admin, state.env_tokens(), &headers);
     authorize(&running.config.admin, None, Action::Update, &caller)?;
     // Dropped before the reload swaps the runtime: holding an arc-swap guard
     // across the swap would keep the old runtime alive for no reason.

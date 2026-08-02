@@ -1,7 +1,7 @@
 //! Who the caller is, and what they may do.
 
 use axum::http::HeaderMap;
-use doppel_core::config::{AdminConfig, ProxyConfig, Subjects};
+use doppel_core::config::{AdminConfig, EnvTokens, ProxyConfig, Subjects};
 use doppel_core::{Error, ErrorCode};
 
 /// The caller, once the token has been resolved.
@@ -75,8 +75,34 @@ pub fn policy(state: &crate::AdminState) -> std::sync::Arc<doppel_core::Config> 
     std::sync::Arc::clone(&state.holder().load().config)
 }
 
+/// Resolve the caller against the configured tokens alone.
+///
+/// Kept for the tests that have no environment to speak of. Everything
+/// serving a request goes through `caller_from_headers_with_env`.
 #[must_use]
 pub fn caller_from_headers(admin: &AdminConfig, headers: &HeaderMap) -> Caller {
+    caller_from_headers_with_env(admin, &EnvTokens::default(), headers)
+}
+
+/// Resolve the caller against the environment's tokens and then the
+/// configured ones.
+///
+/// The environment is searched first, which is what "overrides on conflict"
+/// means once it is made precise. A name given in both resolves to the
+/// environment's group, and a *value* given in both resolves to the
+/// environment's name -- so a deployment can replace a configured token
+/// without editing the document that names it.
+///
+/// A configured token whose name the environment also claims is skipped
+/// entirely rather than left reachable by its own value. Leaving it would
+/// mean two live secrets for one identity, one of which nobody remembers
+/// issuing.
+#[must_use]
+pub fn caller_from_headers_with_env(
+    admin: &AdminConfig,
+    env: &EnvTokens,
+    headers: &HeaderMap,
+) -> Caller {
     let Some(value) = headers.get(admin.auth.header.as_str()) else {
         return Caller::Anonymous;
     };
@@ -88,13 +114,17 @@ pub fn caller_from_headers(admin: &AdminConfig, headers: &HeaderMap) -> Caller {
     };
     let token = token.trim();
 
-    admin
-        .tokens
-        .iter()
-        // `Token::matches` rather than `==`: the comparison against a
-        // presented secret is the one place where stopping at the first
-        // differing byte is measurable from outside.
-        .find(|t| t.token.matches(token))
+    env.find(token)
+        .or_else(|| {
+            admin
+                .tokens
+                .iter()
+                .filter(|t| !env.shadows(&t.name))
+                // `Token::matches` rather than `==`: the comparison against a
+                // presented secret is the one place where stopping at the
+                // first differing byte is measurable from outside.
+                .find(|t| t.token.matches(token))
+        })
         .map_or(Caller::Anonymous, |t| Caller::Token {
             name: t.name.to_string(),
             group: t.group.to_string(),

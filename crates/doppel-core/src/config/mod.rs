@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod duration;
+pub mod env;
 pub mod header;
 pub mod mock;
 pub mod name;
@@ -26,6 +27,7 @@ pub use admin::{
     AccessConfig, AdminConfig, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig, UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
+pub use env::{EnvTokens, EnvTokensError};
 pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{Name, NameError};

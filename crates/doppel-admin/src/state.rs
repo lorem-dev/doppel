@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use doppel_core::config::EnvTokens;
 use doppel_core::store::ConfigStore;
 use doppel_core::{Config, RuntimeHolder};
 use metrics_exporter_prometheus::PrometheusHandle;
@@ -14,6 +15,8 @@ pub struct AdminState {
     store: Arc<dyn ConfigStore>,
     holder: Arc<RuntimeHolder>,
     startup: Arc<Config>,
+    /// Tokens the environment supplied, checked once at startup.
+    env_tokens: Arc<EnvTokens>,
     reload_lock: Arc<Mutex<()>>,
     metrics: PrometheusHandle,
     started_at: Instant,
@@ -33,6 +36,7 @@ impl AdminState {
         store: Arc<dyn ConfigStore>,
         holder: Arc<RuntimeHolder>,
         startup: Arc<Config>,
+        env_tokens: Arc<EnvTokens>,
         reload_lock: Arc<Mutex<()>>,
         metrics: PrometheusHandle,
         started_at: Instant,
@@ -41,6 +45,7 @@ impl AdminState {
             store,
             holder,
             startup,
+            env_tokens,
             reload_lock,
             metrics,
             started_at,
@@ -66,6 +71,16 @@ impl AdminState {
     #[must_use]
     pub fn startup(&self) -> &Config {
         &self.startup
+    }
+
+    /// The tokens the environment supplied.
+    ///
+    /// Checked once at startup and never re-read: a variable that changed
+    /// under a running process would move the authentication boundary with
+    /// nothing recording that it had, and no reload reports it.
+    #[must_use]
+    pub fn env_tokens(&self) -> &EnvTokens {
+        &self.env_tokens
     }
 
     #[must_use]

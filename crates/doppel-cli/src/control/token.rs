@@ -6,7 +6,7 @@
 //! means the token is in force when the command returns rather than at some
 //! later moment nobody records.
 
-use doppel_core::config::{Name, Token, TokenConfig};
+use doppel_core::config::{EnvTokens, Name, Token, TokenConfig};
 use doppel_core::store::{ConfigStore, StoreError};
 use doppel_core::{Config, ErrorCode, RuntimeHolder, Violation};
 
@@ -30,9 +30,28 @@ pub(super) async fn add(
     holder: &RuntimeHolder,
     store: &dyn ConfigStore,
     startup_config: &Config,
+    env_tokens: &EnvTokens,
     name: Name,
     group: Name,
 ) -> ControlResponse {
+    // A name the environment claims cannot be issued here: the environment
+    // is searched first at authentication, so the token this would generate
+    // and store would never authenticate. Handing one out anyway is the
+    // worst outcome available -- a credential that looks issued and is not.
+    if env_tokens.shadows(&name) {
+        return ControlResponse::Error {
+            code: ErrorCode::ConfigInvalid,
+            errors: vec![Violation::new(
+                "name",
+                format!(
+                    "`{name}` is supplied by the environment, so a token issued here \
+                     under that name would never authenticate; pick another name or \
+                     remove it from the environment"
+                ),
+            )],
+        };
+    }
+
     let token = Token::generate();
 
     for attempt in 1..=CAS_ATTEMPTS {

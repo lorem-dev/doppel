@@ -237,6 +237,19 @@ impl Server {
         upstream_port: u16,
         build_config: impl Fn(Ports, &Path, &Path) -> String,
     ) -> Self {
+        Self::start_with_env(upstream_port, build_config, &[])
+    }
+
+    /// As `start_with`, with environment variables set on the child.
+    ///
+    /// The variables are set rather than inherited, and every test in this
+    /// file removes the ones it cares about, so a variable in the developer's
+    /// own shell cannot change what a test proves.
+    pub fn start_with_env(
+        upstream_port: u16,
+        build_config: impl Fn(Ports, &Path, &Path) -> String,
+        env: &[(&str, &str)],
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Kept short deliberately: see `assert_socket_path_has_headroom`.
         let socket = dir.path().join("d.sock");
@@ -261,13 +274,17 @@ impl Server {
             let port = ports.server;
             std::fs::write(&config_path, build_config(ports, &socket, &templates)).unwrap();
 
-            let mut child = Command::new(env!("CARGO_BIN_EXE_doppel"))
+            let mut command = Command::new(env!("CARGO_BIN_EXE_doppel"));
+            command
                 .args(["serve", "--config"])
                 .arg(&config_path)
+                .env_remove("DOPPEL_ADMIN_TOKENS")
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()
-                .unwrap();
+                .stderr(Stdio::piped());
+            for (key, value) in env {
+                command.env(key, value);
+            }
+            let mut child = command.spawn().unwrap();
 
             match try_wait_until_ready(&mut child, port, &socket) {
                 Ok(()) => {

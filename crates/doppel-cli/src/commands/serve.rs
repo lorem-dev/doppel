@@ -48,6 +48,35 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     let _sentry = doppel_telemetry::sentry::init(config.sentry.as_ref())
         .map_err(|err| CliError::Failed(err.to_string()))?;
 
+    // Checked before anything binds, and a bad value fails startup. A
+    // malformed token variable that was logged and skipped would leave an
+    // operator believing they had provisioned access, and finding out
+    // otherwise at the moment they needed it.
+    let env_tokens = Arc::new(
+        doppel_core::config::EnvTokens::from_env()
+            .map_err(|err| CliError::Failed(err.to_string()))?,
+    );
+    if !env_tokens.is_empty() {
+        // Names only. The count and the names are operational facts worth a
+        // line; the values are not.
+        tracing::info!(
+            tokens = ?env_tokens.names().map(doppel_core::config::Name::as_str).collect::<Vec<_>>(),
+            "admin tokens supplied by the environment"
+        );
+        for shadowed in config
+            .admin
+            .tokens
+            .iter()
+            .filter(|token| env_tokens.shadows(&token.name))
+        {
+            tracing::warn!(
+                name = shadowed.name.as_str(),
+                "a configured admin token is shadowed by one from the environment; \
+                 the configured value will not authenticate"
+            );
+        }
+    }
+
     // After logging is up, so these reach wherever the operator is looking,
     // and only here: `doppel config validate` runs in CI loops, and a warning
     // repeated on every run is a warning nobody reads. Startup is also the
@@ -153,6 +182,7 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
             Arc::clone(&store),
             Arc::clone(&holder),
             Arc::clone(&config),
+            Arc::clone(&env_tokens),
             Arc::clone(&reload_lock),
             metrics,
             started_at,
@@ -175,9 +205,16 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
         let reload_lock = Arc::clone(&reload_lock);
         async move {
             control
-                .run(holder, store, startup_config, reload_lock, async {
-                    let _ = control_rx.await;
-                })
+                .run(
+                    holder,
+                    store,
+                    startup_config,
+                    env_tokens,
+                    reload_lock,
+                    async {
+                        let _ = control_rx.await;
+                    },
+                )
                 .await;
         }
     });

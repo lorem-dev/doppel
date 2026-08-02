@@ -456,6 +456,48 @@ behind a capability or a redirect is a real deployment -- but the far more
 common cause is a typo, and the failure that produces otherwise is a bare
 `Permission denied` from `bind`.
 
+## Tokens from the environment
+
+`DOPPEL_ADMIN_TOKENS` supplies admin tokens without writing them into the
+configuration document. It is a JSON object keyed by token name:
+
+```json
+{
+  "ci":       {"token": "3f2504e0-4f89-41d3-9a0c-0305e82c3301", "group": "admin"},
+  "readonly": {"token": "0a1b2c3d-4e5f-6071-8293-a4b5c6d7e8f9"}
+}
+```
+
+`group` is optional and defaults to `user`, matching `doppel token add`, and
+for the same reason: a variable set by provisioning tooling rather than read
+back by a person should not grant administration because a field was left out.
+
+Every field is held to exactly the rules the document is held to -- the name
+and group are [names](#names), the value is a [token](#tokens) -- and a
+malformed variable **fails startup**. It is not logged and skipped: an
+operator who provisioned a token and saw no error believes they have access,
+and finding out otherwise happens at the worst possible moment. An unset or
+empty variable is simply no tokens, since deployment tooling routinely renders
+an empty string for an absent secret.
+
+These tokens are checked before the configured ones. A name given in both
+resolves to the environment's group, and the configured token of that name
+stops authenticating entirely -- two live secrets for one identity, one of
+which nobody remembers issuing, is worse than a replacement. A warning at
+startup names each configured token that is shadowed.
+
+`doppel token add` refuses a name the environment claims, because the token it
+would generate and store could never authenticate.
+
+They are deliberately **not** merged into the loaded configuration. The
+revision is derived from the configuration's content, so folding the
+environment in would make two instances reading one stored document compute
+two different revisions, and every compare-and-swap between them would fail
+over a difference neither had written. One consequence to know: an access list
+naming a token that exists only in the environment fails rule V27, because
+validation is pure and cannot see it. Name a group instead -- `admin` and
+`user` always exist.
+
 ## Access lists
 
 `admin.access` and a proxy's `access` name subjects: `public`, one token or
