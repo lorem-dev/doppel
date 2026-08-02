@@ -53,8 +53,8 @@ impl Default for AuthConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenConfig {
-    pub name: String,
-    pub group: String,
+    pub name: super::Name,
+    pub group: super::Name,
     pub token: String,
 }
 

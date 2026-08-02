@@ -61,7 +61,7 @@ pub struct LatencyConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProxyConfig {
-    pub name: String,
+    pub name: crate::config::Name,
     #[serde(rename = "type")]
     pub kind: ProxyKind,
     pub url: String,

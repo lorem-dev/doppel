@@ -73,8 +73,8 @@ impl PostgresStore {
         .into_iter()
         .map(|token| {
             Ok(TokenConfig {
-                name: text(&token, "name")?,
-                group: text(&token, "group")?,
+                name: name(&token, "name")?,
+                group: name(&token, "group")?,
                 token: text(&token, "token")?,
             })
         })
@@ -110,9 +110,9 @@ impl PostgresStore {
 
         let mut proxies = Vec::with_capacity(rows.len());
         for row in &rows {
-            let name = text(row, "name")?;
+            let name = name(row, "name")?;
             proxies.push(ProxyConfig {
-                mocks: self.mocks(&name).await?,
+                mocks: self.mocks(name.as_str()).await?,
                 name,
                 kind: match text(row, "kind")?.as_str() {
                     "http" => ProxyKind::Http,
@@ -155,7 +155,7 @@ impl PostgresStore {
             .iter()
             .map(|row| {
                 Ok(MockConfig {
-                    name: text(row, "name")?,
+                    name: name(row, "name")?,
                     request: MockRequest {
                         method: text(row, "method")?,
                         url: text(row, "url_pattern")?,
@@ -259,6 +259,17 @@ fn latency_from(row: &PgRow) -> Result<Option<LatencyConfig>, StoreError> {
 
 fn text(row: &PgRow, column: &str) -> Result<String, StoreError> {
     row.try_get(column).map_err(query_failed)
+}
+
+/// A stored name, checked on the way in.
+///
+/// The database has no opinion about what a name may contain, so a row edited
+/// by hand can hold one the configuration format would refuse. Parsing here
+/// means a `Config` this store produces is subject to the same rule as one
+/// read from YAML, rather than a second, laxer standard nobody wrote down.
+fn name(row: &PgRow, column: &str) -> Result<doppel_core::config::Name, StoreError> {
+    let raw: String = row.try_get(column).map_err(query_failed)?;
+    doppel_core::config::Name::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 fn port(row: &PgRow, column: &str) -> Result<u16, StoreError> {

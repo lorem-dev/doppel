@@ -9,7 +9,7 @@ use super::proxy::{LatencyConfig, LossConfig};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockConfig {
-    pub name: String,
+    pub name: crate::config::Name,
     pub request: MockRequest,
     pub response: MockResponse,
     #[serde(default, skip_serializing_if = "Option::is_none")]

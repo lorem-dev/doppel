@@ -170,7 +170,7 @@ pub(crate) async fn create(
     })?;
 
     let created = commit(state.store(), |config| {
-        if find(config, &name).is_some() {
+        if find(config, name.as_str()).is_some() {
             return Err(Error::new(
                 ErrorCode::Conflict,
                 format!("proxy `{name}` already exists; update it instead"),
@@ -189,7 +189,7 @@ pub(crate) async fn create(
     // here: an upload requires the proxy to exist already.
     state
         .store()
-        .retain_templates(&name, &[])
+        .retain_templates(name.as_str(), &[])
         .await
         .map_err(|err| store_error(&err))?;
 
@@ -225,7 +225,7 @@ pub(crate) async fn update(
     drop(config);
 
     let request = parse_request(&read_body(body, &headers, MAX_DOCUMENT_BYTES).await?)?;
-    if request.proxy.name != name {
+    if request.proxy.name != *name {
         // A proxy's name is also its template directory. Renaming through PUT
         // would strand the old directory and leave the new proxy pointing at
         // templates that are not there, which is not what anyone typing a
@@ -261,7 +261,7 @@ pub(crate) async fn update(
     // same reason: the configuration write is what authorises dropping them.
     state
         .store()
-        .retain_templates(&name, &crate::templates::declared(&updated.proxy))
+        .retain_templates(name.as_str(), &crate::templates::declared(&updated.proxy))
         .await
         .map_err(|err| store_error(&err))?;
 
@@ -317,7 +317,7 @@ pub(crate) async fn remove(
     // case is orphaned files that nothing reads.
     state
         .store()
-        .retain_templates(&name, &[])
+        .retain_templates(name.as_str(), &[])
         .await
         .map_err(|err| store_error(&err))?;
 

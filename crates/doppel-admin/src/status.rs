@@ -71,7 +71,7 @@ pub(crate) async fn status(State(state): State<AdminState>) -> Response {
         .proxies
         .iter()
         .map(|proxy| ProxyStatus {
-            name: proxy.name.clone(),
+            name: proxy.name.to_string(),
             upstream: redact_credentials(&proxy.url),
             resolve: match proxy.resolve.kind {
                 ResolveKind::Default => "default".to_owned(),

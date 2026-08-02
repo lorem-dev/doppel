@@ -94,8 +94,8 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
 fn known_subjects(config: &Config) -> BTreeSet<String> {
     let mut known: BTreeSet<String> = PREDEFINED_GROUPS.iter().map(|g| (*g).to_owned()).collect();
     for token in &config.admin.tokens {
-        known.insert(token.name.clone());
-        known.insert(token.group.clone());
+        known.insert(token.name.to_string());
+        known.insert(token.group.to_string());
     }
     known
 }

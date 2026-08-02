@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod mock;
+pub mod name;
 pub mod proxy;
 pub mod server;
 
@@ -14,6 +15,7 @@ pub use admin::{
     UploadConfig,
 };
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
+pub use name::{Name, NameError};
 pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind};
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,

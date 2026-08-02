@@ -240,7 +240,7 @@ Exceeding it is `413`. See [Mocks and templating](mocks.md#bodies-and-the-size-l
 
 ## Validation
 
-Thirty-five rules run identically at startup, on reload, and under
+The rule set runs identically at startup, on reload, and under
 `doppel config validate`. Every violation is reported together with the others,
 each carrying the configuration path that produced it:
 
@@ -249,22 +249,32 @@ proxies[0].latency.min: min must be <= max
 proxies[1].resolve.header: `header` is required when `type: header`
 ```
 
-Four rules are enforced by the types rather than by a rule: a host that is not
-an IP, an unknown log level or format, and a proxy `access` block naming an
-action it may not override all fail while the document is being parsed. Those
-stop at the first error, because parsing does; everything the rule set checks
-is collected and reported together.
+Rules carry stable `V<n>` numbers so a message can be looked up, and a number
+is never reused once retired. Several things a rule would otherwise check are
+instead enforced by the types: a host that is not an IP, an unknown log level
+or format, a name (below), and a proxy `access` block naming an action it may
+not override all fail while the document is being parsed. Those stop at the
+first error, because parsing does; everything the rule set checks is collected
+and reported together.
 
-Two rules are worth naming here because both refuse a configuration that
-earlier versions accepted:
+**V34** is worth naming because it refuses a configuration earlier versions
+accepted: `admin.access` may not grant `create`, `update`, `delete` or
+`upload` to `public`. No configuration wants an unauthenticated caller
+rewriting the proxy set.
 
-- **V34** -- `admin.access` may not grant `create`, `update`, `delete` or
-  `upload` to `public`. No configuration wants an unauthenticated caller
-  rewriting the proxy set.
-- **V35** -- a proxy name must be usable as a directory name, since it is one:
-  no path separators, no `..`, no leading dot, not empty. Without this a proxy
-  called `a/b` validated and then failed every template operation, reporting a
-  path problem at upload time for a mistake made at configuration time.
+## Names
+
+A proxy name, a mock name, a token name and a group name follow one rule:
+letters, digits, `.`, `-` and `_`, between 2 and 128 characters, not starting
+with a dot and not containing `..`.
+
+The rule is enforced by the type, while the document is being parsed, rather
+than by a validation rule afterwards. A name becomes a directory component, a
+metric label, a log field and part of a URL, so the moment it comes into
+existence is the only place worth checking it -- and there is then no later
+moment at which an unchecked name exists. There used to be a rule V35 doing
+this; it is gone, because a type that admits a bad value and a rule that
+catches it later are two things to keep in step.
 
 For the full list of rules and their identifiers, see the design
 specifications in the repository.

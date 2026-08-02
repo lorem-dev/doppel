@@ -266,7 +266,7 @@ proxies:
 
     fn proxy(url: &str) -> ProxyConfig {
         ProxyConfig {
-            name: "p1".to_owned(),
+            name: crate::config::Name::parse("p1").unwrap(),
             kind: ProxyKind::Http,
             url: url.to_owned(),
             timeout: None,

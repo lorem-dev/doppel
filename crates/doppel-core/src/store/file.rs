@@ -480,7 +480,7 @@ proxies:
         let (mut config, _) = store.load().await.unwrap();
 
         let before = store.save(&config, None).await.unwrap();
-        config.proxies[0].name = "renamed".to_owned();
+        config.proxies[0].name = crate::config::Name::parse("renamed").unwrap();
         let after = store.save(&config, Some(before)).await.unwrap();
         assert_ne!(before, after);
     }
@@ -554,7 +554,7 @@ proxies:
         let dir = tempfile::tempdir().unwrap();
         let (store, config_path) = store(dir.path());
         let (mut config, _) = store.load().await.unwrap();
-        config.proxies[0].name = "renamed".to_owned();
+        config.proxies[0].name = crate::config::Name::parse("renamed").unwrap();
 
         store.save(&config, None).await.unwrap();
         let reloaded = load_from_str(&std::fs::read_to_string(&config_path).unwrap()).unwrap();
@@ -566,7 +566,7 @@ proxies:
         let dir = tempfile::tempdir().unwrap();
         let (store, _) = store(dir.path());
         let (mut config, revision) = store.load().await.unwrap();
-        config.proxies[0].name = "renamed".to_owned();
+        config.proxies[0].name = crate::config::Name::parse("renamed").unwrap();
 
         let new_revision = store.save(&config, Some(revision)).await.unwrap();
         assert_ne!(new_revision, revision);
@@ -628,7 +628,7 @@ proxies:
         for i in 0..8 {
             let store = std::sync::Arc::clone(&store);
             let mut config = config.clone();
-            config.proxies[0].name = format!("renamed-{i}");
+            config.proxies[0].name = crate::config::Name::parse(format!("renamed-{i}")).unwrap();
             handles.push(tokio::spawn(async move {
                 store.save(&config, Some(revision)).await
             }));

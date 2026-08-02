@@ -1,10 +1,14 @@
-//! Rules V5..V15, V32, V33 and V35, plus dispatch into the mock rules.
+//! Rules V5..V15, V32 and V33, plus dispatch into the mock rules.
+//!
+//! V35 is gone: it applied `sanitize` to a proxy name, and `config::Name` now
+//! refuses the same shapes while the document is being parsed. One check, at
+//! the moment the name comes into existence, rather than a type that admits a
+//! bad name and a rule that catches it later.
 
 use std::collections::BTreeSet;
 
 use super::{Violations, is_valid_header_name, is_valid_header_value, mock};
 use crate::config::{Config, ProxyKind, ResolveKind};
-use crate::store::name::sanitize;
 
 pub(super) fn check(config: &Config, v: &mut Violations) {
     // V5
@@ -25,22 +29,6 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             v.push(
                 format!("{path}.name"),
                 format!("duplicate proxy name `{}`", proxy.name),
-            );
-        }
-
-        // V35 -- a proxy name is also the name of its template directory,
-        // so it has to survive the same check a template file name does.
-        // Without this the store accepts the configuration and then refuses
-        // every template operation on that proxy, which reports a path
-        // problem at upload time for a mistake made at configuration time.
-        if let Err(crate::store::StoreError::BadTemplateName { reason, .. }) = sanitize(&proxy.name)
-        {
-            // The reason, not the whole store error: that one is worded for
-            // a template file and would report a proxy name as a "template
-            // name rejected", which points the reader at the wrong field.
-            v.push(
-                format!("{path}.name"),
-                format!("proxy name is also its template directory name, and {reason}"),
             );
         }
 
@@ -265,30 +253,31 @@ proxies:
     }
 
     #[test]
-    fn v35_a_proxy_name_must_be_usable_as_a_directory_name() {
-        // Each of these parses, is unique, and would have validated before
-        // this rule -- and then failed at the first template operation,
-        // reporting a path problem for a configuration mistake.
+    fn a_proxy_name_that_is_not_a_usable_directory_component_fails_at_load() {
+        // This was rule V35, applying `sanitize` to the name. It is now the
+        // `Name` type, which refuses the same shapes while the document is
+        // being parsed -- earlier, and in the one place a name comes into
+        // existence. The claim is worth pinning at this level too, because
+        // this is the level an operator reads: a bad name must stop the
+        // document, not merely fail later at a template write.
         for (name, expected) in [
-            ("", "empty"),
-            ("   ", "empty"),
-            ("..", "dot"),
-            ("a..b", "`..`"),
-            ("a/b", "path separator"),
-            ("a\\\\b", "path separator"),
-            (".hidden", "dot"),
+            ("a", "at least 2"),
+            ("..", "must not start with a dot"),
+            ("a/b", "contains"),
+            ("a..b", "must not contain `..`"),
+            (".hidden", "must not start with a dot"),
         ] {
-            assert_violation(
-                &good().replace("name: p1", &format!("name: '{name}'")),
-                "proxies[0].name",
-                expected,
-            );
+            let text = good().replace("name: p1", &format!("name: '{name}'"));
+            let err = load_from_str(&text)
+                .expect_err(&format!("`{name}` must not parse"))
+                .to_string();
+            assert!(err.contains(expected), "`{name}`: got {err}");
         }
     }
 
     #[test]
-    fn v35_accepts_the_names_people_actually_use() {
-        for name in ["p1", "billing-api", "billing_api", "Billing.API.v2"] {
+    fn the_names_people_actually_use_still_load() {
+        for name in ["p1", "ops", "billing-api", "billing_api", "Billing.API.v2"] {
             let text = good().replace("name: p1", &format!("name: '{name}'"));
             assert_eq!(
                 validate(&load_from_str(&text).unwrap()),

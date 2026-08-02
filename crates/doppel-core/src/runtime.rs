@@ -168,11 +168,11 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
 
     let mut mocks = Vec::with_capacity(proxy.mocks.len());
     for mock in &proxy.mocks {
-        mocks.push(compile_mock(mock, &proxy.name)?);
+        mocks.push(compile_mock(mock, proxy.name.as_str())?);
     }
 
     Ok(CompiledProxy {
-        name: proxy.name.clone(),
+        name: proxy.name.to_string(),
         base_url,
         timeout: proxy.timeout.map_or(DEFAULT_TIMEOUT, Duration::from_secs),
         headers: proxy
@@ -260,7 +260,7 @@ fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Err
     };
 
     Ok(CompiledMock {
-        name: mock.name.clone(),
+        name: mock.name.to_string(),
         method: mock.request.method.clone(),
         pattern,
         capture_names,

@@ -57,8 +57,8 @@ impl PostgresStore {
                  VALUES ($1, $2, $3, $4, $5)",
             )
             .bind(&self.config_name)
-            .bind(&token.name)
-            .bind(&token.group)
+            .bind(token.name.as_str())
+            .bind(token.group.as_str())
             .bind(&token.token)
             .bind(ordinal_of(ordinal)?)
             .execute(&mut *tx)
@@ -70,8 +70,13 @@ impl PostgresStore {
             self.insert_proxy(&mut tx, proxy, ordinal_of(ordinal)?)
                 .await?;
             for (mock_ordinal, mock) in proxy.mocks.iter().enumerate() {
-                self.insert_mock(&mut tx, &proxy.name, mock, ordinal_of(mock_ordinal)?)
-                    .await?;
+                self.insert_mock(
+                    &mut tx,
+                    proxy.name.as_str(),
+                    mock,
+                    ordinal_of(mock_ordinal)?,
+                )
+                .await?;
             }
         }
 
@@ -173,7 +178,7 @@ impl PostgresStore {
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
         )
         .bind(&self.config_name)
-        .bind(&proxy.name)
+        .bind(proxy.name.as_str())
         .bind(ordinal)
         .bind(as_text(&proxy.kind)?)
         .bind(&proxy.url)
@@ -210,7 +215,7 @@ impl PostgresStore {
         )
         .bind(&self.config_name)
         .bind(proxy)
-        .bind(&mock.name)
+        .bind(mock.name.as_str())
         .bind(ordinal)
         .bind(&mock.request.method)
         .bind(&mock.request.url)

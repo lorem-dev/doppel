@@ -75,8 +75,8 @@ pub fn caller_from_headers(admin: &AdminConfig, headers: &HeaderMap) -> Caller {
         .iter()
         .find(|t| t.token == token)
         .map_or(Caller::Anonymous, |t| Caller::Token {
-            name: t.name.clone(),
-            group: t.group.clone(),
+            name: t.name.to_string(),
+            group: t.group.to_string(),
         })
 }
 
