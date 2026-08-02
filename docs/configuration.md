@@ -276,6 +276,22 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Ports
+
+`server.port` and `admin.port` are numbers from 1 to 65535. Port 0 is refused
+by the type, with a message saying why: to the operating system it means "any
+free port", so a configuration naming it describes a server whose address
+nobody can predict -- including whoever wrote the line.
+
+Rule **V1** is what remains: the two listeners must not share a port. That
+compares two fields, so no single value can be checked for it.
+
+A port below 1024 is accepted and logged once at startup, because binding one
+usually needs elevated privilege. It is not an error -- running on port 80
+behind a capability or a redirect is a real deployment -- but the far more
+common cause is a typo, and the failure that produces otherwise is a bare
+`Permission denied` from `bind`.
+
 ## Tokens
 
 An admin token is printable ASCII with no spaces, 32 to 255 characters. The

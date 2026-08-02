@@ -26,8 +26,8 @@ use std::time::{Duration, Instant};
 /// This is a genuine time-of-check-to-time-of-use race: another process can
 /// take the port between the `drop` here and `doppel`'s own `bind`. The
 /// obvious fix -- let the server bind an ephemeral port (0) and discover
-/// which one it got -- does not work here: validation rule V1 rejects a `0`
-/// port outright, and the port has to be a concrete number already written
+/// which one it got -- does not work here: `config::Port` refuses a `0`
+/// port at parse time, and the port has to be a concrete number already written
 /// into the config file before `doppel` (a separate process) even starts, so
 /// there is no way to hand it an already-open listener without a
 /// socket-activation mechanism this codebase does not have. That leaves the

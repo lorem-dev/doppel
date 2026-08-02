@@ -48,6 +48,14 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     let _sentry = doppel_telemetry::sentry::init(config.sentry.as_ref())
         .map_err(|err| CliError::Failed(err.to_string()))?;
 
+    // After logging is up, so these reach wherever the operator is looking,
+    // and only here: `doppel config validate` runs in CI loops, and a warning
+    // repeated on every run is a warning nobody reads. Startup is also the
+    // only moment at which the ports these concern are about to be bound.
+    for note in doppel_core::validate::startup_advisories(&config) {
+        tracing::warn!("{note}");
+    }
+
     preflight(&config).map_err(CliError::Failed)?;
 
     // Only when something can read them. `/metrics` on the admin listener is
@@ -77,8 +85,8 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     };
     let started_at = std::time::Instant::now();
 
-    let addr = SocketAddr::new(config.server.host, config.server.port);
-    let admin_addr = SocketAddr::new(config.admin.host, config.admin.port);
+    let addr = SocketAddr::new(config.server.host, config.server.port.get());
+    let admin_addr = SocketAddr::new(config.admin.host, config.admin.port.get());
     let socket_path = config.control.socket.clone();
     let revision = Revision::of_config(&config);
     let config = Arc::new(config);

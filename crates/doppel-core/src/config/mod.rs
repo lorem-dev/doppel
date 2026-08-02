@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod mock;
 pub mod name;
+pub mod port;
 pub mod proxy;
 pub mod server;
 pub mod token;
@@ -17,6 +18,7 @@ pub use admin::{
 };
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{Name, NameError};
+pub use port::{Port, PortError};
 pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind};
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,

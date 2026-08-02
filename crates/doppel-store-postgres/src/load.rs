@@ -281,9 +281,16 @@ fn stored_token(row: &PgRow, column: &str) -> Result<doppel_core::config::Token,
     doppel_core::config::Token::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
 }
 
-fn port(row: &PgRow, column: &str) -> Result<u16, StoreError> {
+/// A stored port, checked on the way in.
+///
+/// `i32` is the column type, so the range check has two halves: the value has
+/// to fit a `u16` at all, and then it has to be one `Port` accepts. Both are
+/// reachable from a hand-edited row, and neither is reachable from YAML.
+fn port(row: &PgRow, column: &str) -> Result<doppel_core::config::Port, StoreError> {
     let value: i32 = row.try_get(column).map_err(query_failed)?;
-    u16::try_from(value).map_err(|_| corrupt(column, &format!("is {value}, not a port")))
+    let narrowed =
+        u16::try_from(value).map_err(|_| corrupt(column, &format!("is {value}, not a port")))?;
+    doppel_core::config::Port::parse(narrowed).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 fn status(row: &PgRow, column: &str) -> Result<u16, StoreError> {

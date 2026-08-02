@@ -1,15 +1,22 @@
-//! Semantic validation. Rules are identified V1..V35; V1..V33 come from the
-//! phase 1 spec, V34 and V35 were added in phase 3.
+//! Semantic validation. Rules carry stable `V<n>` identifiers; V1..V33 come
+//! from the phase 1 spec and V34 was added in phase 3. A retired number is
+//! never reused, so a message quoted in an old issue keeps meaning what it
+//! meant: V3 went with `server.workers`, and V35 was subsumed by
+//! `config::Name`.
 //!
 //! Validation is pure: it inspects the config and nothing else. Checks that
 //! depend on the machine (does the templates directory exist, is the socket
 //! parent writable) are startup preflight, not validation, so that
-//! `doppel config validate` gives the same answer everywhere.
+//! `doppel config validate` gives the same answer everywhere. Remarks that do
+//! not refuse a configuration live in `advisory` for the same reason.
 
 mod access;
+mod advisory;
 mod mock;
 mod proxy;
 mod server;
+
+pub use advisory::startup_advisories;
 
 #[cfg(test)]
 mod test_support;
@@ -157,17 +164,24 @@ proxies:
     }
 
     #[test]
-    fn v1_ports_must_be_nonzero_and_distinct() {
-        assert_violation(
-            &good().replace("port: 8080", "port: 0"),
-            "server.port",
-            "must not be 0",
-        );
+    fn v1_the_two_listeners_must_not_share_a_port() {
         assert_violation(
             &good().replace("port: 8081", "port: 8080"),
             "admin.port",
             "must differ",
         );
+    }
+
+    #[test]
+    fn a_zero_port_fails_at_parse_time() {
+        // This half of V1 is now `config::Port`. Kept as a test at this level
+        // because the claim worth pinning is about the document -- a
+        // configuration naming port 0 must not load -- and because the
+        // message has to explain what 0 would do rather than restate a range.
+        for field in ["port: 8080", "port: 8081"] {
+            let err = load_from_str(&good().replace(field, "port: 0")).unwrap_err();
+            assert!(err.to_string().contains("any free port"), "{field}: {err}");
+        }
     }
 
     #[test]
@@ -355,7 +369,10 @@ proxies:
 
     #[test]
     fn all_violations_are_reported_at_once() {
-        let text = good().replace("port: 8080", "port: 0");
+        // Two rule violations, not a parse failure and a rule violation:
+        // parsing stops at the first error, so a document that fails to parse
+        // could never demonstrate that the rule set collects.
+        let text = good().replace("port: 8081", "port: 8080");
         let text = text.replace("limit: 1Mi", "limit: 0");
         let found = violations(&text);
         assert!(

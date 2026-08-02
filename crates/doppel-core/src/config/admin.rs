@@ -21,7 +21,7 @@ pub struct AdminConfig {
     #[serde(default = "enabled")]
     pub enable: bool,
     pub host: IpAddr,
-    pub port: u16,
+    pub port: super::Port,
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// `DOPPEL_WORKERS`.
 pub struct ServerConfig {
     pub host: IpAddr,
-    pub port: u16,
+    pub port: super::Port,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
