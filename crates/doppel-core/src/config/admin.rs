@@ -117,9 +117,9 @@ impl<'de> Deserialize<'de> for Subjects {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AccessConfig {
-    #[serde(default)]
+    #[serde(default = "admin_only")]
     pub list: Subjects,
-    #[serde(default)]
+    #[serde(default = "admin_only")]
     pub read: Subjects,
     #[serde(default = "admin_only")]
     pub create: Subjects,
@@ -139,6 +139,18 @@ pub struct AccessConfig {
 /// and the most common configuration is the one nobody wrote. Rule V34 then
 /// refuses an *explicit* public write, so the safe state cannot be reached by
 /// accident in either direction.
+/// The default for every action, reads included.
+///
+/// Reads were public here at first, on the reasoning that only writes are
+/// dangerous. That reasoning was wrong: a proxy document carries the
+/// `headers` this proxy injects upstream -- an `Authorization` among them in
+/// the project's own reference configuration -- and a `url` that may itself
+/// contain `user:password@`. Listing proxies therefore publishes upstream
+/// credentials, which is not a lesser harm than rewriting the proxy set.
+///
+/// An operator whose configuration holds no secrets can still say
+/// `read: public` deliberately. What must not happen is that leaving the
+/// section out does it for them.
 fn admin_only() -> Subjects {
     Subjects::Names(vec!["admin".to_owned()])
 }
@@ -149,8 +161,8 @@ impl Default for AccessConfig {
     /// permissions, or the two ways of getting one would disagree.
     fn default() -> Self {
         Self {
-            list: Subjects::Public,
-            read: Subjects::Public,
+            list: admin_only(),
+            read: admin_only(),
             create: admin_only(),
             update: admin_only(),
             delete: admin_only(),

@@ -90,8 +90,8 @@ admin:
       group: admin
       token: c0a721e2-90ff-40f0-a230-c1ab83d751d8
   access:
-    list: public
-    read: public
+    list: ["admin", "user"]
+    read: ["admin", "user"]
     create: ["admin"]
     update: user1
     delete: admin
@@ -110,11 +110,22 @@ action out entirely, which is far more often a typo than an intent.
 `access` maps each action to `public`, a single name, or a list of names. An
 empty list means public. Names are token names or group names.
 
-Reads default to public; `create`, `update`, `delete` and `upload` default to
-the `admin` group. That asymmetry is deliberate -- the most common
-configuration is the one nobody wrote, and an omitted `access` block must not
-hand an unauthenticated caller the ability to rewrite the proxy set. Setting a
-write action to `public` explicitly is refused for the same reason.
+Every action defaults to the `admin` group, reads included. The most common
+configuration is the one nobody wrote, so the default has to be the safe one.
+
+Reads are not exempt: a proxy document carries the `headers` that proxy
+injects upstream, and `url` may itself contain `user:password@`. Listing
+proxies therefore publishes upstream credentials, which is no lesser harm
+than rewriting the proxy set. Setting `list` or `read` to `public` is
+allowed -- a configuration with no secrets in it may reasonably do so -- but
+it has to be a choice, not what happens when the section is left out.
+
+Setting a *write* action to `public` is refused outright (rule V34); no
+configuration wants an unauthenticated caller rewriting the proxy set.
+
+`GET /status` stays unauthenticated regardless: it reports names, upstreams
+and counts, and strips any credentials from the upstream before printing
+it.
 
 `upload.limit` accepts `4096`, `512K`, `1M`, `2G`. It must be greater than
 zero.

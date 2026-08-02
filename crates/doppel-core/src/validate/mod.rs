@@ -299,20 +299,42 @@ proxies:
     }
 
     #[test]
-    fn an_omitted_access_block_defaults_writes_to_admin_not_public() {
+    fn an_omitted_access_block_grants_nothing_to_anyone_anonymous() {
         // The most common configuration is the one nobody wrote, so the
-        // default has to be the safe one. Rule V34 refuses an explicit public
-        // write; this pins that the implicit case is safe too.
+        // default has to be the safe one -- for reads as much as for writes.
+        // A proxy document carries the headers this proxy injects upstream,
+        // an `Authorization` among them in this project's own reference
+        // configuration, so a public listing publishes credentials.
         let text = good().replace(
             "  access:\n    read: public\n    update: user1\n",
             "  access: {}\n",
         );
         let config = load_from_str(&text).expect("an empty access block must parse");
-        assert_eq!(config.admin.access.read, Subjects::Public);
-        assert_eq!(
-            config.admin.access.create,
-            Subjects::Names(vec!["admin".to_owned()])
+
+        let admin = Subjects::Names(vec!["admin".to_owned()]);
+        for (action, subjects) in [
+            ("list", &config.admin.access.list),
+            ("read", &config.admin.access.read),
+            ("create", &config.admin.access.create),
+            ("update", &config.admin.access.update),
+            ("delete", &config.admin.access.delete),
+            ("upload", &config.admin.access.upload),
+        ] {
+            assert_eq!(*subjects, admin, "`{action}` must not default to public");
+        }
+        assert_eq!(validate(&config), Ok(()));
+    }
+
+    #[test]
+    fn an_explicit_public_read_is_still_honoured() {
+        // The default is safe; the choice stays the operator's. A
+        // configuration with no secrets in it may legitimately expose reads.
+        let text = good().replace(
+            "  access:\n    read: public\n    update: user1\n",
+            "  access:\n    read: public\n    list: public\n",
         );
+        let config = load_from_str(&text).expect("parses");
+        assert_eq!(config.admin.access.read, Subjects::Public);
         assert_eq!(validate(&config), Ok(()));
     }
 

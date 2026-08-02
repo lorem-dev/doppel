@@ -614,3 +614,47 @@ async fn authorization_is_decided_before_existence() {
     assert_eq!(missing.status, 403);
     assert_eq!(existing.error_code(), missing.error_code());
 }
+
+#[tokio::test]
+async fn an_omitted_access_block_does_not_publish_upstream_credentials() {
+    // The defect this pins: `list` and `read` once defaulted to public, and a
+    // proxy document carries the headers that proxy injects upstream. An
+    // anonymous GET therefore returned the operator's upstream token.
+    let yaml = common::BASE_CONFIG
+        .replace(
+            "  access:\n    list: public\n    read: public\n",
+            "  access:\n",
+        )
+        .replace(
+            "    url: \"https://alpha.example.com/api/\"\n",
+            "    url: \"https://alpha.example.com/api/\"\n    headers:\n      Authorization: \"Bearer upstream-secret\"\n",
+        );
+    assert!(
+        yaml.contains("upstream-secret") && !yaml.contains("list: public"),
+        "the fixture must actually drop the access block and inject a secret"
+    );
+    let harness = Harness::with_config(&yaml);
+
+    for uri in ["/api/v1/proxies", "/api/v1/proxies/alpha"] {
+        let reply = Call::get(uri).send(harness.router()).await;
+        assert_eq!(reply.status, 401, "{uri}: {}", reply.body);
+        assert!(
+            !reply.body.contains("upstream-secret"),
+            "{uri} leaked the injected credential: {}",
+            reply.body
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_explicit_public_read_is_still_served_to_anyone() {
+    // The default is safe; the choice remains the operator's.
+    let harness = Harness::new();
+    assert_eq!(
+        Call::get("/api/v1/proxies/alpha")
+            .send(harness.router())
+            .await
+            .status,
+        200
+    );
+}

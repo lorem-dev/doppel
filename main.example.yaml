@@ -28,9 +28,14 @@ admin:
     - name: user2
       group: user
       token: e14887ef-4025-42d0-81db-a72a2cb3cb76
-  access:  # public, a single token or group name, or a list of them
-    list: public
-    read: public
+  # public, a single token or group name, or a list of them. Every action
+  # defaults to the `admin` group, reads included: a proxy document contains
+  # the `headers` it injects upstream -- see proxy1's `Authorization` below --
+  # so a public listing publishes those credentials. Set an action to
+  # `public` only once you are sure nothing under `proxies` is a secret.
+  access:
+    list: ["admin", "user"]
+    read: ["admin", "user"]
     create: ["admin"]
     update: user1
     delete: admin
