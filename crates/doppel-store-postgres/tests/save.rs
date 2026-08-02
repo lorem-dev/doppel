@@ -246,6 +246,57 @@ async fn two_saves_from_the_same_revision_produce_exactly_one_winner() {
     schema.drop().await;
 }
 
+/// Multi-threaded on purpose: the reads and the writes have to be able to
+/// interleave in the database, not merely at this runtime's await points.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_load_racing_a_save_never_reports_the_rows_as_diverged() {
+    // A configuration is five tables. Each query used to take its own
+    // connection and its own snapshot, so a `save` committing in between
+    // produced a configuration assembled from two of them -- which the
+    // revision check at the end of `load` caught and reported as "the rows
+    // and the revision column have diverged". True as far as it goes, and a
+    // message that sends an operator hunting for a hand-edited row that does
+    // not exist.
+    //
+    // Measured at 37 failures in 600 loads before `load_config` took one
+    // `REPEATABLE READ` snapshot for the whole read. The assertion is exact
+    // rather than a threshold: with one snapshot this is not a probability.
+    let Some(url) = require_database() else {
+        return;
+    };
+    let schema = migrated(&url).await;
+    let writer = store(&schema).await;
+    let reader = store(&schema).await;
+    writer
+        .save_config(&parse(BASE), None)
+        .await
+        .expect("provision");
+
+    let write = tokio::spawn(async move {
+        for i in 0..300 {
+            let text = BASE.replace("alpha.example.com", &format!("host{i}.example.com"));
+            let _ = writer.save_config(&parse(&text), None).await;
+        }
+    });
+
+    let mut diverged = Vec::new();
+    for _ in 0..600 {
+        if let Err(err) = reader.load_config().await {
+            diverged.push(err.to_string());
+        }
+    }
+    write.await.expect("the writer finishes");
+
+    assert!(
+        diverged.is_empty(),
+        "{} of 600 concurrent loads failed; first: {}",
+        diverged.len(),
+        diverged.first().map_or("", String::as_str)
+    );
+
+    schema.drop().await;
+}
+
 #[tokio::test]
 async fn an_unconditional_save_replaces_whatever_was_there() {
     // `expected: None` is for provisioning and `config push`, where the caller
