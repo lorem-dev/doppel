@@ -34,11 +34,11 @@ pub struct AdminConfig {
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     #[serde(default = "default_auth_header")]
-    pub header: String,
+    pub header: super::HeaderName,
 }
 
-fn default_auth_header() -> String {
-    "X-Proxy-Authorization".to_owned()
+fn default_auth_header() -> super::HeaderName {
+    super::HeaderName::parse("X-Proxy-Authorization").expect("a literal token")
 }
 
 impl Default for AuthConfig {

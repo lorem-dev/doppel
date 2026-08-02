@@ -190,7 +190,13 @@ impl PostgresStore {
         .bind(i64::try_from(proxy.body_limit.get()).unwrap_or(i64::MAX))
         .bind(proxy.replace.map(doppel_core::config::Ratio::get))
         .bind(as_text(&proxy.resolve.kind)?)
-        .bind(proxy.resolve.header.as_deref())
+        .bind(
+            proxy
+                .resolve
+                .header
+                .as_ref()
+                .map(doppel_core::config::HeaderName::as_str),
+        )
         .bind(proxy.loss.as_ref().map(|l| l.percentage.get()))
         .bind(proxy.loss.as_ref().map(|l| i32::from(l.status.get())))
         .bind(proxy.latency.as_ref().map(|l| l.percentage.get()))
@@ -291,7 +297,7 @@ impl<'q> BindHeader<'q> for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgA
             .bind(config.sentry.as_ref().map(|s| s.dsn.clone()))
             .bind(config.admin.host.to_string())
             .bind(i32::from(config.admin.port.get()))
-            .bind(config.admin.auth.header.clone())
+            .bind(config.admin.auth.header.as_str())
             .bind(i64::try_from(config.admin.upload.limit.get()).unwrap_or(i64::MAX))
             .bind(serde_json::to_value(&config.admin.access).unwrap_or(serde_json::Value::Null))
     }

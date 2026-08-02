@@ -1,7 +1,5 @@
 //! Reading a configuration back out of the five tables.
 
-use std::collections::BTreeMap;
-
 use doppel_core::config::{
     AccessConfig, AdminConfig, AuthConfig, ByteSize, Config, ControlConfig, LatencyConfig,
     LogFormat, LogLevel, LoggingConfig, LossConfig, MockConfig, MockProxyOverride, MockRequest,
@@ -85,7 +83,7 @@ impl PostgresStore {
             host: parse_host(&text(row, "admin_host")?)?,
             port: port(row, "admin_port")?,
             auth: AuthConfig {
-                header: text(row, "admin_auth_header")?,
+                header: header_name(row, "admin_auth_header")?,
             },
             tokens,
             access: json_column::<AccessConfig>(row, "admin_access")?,
@@ -123,10 +121,10 @@ impl PostgresStore {
                             return Err(corrupt("proxies.resolve_kind", &format!("is `{other}`")));
                         }
                     },
-                    header: row.try_get("resolve_header").map_err(query_failed)?,
+                    header: optional_header_name(row, "resolve_header")?,
                 },
                 access: optional_json::<ProxyAccessConfig>(row, "access")?,
-                headers: json_column::<BTreeMap<String, String>>(row, "headers")?,
+                headers: json_column(row, "headers")?,
                 loss: loss_from(row)?,
                 latency: latency_from(row)?,
                 replace: optional_ratio(row, "replace_ratio")?,
@@ -340,6 +338,23 @@ fn optional_ratio(
 /// A stored latency, checked on the way in.
 fn seconds(value: f64, column: &str) -> Result<doppel_core::config::Seconds, StoreError> {
     doppel_core::config::Seconds::parse(value).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored header name, checked on the way in.
+fn header_name(row: &PgRow, column: &str) -> Result<doppel_core::config::HeaderName, StoreError> {
+    let raw: String = row.try_get(column).map_err(query_failed)?;
+    doppel_core::config::HeaderName::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+fn optional_header_name(
+    row: &PgRow,
+    column: &str,
+) -> Result<Option<doppel_core::config::HeaderName>, StoreError> {
+    let raw: Option<String> = row.try_get(column).map_err(query_failed)?;
+    raw.map(|raw| {
+        doppel_core::config::HeaderName::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
+    })
+    .transpose()
 }
 
 /// A stored upstream URL, checked on the way in.

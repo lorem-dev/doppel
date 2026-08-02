@@ -276,6 +276,26 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Headers
+
+Every field naming an HTTP header -- `admin.auth.header`, a proxy's
+`resolve.header`, the keys of `proxies[*].headers`, the values of a mock's
+`request.headers`, and the keys of a mock's `response.headers` -- is a header
+name: a non-empty RFC 9110 token. Case is kept as written; matching against an
+incoming request folds case at that point instead.
+
+The values of `proxies[*].headers` are header values: visible ASCII, plus
+space and tab. A line break is refused with that named, because one would end
+the header early and let the rest be read as headers of its own.
+
+Rules **V15** and **V24** did part of this. Between them they left a gap: a
+mock's *response* header names were checked by neither, so `X Id:` was a
+configuration that loaded, validated, and then produced a header no client
+could parse. The types close it, because they are the same types everywhere.
+
+What remains of **V11** is the part that needs two fields: `resolve.header` is
+required when `resolve.type` is `header`.
+
 ## Upstream URLs
 
 A proxy's `url` is an absolute `http` or `https` URL with no query string and

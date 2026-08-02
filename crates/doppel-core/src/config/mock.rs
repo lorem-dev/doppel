@@ -23,7 +23,7 @@ pub struct MockRequest {
     pub url: String,
     /// Variable name -> request header name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub headers: BTreeMap<String, String>,
+    pub headers: BTreeMap<String, crate::config::HeaderName>,
     /// Variable name -> selector such as `.filter`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub query: BTreeMap<String, String>,
@@ -43,8 +43,12 @@ pub struct MockResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub template: Option<String>,
     /// Header name -> template producing the value.
+    ///
+    /// The value is a template, not a header value: what it renders to is
+    /// only a header value once a request has been served, which is checked
+    /// there. The name is a name now.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub headers: BTreeMap<String, String>,
+    pub headers: BTreeMap<crate::config::HeaderName, String>,
 }
 
 impl MockResponse {

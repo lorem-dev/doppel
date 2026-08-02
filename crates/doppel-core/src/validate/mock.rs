@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{Violations, is_valid_header_name};
+use super::Violations;
 use crate::config::{MockRequest, MockResponse, ProxyConfig};
 use crate::store::StoreError;
 use crate::store::name::sanitize;
@@ -49,17 +49,12 @@ fn check_request(request: &MockRequest, path: &str, v: &mut Violations) {
         }
     };
 
-    // V19 and V24
-    for (variable, header) in &request.headers {
+    // V19. V24 is `config::HeaderName`, on the value side of this map.
+    for variable in request.headers.keys() {
         v.require(
             !captures.contains(variable),
             format!("{path}.request.headers.{variable}"),
             format!("variable `{variable}` collides with a capture group in `url`"),
-        );
-        v.require(
-            is_valid_header_name(header),
-            format!("{path}.request.headers.{variable}"),
-            format!("`{header}` is not a valid header name"),
         );
     }
 
@@ -347,12 +342,22 @@ proxies:
     }
 
     #[test]
-    fn v24_declared_header_sources_must_be_header_names() {
-        assert_violation(
-            &good().replace("requestId: X-Request-ID", "requestId: \"X Request ID\""),
-            "proxies[0].mocks[0].request.headers.requestId",
-            "not a valid header name",
-        );
+    fn a_declared_header_source_that_is_not_a_header_name_fails_at_load() {
+        // This was V24, now the value type of the `headers` map.
+        let text = good().replace("requestId: X-Request-ID", "requestId: \"X Request ID\"");
+        let err = load_from_str(&text).unwrap_err().to_string();
+        assert!(err.contains("not a valid header name"), "{err}");
+    }
+
+    #[test]
+    fn a_response_header_name_is_checked_too() {
+        // The gap V15 and V24 left between them: neither rule looked at a
+        // mock's response header names, so `X Id:` was a configuration that
+        // loaded, validated, and then produced a header no client could
+        // parse. The type reaches it because it is the same type.
+        let text = good().replace(r#"X-Id: "{{ id }}""#, r#""X Id": "{{ id }}""#);
+        let err = load_from_str(&text).unwrap_err().to_string();
+        assert!(err.contains("not a valid header name"), "{err}");
     }
 
     #[test]

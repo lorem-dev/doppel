@@ -180,7 +180,7 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
         headers: proxy
             .headers
             .iter()
-            .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
+            .map(|(k, v)| (k.to_lowercase(), v.as_str().to_owned()))
             .collect(),
         loss: proxy.loss,
         latency: proxy.latency,
@@ -190,7 +190,7 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
                 .resolve
                 .header
                 .as_ref()
-                .map(|h| h.to_ascii_lowercase()),
+                .map(crate::config::HeaderName::to_lowercase),
             ResolveKind::Default => None,
         },
         mocks,
@@ -224,7 +224,7 @@ fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Err
         .request
         .headers
         .iter()
-        .map(|(var, header)| (var.clone(), header.to_ascii_lowercase()))
+        .map(|(var, header)| (var.clone(), header.to_lowercase()))
         .collect();
     let query_vars = mock
         .request
@@ -253,7 +253,7 @@ fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Err
         .response
         .headers
         .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
+        .map(|(k, v)| (k.as_str().to_owned(), v.clone()))
         .collect();
 
     let (replace, loss, latency) = match &mock.proxy {

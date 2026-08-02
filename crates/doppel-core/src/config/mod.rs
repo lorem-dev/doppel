@@ -2,6 +2,7 @@
 
 pub mod admin;
 pub mod duration;
+pub mod header;
 pub mod mock;
 pub mod name;
 pub mod port;
@@ -22,6 +23,7 @@ pub use admin::{
     AccessConfig, AdminConfig, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig, UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
+pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{Name, NameError};
 pub use port::{Port, PortError};
@@ -139,7 +141,11 @@ proxies:
         assert_eq!(config.proxies[0].mocks.len(), 6);
         assert_eq!(config.proxies[1].resolve.kind, ResolveKind::Header);
         assert_eq!(
-            config.proxies[1].resolve.header.as_deref(),
+            config.proxies[1]
+                .resolve
+                .header
+                .as_ref()
+                .map(HeaderName::as_str),
             Some("X-Proxy-Name")
         );
     }

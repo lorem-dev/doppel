@@ -1,4 +1,5 @@
-//! Rules V5..V7, V10..V11, V14 and V15, plus dispatch into the mock rules.
+//! Rules V5..V7, V10, the cross-field half of V11, and V14, plus dispatch
+//! into the mock rules.
 //!
 //! V9 (a positive timeout), V12 and V13 (a probability in 0..=1, a status in
 //! 100..=599) and the non-negative half of V14 are gone: `TimeoutSeconds`,
@@ -6,7 +7,10 @@
 //! is being parsed. So is V33: `ByteSize` refuses a limit of zero, which is
 //! what that rule said about `body_limit` and V29 said about `upload.limit`.
 //! V8 and V32 are `config::UpstreamUrl`, which keeps the URL parsed rather
-//! than as text -- so the request path never parses it again either.
+//! than as text -- so the request path never parses it again either. V15 is
+//! `HeaderName` and `HeaderValue`, which also close the hole that rule left:
+//! it checked `proxies[*].headers` and nothing else, while the same shapes
+//! could be written into a mock's response headers unchecked.
 //!
 //! V35 is gone: it applied `sanitize` to a proxy name, and `config::Name` now
 //! refuses the same shapes while the document is being parsed. One check, at
@@ -15,7 +19,7 @@
 
 use std::collections::BTreeSet;
 
-use super::{Violations, is_valid_header_name, is_valid_header_value, mock};
+use super::{Violations, mock};
 use crate::config::{Config, ProxyKind, ResolveKind};
 
 pub(super) fn check(config: &Config, v: &mut Violations) {
@@ -59,37 +63,21 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
                 }
                 default_seen = true;
             }
-            ResolveKind::Header => match proxy.resolve.header.as_deref() {
-                None => v.push(
-                    format!("{path}.resolve.header"),
-                    "`header` is required when `type: header`",
-                ),
-                Some(header) => v.require(
-                    is_valid_header_name(header),
-                    format!("{path}.resolve.header"),
-                    format!("`{header}` is not a valid header name"),
-                ),
-            },
+            // V11 is down to its cross-field half: whether the field is
+            // present at all depends on `type`. What the field may contain is
+            // `config::HeaderName`.
+            ResolveKind::Header => {
+                if proxy.resolve.header.is_none() {
+                    v.push(
+                        format!("{path}.resolve.header"),
+                        "`header` is required when `type: header`",
+                    );
+                }
+            }
         }
 
         // V14
         check_faults(proxy.latency.as_ref(), &path, v);
-
-        // V15 -- both an invalid name and an invalid value are reported at
-        // the same specific `headers.<name>` path, per the convention that
-        // every message carries the config path of the thing it is about.
-        for (name, value) in &proxy.headers {
-            v.require(
-                is_valid_header_name(name),
-                format!("{path}.headers.{name}"),
-                format!("`{name}` is not a valid header name"),
-            );
-            v.require(
-                is_valid_header_value(value),
-                format!("{path}.headers.{name}"),
-                "value is not a valid header value",
-            );
-        }
 
         mock::check(proxy, &path, v);
     }
@@ -275,20 +263,24 @@ proxies:
     }
 
     #[test]
-    fn v11_header_resolution_requires_a_valid_header() {
+    fn v11_header_resolution_requires_the_field_to_be_there() {
+        // The half of V11 that needs two fields: whether `header` is required
+        // depends on `type`. What it may contain is `config::HeaderName`.
         assert_violation(
             &good().replace("      type: default", "      type: header"),
             "proxies[0].resolve.header",
             "required when `type: header`",
         );
-        assert_violation(
-            &good().replace(
-                "      type: default",
-                "      type: header\n      header: \"bad header\"",
-            ),
-            "proxies[0].resolve.header",
-            "not a valid header name",
+    }
+
+    #[test]
+    fn a_resolve_header_that_is_not_a_header_name_fails_at_load() {
+        let text = good().replace(
+            "      type: default",
+            "      type: header\n      header: \"bad header\"",
         );
+        let err = load_from_str(&text).unwrap_err().to_string();
+        assert!(err.contains("not a valid header name"), "{err}");
     }
 
     #[test]
@@ -347,17 +339,17 @@ proxies:
     }
 
     #[test]
-    fn v15_upstream_headers_must_be_well_formed() {
-        assert_violation(
-            &good().replace("      Authorization:", "      \"Bad Header\":"),
-            "proxies[0].headers.Bad Header",
-            "not a valid header name",
-        );
-        assert_violation(
-            &good().replace(r#""Bearer x""#, r#""bad\nvalue""#),
-            "proxies[0].headers.Authorization",
-            "not a valid header value",
-        );
+    fn upstream_headers_that_are_not_headers_fail_at_load() {
+        // This was V15, now `HeaderName` and `HeaderValue`. The rule only
+        // covered `proxies[*].headers`; the types cover every field of either
+        // kind, including a mock's response headers, which it never reached.
+        let bad_name = good().replace("      Authorization:", "      \"Bad Header\":");
+        let err = load_from_str(&bad_name).unwrap_err().to_string();
+        assert!(err.contains("not a valid header name"), "{err}");
+
+        let bad_value = good().replace(r#""Bearer x""#, r#""bad\nvalue""#);
+        let err = load_from_str(&bad_value).unwrap_err().to_string();
+        assert!(err.contains("line break"), "{err}");
     }
 
     #[test]

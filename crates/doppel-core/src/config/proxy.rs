@@ -28,7 +28,7 @@ pub struct ResolveConfig {
     #[serde(rename = "type", default = "default_resolve_kind")]
     pub kind: ResolveKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub header: Option<String>,
+    pub header: Option<super::HeaderName>,
 }
 
 fn default_resolve_kind() -> ResolveKind {
@@ -73,7 +73,7 @@ pub struct ProxyConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access: Option<ProxyAccessConfig>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub headers: BTreeMap<String, String>,
+    pub headers: BTreeMap<super::HeaderName, super::HeaderValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loss: Option<LossConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

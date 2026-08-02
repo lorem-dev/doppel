@@ -90,40 +90,6 @@ pub fn validate(config: &Config) -> Result<(), Vec<Violation>> {
     v.into_result()
 }
 
-/// RFC 7230 token test, used for header names in rules V11, V15 and V24.
-#[must_use]
-pub fn is_valid_header_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.bytes().all(|b| {
-            b.is_ascii_alphanumeric()
-                || matches!(
-                    b,
-                    b'!' | b'#'
-                        | b'$'
-                        | b'%'
-                        | b'&'
-                        | b'\''
-                        | b'*'
-                        | b'+'
-                        | b'-'
-                        | b'.'
-                        | b'^'
-                        | b'_'
-                        | b'`'
-                        | b'|'
-                        | b'~'
-                )
-        })
-}
-
-/// Visible ASCII plus space and horizontal tab, used for rule V15.
-#[must_use]
-pub fn is_valid_header_value(value: &str) -> bool {
-    value
-        .bytes()
-        .all(|b| b == b'\t' || (0x20..=0x7e).contains(&b))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,15 +336,6 @@ proxies:
             found.len() >= 2,
             "expected several violations, got {found:?}"
         );
-    }
-
-    #[test]
-    fn header_name_and_value_helpers() {
-        assert!(is_valid_header_name("X-Request-ID"));
-        assert!(!is_valid_header_name("X Request ID"));
-        assert!(!is_valid_header_name(""));
-        assert!(is_valid_header_value("Bearer abc"));
-        assert!(!is_valid_header_value("bad\nvalue"));
     }
 
     #[test]
