@@ -36,9 +36,16 @@ use std::time::{Duration, Instant};
 /// specific failure (the child's own stderr, surfaced) instead of a bare
 /// ten-second timeout or a mysterious "connection refused".
 ///
-/// The admin port is allocated the same way in `config()` below, but nothing
-/// binds to it in this phase (the admin server does not exist yet), so a
-/// collision there cannot manifest as a test failure at all.
+/// The port is free when this returns and can be taken by anything before the
+/// child binds it -- the listener is dropped here, which is the only way to
+/// let the child have it. `Server::start_with` closes that race by retrying
+/// with a fresh port when the child reports `Address already in use`, rather
+/// than by pretending the window does not exist.
+/// How many times `Server::start_with` will re-draw a port after losing the
+/// race to bind it. Three independent losses in a row is not a race, it is
+/// something else, and reporting that beats retrying forever.
+const PORT_RACE_ATTEMPTS: usize = 3;
+
 pub fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .unwrap()
@@ -199,13 +206,15 @@ impl Server {
     ///
     /// The builder receives the four values only this harness knows -- the
     /// port it allocated, the upstream's port, the control socket path and the
-    /// templates directory -- and returns the whole config document. This
+    /// templates directory -- and returns the whole config document. It is
+    /// `Fn` rather than `FnOnce` because a lost port race re-draws the port
+    /// and asks for the document again. This
     /// exists so a suite can exercise a configuration this module has no
     /// business knowing about, such as one carrying mocks, without every other
     /// suite paying for those fields.
     pub fn start_with(
         upstream_port: u16,
-        build_config: impl FnOnce(u16, u16, &Path, &Path) -> String,
+        build_config: impl Fn(u16, u16, &Path, &Path) -> String,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Kept short deliberately: see `assert_socket_path_has_headroom`.
@@ -214,31 +223,52 @@ impl Server {
         let config_path = dir.path().join("main.yaml");
         assert_socket_path_has_headroom(&socket);
 
-        let port = free_port();
-        std::fs::write(
-            &config_path,
-            build_config(port, upstream_port, &socket, &templates),
-        )
-        .unwrap();
-
-        let mut child = Command::new(env!("CARGO_BIN_EXE_doppel"))
-            .args(["serve", "--config"])
-            .arg(&config_path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
+        // `free_port` can only report a port that was free a moment ago; the
+        // child binds it later, and in a parallel test run something else can
+        // take it in between. That is a property of the OS API, not a bug to
+        // fix in place, so a lost race is retried with a fresh port. Anything
+        // else that stops the child from starting is reported as-is -- a
+        // retry loop that swallowed real failures would turn a broken binary
+        // into a ten-second timeout.
+        let mut last: Option<String> = None;
+        for _ in 0..PORT_RACE_ATTEMPTS {
+            let port = free_port();
+            std::fs::write(
+                &config_path,
+                build_config(port, upstream_port, &socket, &templates),
+            )
             .unwrap();
 
-        wait_until_ready(&mut child, port, &socket);
+            let mut child = Command::new(env!("CARGO_BIN_EXE_doppel"))
+                .args(["serve", "--config"])
+                .arg(&config_path)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
 
-        Self {
-            child: Some(child),
-            port,
-            socket,
-            config_path,
-            templates,
-            _dir: dir,
+            match try_wait_until_ready(&mut child, port, &socket) {
+                Ok(()) => {
+                    return Self {
+                        child: Some(child),
+                        port,
+                        socket,
+                        config_path,
+                        templates,
+                        _dir: dir,
+                    };
+                }
+                Err(message) if message.contains("Address already in use") => {
+                    last = Some(message);
+                }
+                Err(message) => panic!("{message}"),
+            }
         }
+        panic!(
+            "lost the port race {PORT_RACE_ATTEMPTS} times in a row, which is not a race any \
+             more; last failure:\n{}",
+            last.unwrap_or_default()
+        );
     }
 
     /// The port this server is listening on, for a suite that needs to build
@@ -355,17 +385,26 @@ impl Drop for ChildGuard {
 /// the child's own stderr, which is exactly what would explain a lost race
 /// or any other startup failure.
 pub fn wait_until_ready(child: &mut Child, port: u16, socket: &Path) {
+    if let Err(message) = try_wait_until_ready(child, port, socket) {
+        panic!("{message}");
+    }
+}
+
+/// The same wait, reporting instead of panicking, so `Server::start_with` can
+/// tell a lost port race from a real startup failure and retry only the
+/// former.
+pub fn try_wait_until_ready(child: &mut Child, port: u16, socket: &Path) -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         if let Some(status) = child.try_wait().expect("waiting on the child process") {
             let (stdout, stderr) = drain_output(child);
-            panic!(
+            return Err(format!(
                 "doppel exited early ({status}) while waiting to become ready on port \
                  {port}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
-            );
+            ));
         }
         if TcpStream::connect(("127.0.0.1", port)).is_ok() && socket.exists() {
-            return;
+            return Ok(());
         }
         if Instant::now() >= deadline {
             // Kill and reap before reading the pipes to EOF, so `drain_output`
@@ -373,11 +412,11 @@ pub fn wait_until_ready(child: &mut Child, port: u16, socket: &Path) {
             let _ = child.kill();
             let _ = child.wait();
             let (stdout, stderr) = drain_output(child);
-            panic!(
+            return Err(format!(
                 "doppel did not become ready on port {port} (socket {}) within 10s\n\
                  --- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
                 socket.display()
-            );
+            ));
         }
         std::thread::sleep(Duration::from_millis(50));
     }

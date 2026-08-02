@@ -19,16 +19,17 @@ yet.
   templates with variables taken from the path, headers, query and body.
 - **Resolves several proxies** behind one port, selected by a request header.
 - **Reloads** its configuration without dropping requests in flight.
+- **Serves an admin API** -- proxy CRUD, template upload, reload, status,
+  Prometheus metrics and Swagger UI -- behind token access control. See
+  [Admin API](admin-api.md).
+- **Reports to Sentry**, optionally, behind a cargo feature.
 
 ## What it does not do yet
 
 Named plainly, because a tool's honest boundary is more useful than its
 roadmap:
 
-- No admin HTTP API, so no CRUD over proxies, no Swagger, no Prometheus
-  metrics endpoint and no template upload. The configuration file is the only
-  way in.
-- No PostgreSQL-backed configuration.
+- No PostgreSQL-backed configuration; the YAML file is the only store.
 - No TCP proxying. A `type: tcp` proxy is rejected at load with a message
   saying so, rather than being quietly ignored.
 

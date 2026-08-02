@@ -19,12 +19,14 @@ endpoints with templated mock responses.
   a running server's configuration over a local control socket
   (`doppel config reload`) without a restart.
 - Logs one line per request to stdout, in JSON or human-readable text.
+- Serves an admin HTTP API on a second port: proxy CRUD with optimistic
+  concurrency, template upload, reload, a status endpoint, Prometheus metrics
+  and a generated Swagger UI, behind token access control. See
+  [the documentation](docs/admin-api.md).
+- Reports errors to Sentry, optionally, behind the `sentry` cargo feature.
 
 ## What it does not do yet
 
-- No admin HTTP API: proxies cannot be created, read, updated or deleted over
-  HTTP, and there is no Swagger document for one yet (phase 3).
-- No Prometheus metrics and no Sentry integration (phase 3).
 - No PostgreSQL-backed configuration store; configuration lives in a single
   YAML file on disk (phase 4).
 - No TCP proxying. A `type: tcp` proxy is rejected at load with a message
@@ -98,9 +100,10 @@ proxies:
       type: default
 ```
 
-`admin` is required to parse even though phase 1 does not yet serve it; see
-`main.example.yaml` at the repository root for a fuller reference covering
-tokens, access control, and fault injection.
+See `main.example.yaml` at the repository root for a fuller reference covering
+tokens, access control, and fault injection. Note that every admin action --
+reads included -- defaults to the `admin` group: a proxy document carries the
+headers that proxy injects upstream, so a public listing would publish them.
 
 ## Where the crates live
 
@@ -111,9 +114,7 @@ dependencies point one way, into `doppel-core`:
 |---|---|
 | `doppel-core` | Configuration model, YAML loading, validation, the `ConfigStore` trait and its file-backed implementation, the compiled runtime, the error model. |
 | `doppel-proxy` | The proxy listener, request resolution, fault injection, and upstream forwarding. |
-| `doppel-telemetry` | Logging initialization. |
-| `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other three crates together. |
-
-Two more crates, `doppel-render` (mock templating) and `doppel-admin` (the
-admin HTTP API), are planned for phase 2 and phase 3 respectively and do not
-exist in the workspace yet.
+| `doppel-render` | Mock matching and Jinja2 rendering. |
+| `doppel-admin` | The admin HTTP API: access control, proxy CRUD, templates, reload, status, metrics, OpenAPI. |
+| `doppel-telemetry` | Logging initialization and optional Sentry. |
+| `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other crates together. |

@@ -107,3 +107,68 @@ fn logs_are_json_and_carry_the_documented_fields() {
     assert_eq!(line["fields"]["path"], "/logged");
     assert_eq!(line["fields"]["proxy"], "p1");
 }
+
+/// The userinfo of a Sentry DSN is the key that authorises sending events,
+/// so it is a secret in exactly the way an admin token is.
+const SENTRY_DSN: &str = "https://s3cr3tsentrykey@sentry.invalid/42";
+
+#[test]
+fn a_configured_sentry_dsn_never_reaches_the_logs() {
+    let up = upstream();
+    let server = Server::start_with(up.port, |port, upstream_port, socket, templates| {
+        let base = config(port, upstream_port, socket, templates);
+        let with_sentry = base.replace(
+            "proxies:",
+            &format!("sentry:\n  dsn: \"{SENTRY_DSN}\"\nproxies:"),
+        );
+        assert_ne!(
+            with_sentry, base,
+            "the fixture must actually add a sentry section, or this test proves nothing"
+        );
+        with_sentry
+    });
+    server.get("/anything");
+
+    send_sigterm(server.pid());
+    let (_status, stdout, stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
+
+    let both = format!("{stdout}{stderr}");
+    assert!(
+        !both.contains("s3cr3tsentrykey"),
+        "the sentry key leaked into the logs: {both}"
+    );
+    // The host survives, because the startup line naming Sentry is what tells
+    // an operator the setting was seen at all.
+    assert!(
+        both.contains("sentry"),
+        "startup should say something about sentry: {both}"
+    );
+}
+
+#[test]
+#[cfg_attr(feature = "sentry", ignore = "this build supports sentry")]
+fn a_dsn_without_the_feature_is_reported_rather_than_ignored() {
+    // A knob that reads as honoured and is not is the defect this project
+    // already removed once, in `admin.workers`. The default build cannot
+    // report to Sentry, so it has to say so.
+    let up = upstream();
+    let server = Server::start_with(up.port, |port, upstream_port, socket, templates| {
+        config(port, upstream_port, socket, templates).replace(
+            "proxies:",
+            &format!("sentry:\n  dsn: \"{SENTRY_DSN}\"\nproxies:"),
+        )
+    });
+    server.get("/anything");
+
+    send_sigterm(server.pid());
+    let (_status, stdout, stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
+
+    let both = format!("{stdout}{stderr}");
+    assert!(
+        both.contains("without the `sentry` feature"),
+        "the build must say it cannot honour the DSN: {both}"
+    );
+    assert!(!both.contains("s3cr3tsentrykey"), "{both}");
+}

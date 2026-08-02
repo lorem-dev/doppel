@@ -28,6 +28,7 @@ nav:
   - Configuration reference: configuration.md
   - Mocks and templating: mocks.md
   - Proxy behaviour: proxying.md
+  - Admin API: admin-api.md
   - CLI reference: cli.md
   - Observability: observability.md
   - Development: development.md

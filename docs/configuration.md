@@ -209,7 +209,7 @@ Exceeding it is `413`. See [Mocks and templating](mocks.md#bodies-and-the-size-l
 
 ## Validation
 
-Thirty-four rules run identically at startup, on reload, and under
+Thirty-five rules run identically at startup, on reload, and under
 `doppel config validate`. Every violation is reported together with the others,
 each carrying the configuration path that produced it:
 
@@ -224,5 +224,16 @@ action it may not override all fail while the document is being parsed. Those
 stop at the first error, because parsing does; everything the rule set checks
 is collected and reported together.
 
-For the full list of rules and their identifiers, see the phase 1 design
-specification in the repository.
+Two rules are worth naming here because both refuse a configuration that
+earlier versions accepted:
+
+- **V34** -- `admin.access` may not grant `create`, `update`, `delete` or
+  `upload` to `public`. No configuration wants an unauthenticated caller
+  rewriting the proxy set.
+- **V35** -- a proxy name must be usable as a directory name, since it is one:
+  no path separators, no `..`, no leading dot, not empty. Without this a proxy
+  called `a/b` validated and then failed every template operation, reporting a
+  path problem at upload time for a mistake made at configuration time.
+
+For the full list of rules and their identifiers, see the design
+specifications in the repository.

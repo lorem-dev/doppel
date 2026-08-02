@@ -14,10 +14,7 @@ pub use admin::{
     UploadConfig,
 };
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
-pub use proxy::{
-    LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind,
-    redact_credentials,
-};
+pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind};
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,
 };

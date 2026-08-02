@@ -45,11 +45,63 @@ where cardinality is expensive; logs are not aggregated by label.
 ### Secrets
 
 Admin token values never reach the logs, at any level including `trace`, and
-there are tests that assert it. A database URL is masked wherever it can
-surface.
+there are tests that assert it. A database URL and a Sentry DSN are masked
+wherever they can surface -- a Sentry DSN carries the key that authorises
+sending events, in the same position a URL carries a password.
 
 ## Metrics
 
-Not implemented yet. The admin API in a later phase exposes Prometheus metrics:
-latency histograms for the upstream and for the proxy, labelled by status and
-method but deliberately not by path.
+`GET /metrics` on the admin listener, in the Prometheus text format,
+unauthenticated because a scraper has nowhere to put a token.
+
+| Metric | Type | Labels |
+|---|---|---|
+| `doppel_proxy_request_duration_seconds` | histogram | `proxy`, `method`, `status` |
+| `doppel_upstream_request_duration_seconds` | histogram | `proxy`, `method`, `status` |
+| `doppel_loss_total` | counter | `proxy` |
+| `doppel_latency_injected_total` | counter | `proxy` |
+| `doppel_mock_hits_total` | counter | `proxy`, `mock` |
+
+Buckets are explicit -- 5ms to 10s -- rather than the exporter's default
+summary, because a quantile cannot be aggregated across replicas.
+
+Every request through the proxy listener appears in the proxy histogram,
+including one that was dropped by loss injection or that resolved to no proxy
+at all; otherwise a rise in failures would read as a fall in traffic. A
+request answered by a mock produces no upstream observation, because no
+upstream was contacted.
+
+A request that resolved to no proxy is recorded with an empty `proxy` label.
+Rule V35 refuses an empty proxy name, so it cannot collide with a real one.
+
+### No path labels
+
+Not by convention but by construction: no recording function in
+`doppel_core::metrics` accepts a path, so there is nothing to forget at a call
+site.
+
+`method` is bounded the same way. It arrives from the wire, so an unbounded
+label there is a cardinality explosion any client can trigger by inventing
+methods. Anything outside the recognised set is recorded as `OTHER`.
+
+## Sentry
+
+Optional, behind the `sentry` cargo feature and off in a default build:
+
+```bash
+cargo build --release --features sentry
+```
+
+```yaml
+sentry:
+  dsn: "https://key@sentry.example.com/1"
+```
+
+An absent section or an empty DSN disables it and is not an error. A
+malformed DSN fails startup rather than producing a client that silently
+drops everything -- with the key masked in the message.
+
+A build without the feature that is given a DSN warns at startup and carries
+on. It does not pretend to report, and it does not refuse to run: reporting is
+optional by design, so turning a missing integration into an outage would be
+worse than the gap.

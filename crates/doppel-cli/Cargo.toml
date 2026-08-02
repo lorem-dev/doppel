@@ -9,6 +9,11 @@ license.workspace = true
 name = "doppel"
 path = "src/main.rs"
 
+[features]
+# Passed through so `cargo build --features sentry` on the binary does what it
+# reads as doing.
+sentry = ["doppel-telemetry/sentry"]
+
 [dependencies]
 doppel-core = { path = "../doppel-core" }
 doppel-proxy = { path = "../doppel-proxy" }

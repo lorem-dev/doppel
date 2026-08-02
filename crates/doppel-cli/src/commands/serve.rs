@@ -36,6 +36,16 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     doppel_telemetry::init_logging(config.logging.level, config.logging.format)
         .map_err(|err| CliError::Failed(err.to_string()))?;
 
+    // After logging, so that what this reports -- including the warning a
+    // build without the `sentry` feature emits for a configured DSN -- is
+    // visible. The tracing layer resolves the Sentry hub per event, so
+    // installing it before the client exists loses nothing.
+    //
+    // Bound to a name, not `_`: the guard flushes and stops reporting when
+    // dropped, and `let _ = ...` would drop it here.
+    let _sentry = doppel_telemetry::sentry::init(config.sentry.as_ref())
+        .map_err(|err| CliError::Failed(err.to_string()))?;
+
     preflight(&config).map_err(CliError::Failed)?;
 
     let addr = SocketAddr::new(config.server.host, config.server.port);

@@ -5,7 +5,8 @@ use axum::extract::State;
 use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use doppel_core::config::{ResolveKind, redact_credentials};
+use doppel_core::config::ResolveKind;
+use doppel_core::redact_credentials;
 use doppel_core::{Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 

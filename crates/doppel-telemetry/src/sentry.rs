@@ -1,0 +1,185 @@
+//! Optional Sentry reporting.
+//!
+//! Behind the `sentry` cargo feature. The default build has no Sentry code in
+//! it at all, and `init` below still exists and still succeeds, so nothing
+//! that calls it needs a `cfg`.
+
+use doppel_core::config::SentryConfig;
+use doppel_core::redact_credentials;
+
+use crate::TelemetryError;
+
+/// What `init` actually did, so a caller -- or a test -- can tell the three
+/// cases apart without reading log output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SentryStatus {
+    /// No `sentry` section, or an empty DSN. The documented way to turn it
+    /// off, and not an error.
+    Disabled,
+    /// A DSN was configured but this binary was built without the `sentry`
+    /// feature, so nothing will be reported.
+    Unsupported,
+    Enabled,
+}
+
+/// Holds the Sentry client for as long as the process runs.
+///
+/// Dropping it flushes pending events and stops reporting, so `serve` binds
+/// it to a name that lives until it returns. A `let _ = init(..)` would drop
+/// it immediately and silently disable everything -- which is why this type
+/// is `#[must_use]`.
+#[must_use = "dropping the guard flushes and disables Sentry"]
+pub struct Sentry {
+    pub status: SentryStatus,
+    #[cfg(feature = "sentry")]
+    _guard: Option<::sentry::ClientInitGuard>,
+}
+
+impl std::fmt::Debug for Sentry {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // No DSN field, and none reachable from the guard's `Debug` either:
+        // the point of this type is that the DSN does not travel.
+        f.debug_struct("Sentry")
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The DSN, if the configuration names a non-empty one.
+///
+/// An absent section and a section with an empty or whitespace-only DSN mean
+/// the same thing. Treating `dsn: ""` as a value would try to initialise
+/// Sentry against nothing and fail startup for what is plainly a way of
+/// writing "off".
+fn configured_dsn(config: Option<&SentryConfig>) -> Option<&str> {
+    config
+        .map(|sentry| sentry.dsn.trim())
+        .filter(|dsn| !dsn.is_empty())
+}
+
+#[cfg(feature = "sentry")]
+pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
+    let Some(dsn) = configured_dsn(config) else {
+        return Ok(Sentry {
+            status: SentryStatus::Disabled,
+            _guard: None,
+        });
+    };
+
+    // Parsed before `init`, so a malformed DSN is reported as one rather
+    // than as a client that silently drops everything: `sentry::init`
+    // accepts a value it could not parse and returns a disabled client.
+    let parsed =
+        dsn.parse::<::sentry::types::Dsn>()
+            .map_err(|err| TelemetryError::BadSentryDsn {
+                dsn: redact_credentials(dsn),
+                reason: err.to_string(),
+            })?;
+
+    // `ClientOptions` is `#[non_exhaustive]`, so it is built by mutating a
+    // default rather than by a struct literal.
+    let mut options = ::sentry::ClientOptions::default();
+    options.dsn = Some(parsed);
+    // Errors from a released binary are only actionable if the release is on
+    // them.
+    options.release = ::sentry::release_name!();
+    let guard = ::sentry::init(options);
+
+    tracing::info!(dsn = %redact_credentials(dsn), "sentry reporting enabled");
+    Ok(Sentry {
+        status: SentryStatus::Enabled,
+        _guard: Some(guard),
+    })
+}
+
+#[cfg(not(feature = "sentry"))]
+pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
+    let status = if let Some(dsn) = configured_dsn(config) {
+        // Loud rather than silent. The operator asked for reporting and will
+        // not get it; a knob that reads as honoured and is not is the defect
+        // this project already removed once, in `admin.workers`. Not fatal,
+        // though -- Sentry is optional by design, and refusing to start would
+        // turn an observability gap into an outage.
+        tracing::warn!(
+            dsn = %redact_credentials(dsn),
+            "sentry.dsn is configured but this binary was built without the `sentry` feature; \
+             nothing will be reported"
+        );
+        SentryStatus::Unsupported
+    } else {
+        SentryStatus::Disabled
+    };
+    Ok(Sentry { status })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(dsn: &str) -> SentryConfig {
+        SentryConfig {
+            dsn: dsn.to_owned(),
+        }
+    }
+
+    #[test]
+    fn no_sentry_section_is_disabled_and_not_an_error() {
+        assert_eq!(init(None).unwrap().status, SentryStatus::Disabled);
+    }
+
+    #[test]
+    fn an_empty_dsn_is_the_documented_way_to_turn_it_off() {
+        for dsn in ["", "   ", "\t"] {
+            assert_eq!(
+                init(Some(&config(dsn))).unwrap().status,
+                SentryStatus::Disabled,
+                "{dsn:?} should read as off"
+            );
+        }
+    }
+
+    #[test]
+    fn the_debug_of_the_guard_carries_no_dsn() {
+        // `serve` may log its state, and a `Debug` that printed the DSN would
+        // put the key in the log the first time anyone did.
+        let sentry = init(Some(&config("https://key@sentry.example.com/1"))).unwrap();
+        let rendered = format!("{sentry:?}");
+        assert!(!rendered.contains("key"), "{rendered}");
+        assert!(!rendered.contains("sentry.example.com"), "{rendered}");
+    }
+
+    #[cfg(feature = "sentry")]
+    #[test]
+    fn a_malformed_dsn_is_reported_with_the_key_masked() {
+        // Reported rather than accepted: `sentry::init` takes an unparseable
+        // value and hands back a client that drops everything, so the only
+        // signal an operator would get is silence.
+        let err = init(Some(&config("https://s3cr3tkey@/missing-project")))
+            .expect_err("a DSN with no host must be refused");
+        let message = err.to_string();
+        assert!(!message.contains("s3cr3tkey"), "{message}");
+    }
+
+    #[cfg(feature = "sentry")]
+    #[test]
+    fn a_wholly_unparseable_dsn_is_not_echoed_back() {
+        let err = init(Some(&config("this is not a dsn but it might be a secret")))
+            .expect_err("must be refused");
+        let message = err.to_string();
+        assert!(!message.contains("might be a secret"), "{message}");
+        assert!(message.contains("<redacted>"), "{message}");
+    }
+
+    #[cfg(not(feature = "sentry"))]
+    #[test]
+    fn a_configured_dsn_without_the_feature_is_unsupported_not_silently_disabled() {
+        // The distinction is the point: `Disabled` means the operator turned
+        // it off, `Unsupported` means they asked and this build cannot.
+        assert_eq!(
+            init(Some(&config("https://key@sentry.example.com/1")))
+                .unwrap()
+                .status,
+            SentryStatus::Unsupported
+        );
+    }
+}

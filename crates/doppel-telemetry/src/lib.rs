@@ -1,4 +1,8 @@
-//! Logging setup. Metrics and Sentry join this crate in phase 3.
+//! Logging setup, and optional Sentry reporting.
+
+pub mod sentry;
+
+pub use sentry::{Sentry, SentryStatus};
 
 use doppel_core::config::{LogFormat, LogLevel};
 use tracing_subscriber::EnvFilter;
@@ -11,6 +15,12 @@ pub enum TelemetryError {
     AlreadyInitialized,
     #[error("invalid log filter: {0}")]
     BadFilter(String),
+    /// The DSN in the message is already masked -- see
+    /// `doppel_core::redact_credentials`. A Sentry DSN carries the key that
+    /// authorises sending events in its userinfo, so echoing the operator's
+    /// value back into a log line would publish it.
+    #[error("invalid sentry dsn `{dsn}`: {reason}")]
+    BadSentryDsn { dsn: String, reason: String },
 }
 
 /// Resolve the filter directive. `RUST_LOG` wins over the config, because that
@@ -30,6 +40,12 @@ pub fn init_logging(level: LogLevel, format: LogFormat) -> Result<(), TelemetryE
         EnvFilter::try_new(&directive).map_err(|e| TelemetryError::BadFilter(e.to_string()))?;
 
     let registry = tracing_subscriber::registry().with(filter);
+    // Added whether or not a client is bound. `sentry_tracing` resolves the
+    // hub per event, so with no client the layer drops everything, which is
+    // what lets `init_logging` run before `sentry::init` and still capture
+    // the warnings that initialisation itself emits.
+    #[cfg(feature = "sentry")]
+    let registry = registry.with(sentry_tracing::layer());
     let result = match format {
         LogFormat::Json => registry
             .with(
