@@ -109,6 +109,22 @@ publishes `v9.0.0` and stops its major tags at `v7`; assuming otherwise put two
 workflows in the repository that could not start. Ask for the ref you intend to
 write.
 
+## On the first release only: the two remaining badges
+
+The README carries badges for docs, CI, Docs and the licence. Two more belong
+there and are deliberately absent until there is something behind them, because
+each renders as an error otherwise:
+
+```html
+<a href="https://github.com/lorem-dev/doppel/releases/latest"><img src="https://img.shields.io/github/v/release/lorem-dev/doppel?label=download" alt="Download"></a>
+<a href="https://hub.docker.com/r/loremdev/doppel"><img src="https://img.shields.io/docker/v/loremdev/doppel?label=docker&sort=semver" alt="Docker"></a>
+```
+
+`no releases or repo not found` and `repository or tag not found` are what they
+say today. Add them once the first release and the first image exist, and check
+what they render before committing -- a download badge on a project with
+nothing to download is worse than no badge.
+
 ## Then check the release key
 
 The signature is worth nothing if the published public key has expired or no

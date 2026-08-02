@@ -5,6 +5,13 @@
 <h1 align="center">$$Doppel{\color{lightblue}ganger}$$</h1>
 
 <p align="center">
+    <a href="https://lorem-dev.github.io/doppel/"><img src="https://img.shields.io/badge/docs-online-blue" alt="Documentation"></a>
+    <a href="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/lorem-dev/doppel/actions/workflows/docs.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/doppel" alt="License"></a>
+</p>
+
+<p align="center">
     Doppel is a CLI-driven HTTP reverse proxy. The name is from "doppelganger": it
     stands in front of, or in place of, a real backend, so clients of that backend
     can be developed and tested against a realistic, deliberately degraded, or
