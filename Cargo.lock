@@ -269,6 +269,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "doppel-admin"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "doppel-core",
+ "tracing",
+]
+
+[[package]]
 name = "doppel-cli"
 version = "0.1.0"
 dependencies = [
