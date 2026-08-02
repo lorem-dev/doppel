@@ -16,8 +16,8 @@
     stands in front of, or in place of, a real backend, so clients of that backend
     can be developed and tested against a realistic, deliberately degraded, or
     entirely absent upstream. It forwards traffic to a configured upstream,
-    injects controlled latency and loss, and (in a later phase) replaces selected
-    endpoints with templated mock responses.
+    injects controlled latency and loss, and replaces selected endpoints with
+    templated mock responses.
 </p>
 
 ---

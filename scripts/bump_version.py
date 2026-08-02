@@ -71,7 +71,12 @@ def set_workspace_version(version: str) -> str:
 
     previous = found.group("version")
     if previous == version:
-        fail(f"Cargo.toml already reads {version}")
+        # Not a failure. The first release is exactly this case: the manifest
+        # has carried the version since the workspace was created and only the
+        # changelog needs promoting. Refusing here would send the one release
+        # that matters most around the tooling and into a hand-edited
+        # CHANGES.md.
+        return previous
 
     path.write_text(pattern.sub(rf'\g<lead>"{version}"', text, count=1), encoding="utf-8")
     return previous
@@ -122,7 +127,10 @@ def main() -> None:
     previous = set_workspace_version(version)
     promote_development(version)
 
-    print(f"Cargo.toml: {previous} -> {version}")
+    if previous == version:
+        print(f"Cargo.toml: already {version}, left alone")
+    else:
+        print(f"Cargo.toml: {previous} -> {version}")
     print(f"CHANGES.md: Development promoted to {version}")
     print()
     print("Next, in this order:")

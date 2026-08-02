@@ -8,31 +8,95 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
-### Added
+The first release. Everything below is new, so the sections are what a reader
+arriving at 0.1.0 needs rather than a diff against something earlier.
 
-- Configuration model for the whole service -- server, logging, control
-  channel, templates, Sentry, admin, and proxies with their mocks -- loaded
-  from YAML with unknown keys rejected rather than ignored.
-- Semantic validation, thirty-three rules, reported together with the config
-  path that produced each one rather than one failure at a time.
-- `FileStore`: configuration on disk, written atomically, guarded by an
-  advisory lock held across processes, with compare-and-swap on a
-  content-derived revision.
-- HTTP reverse proxying with per-proxy upstreams, header injection,
-  hop-by-hop hygiene in both directions, and streaming request and response
-  bodies.
-- Fault injection: latency and loss, per proxy and overridable per mock.
-- Proxy resolution by request header, with a default fallback.
-- The mock engine: request matching, variables extracted from the path,
-  headers, query and body, and responses rendered with minijinja.
-- A Unix socket control channel and `doppel config reload`, applying a new
-  configuration without dropping in-flight traffic.
-- Structured logging to stdout, JSON or text.
-- The `doppel` binary: `serve`, `config validate`, `config reload`, `version`.
+### Proxying
+
+- HTTP reverse proxying with per-proxy upstreams, header injection, hop-by-hop
+  hygiene in both directions, and streaming request and response bodies, so a
+  transfer larger than memory passes through.
+- The upstream is confined: a proxy configured for one upstream and one base
+  path can only reach paths under it. Enforced by checking the built URL, not
+  by sanitising the input -- two attempts at the latter were bypassed, once by
+  an absolute-URI request target and once by percent-encoded traversal.
+- Proxy resolution by request header, with an optional default. Several proxies
+  share one port; resolution headers are tried in configuration order, so the
+  same request resolves the same way on every process and every run.
+- Fault injection: latency and loss, per proxy and overridable per mock. Loss
+  is decided first and short-circuits -- a request being dropped is not delayed
+  first.
+- Mocks: matching on method and an unanchored path pattern, variables taken
+  from path captures, headers, the query string and a JSON body, and responses
+  rendered with minijinja. `replace` decides what share of matching requests a
+  mock answers, so a backend can be replaced gradually.
+- One fixed error envelope on every failure path, including the ones no
+  handler produces -- an unknown route, a wrong method, a body over the limit.
+
+### Configuration
+
+- A configuration model for the whole service, loaded from YAML with unknown
+  keys rejected rather than ignored.
+- Values are parsed into types rather than validated afterwards: names, tokens,
+  ports, statuses, methods, probabilities, durations, byte sizes, upstream
+  URLs, header names and values, mock patterns, selectors and template file
+  names each refuse bad input while the document is being read. Sixteen
+  validation rules remain, for what needs more than one field to decide.
+- Reload without dropping in-flight traffic: a new configuration is loaded,
+  validated and compiled before anything is swapped, and a failure leaves the
+  running one untouched. Sections whose listener is already bound are reported
+  as needing a restart rather than silently ignored.
+- Two stores behind one trait, chosen by `--store`: a YAML file, or PostgreSQL.
+  One conformance suite runs against both. `config push` and `config pull` move
+  a configuration between them.
+- Compare-and-swap on a content-derived revision, so two writers cannot
+  overwrite each other unnoticed. The same document always produces the same
+  revision, on any machine.
+
+### Administration
+
+- An admin HTTP API on a second port: proxy CRUD with per-proxy optimistic
+  concurrency, template upload, reload, status, Prometheus metrics and a
+  generated Swagger UI, behind token access control. It can be turned off
+  entirely with `admin.enable`.
+- Every request is judged against the configuration the last reload put into
+  force, never against what the store holds at that moment -- so someone who
+  can write the configuration out of band, but holds no token, cannot grant
+  themselves one and use it.
+- Admin tokens can come from `DOPPEL_ADMIN_TOKENS` instead of the document.
+  They take precedence over a configured token of the same name, and a
+  malformed variable fails startup rather than being skipped.
+- `doppel token add` issues a token on a running server over the control
+  socket: generated, stored, brought into force before the command answers,
+  and printed once.
+- Metrics carry `proxy`, `method` and `status` labels and deliberately no
+  `path` -- a path label is attacker-controlled cardinality.
+
+### Operating
+
+- The `doppel` binary: `serve`, `config validate`, `config reload`,
+  `config push`, `config pull`, `config migrate`, `token add`, `version`.
+- Migrations are embedded in the binary and applied only by
+  `config migrate`, never at startup. `config migrate --status` reports what
+  is applied, complete and unchanged without altering anything, and exits
+  non-zero when the schema is behind.
+- Structured logging to stdout, JSON or text. Optional Sentry reporting behind
+  a cargo feature.
+- Graceful shutdown on SIGTERM, draining in-flight requests.
+
+### Distribution
+
+- Prebuilt binaries for macOS on Apple Silicon and Linux on x86-64 and arm64,
+  with SHA-256 checksums signed by the Lorem Dev release key.
+- A one-line installer that verifies the checksum and refuses to install on a
+  mismatch.
+- An Alpine image on Docker Hub as `loremdev/doppel`, for linux/amd64 and
+  linux/arm64, tagged `<version>-alpine`.
 
 ### Notes
 
-- Phase 1 and phase 2 of the plan are complete. The admin HTTP API, its
-  Prometheus metrics and Swagger, template upload, the PostgreSQL store and
-  TCP proxying are not implemented yet; the configuration accepts and
-  validates the settings they will use.
+- TCP proxying is not implemented. A `type: tcp` proxy is rejected at load with
+  a message saying so, rather than being quietly ignored.
+- Before 1.0 a breaking change is a minor bump, which is what `0.x` semantics
+  allow.
+
