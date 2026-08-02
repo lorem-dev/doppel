@@ -1,0 +1,111 @@
+# CI: the same gate a change has to pass locally -- `cargo fmt --check`,
+# `cargo clippy --all-targets -- -D warnings`, `cargo test` -- plus a strict
+# documentation build.
+#
+# Runs on every push to main and develop, and on every pull request.
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+
+# One run per branch or pull request, newest only. A push to a branch that has
+# an open pull request otherwise starts two runs of the same commit, and a
+# second push leaves both queued against a commit nobody is waiting on.
+#
+# Keyed on the pull request when there is one, so a branch's push run and its
+# pull-request run stay separate and each cancels only its own predecessor.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Format, lint, test
+    runs-on: ubuntu-latest
+    # A cold run is a few minutes. Anything near this bound is stuck, and
+    # failing then beats holding a runner for the six-hour default.
+    timeout-minutes: 30
+
+    # The PostgreSQL store suites need a database. Without one they skip
+    # themselves, which is right on a laptop and wrong here -- see
+    # DOPPEL_REQUIRE_DATABASE below.
+    #
+    # Port 5432 rather than the 55432 `docker-compose.yml` uses: that offset
+    # exists so a developer's own database is not touched, and a service
+    # container has no such neighbour.
+    services:
+      postgres:
+        # Pinned to the same minor version as docker-compose.yml. `latest`
+        # would let a major upgrade arrive between two runs of one suite.
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: doppel
+          POSTGRES_PASSWORD: doppel
+          POSTGRES_DB: doppel
+        ports:
+          - 5432:5432
+        # Without this the first test can beat the server to accepting
+        # connections, which is the obvious flake.
+        options: >-
+          --health-cmd "pg_isready -U doppel -d doppel"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      DOPPEL_TEST_DATABASE_URL: postgres://doppel:doppel@127.0.0.1:5432/doppel
+      # Turns a skipped database test into a failure. `cargo test` captures the
+      # output of passing tests, so a skip notice reaches nobody: a run that was
+      # supposed to exercise the store and silently did not is worse than one
+      # that failed.
+      DOPPEL_REQUIRE_DATABASE: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      # No toolchain is named here. `rust-toolchain.toml` pins the channel and
+      # the components, and rustup honours it; naming a version in the workflow
+      # too would be a second pin to keep in step with the first.
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup show active-toolchain
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Without this a failing run saves nothing, so the retry after a red
+          # build recompiles the whole dependency graph from scratch.
+          cache-on-failure: true
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+  docs:
+    name: Documentation builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9
+
+      # Built on every pull request, not only when publishing. `--strict` turns
+      # a broken internal link into a failure, and the link that breaks is
+      # usually in a page nobody edited -- the one pointing at the page that
+      # moved.
+      - name: Build the site (strict)
+        run: uv run --with-requirements docs/requirements.txt mkdocs build --strict

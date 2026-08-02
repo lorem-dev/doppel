@@ -1,0 +1,77 @@
+# Docs: publish the mkdocs site to GitHub Pages on every push to main.
+#
+# One-time repository setup (Settings -> Pages):
+#   Source: "GitHub Actions".
+#
+# Pages on a private repository needs a plan that includes it. Until this
+# repository is public, the deploy step is expected to fail with a permissions
+# error -- which is why the build lives in `ci.yml` as well, on every pull
+# request. Documentation breakage is caught there whether or not anything can
+# be published.
+#
+# Deployed through the Pages actions rather than by pushing a `gh-pages`
+# branch: no branch to maintain, and the artifact is what Pages serves.
+#
+# Not versioned. `mike` would put a version switcher in the header and keep a
+# page per release, which is worth doing once there are releases to switch
+# between; there are none yet, and an empty switcher is worse than none. When
+# the first tag lands, add `extra.version.provider: mike` to `mkdocs.yml` and
+# replace the build step below with `mike deploy`.
+
+name: Docs
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  # Required by actions/deploy-pages: it exchanges this for a deployment token
+  # rather than using a stored secret.
+  id-token: write
+
+# One deploy at a time, and do not cancel one that is already publishing --
+# an interrupted deployment can leave Pages serving a half-uploaded site.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9
+
+      - name: Build the site (strict)
+        run: uv run --with-requirements docs/requirements.txt mkdocs build --strict
+
+      - name: Upload the site as a Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          # `site/` is what mkdocs writes and what .gitignore excludes.
+          path: site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

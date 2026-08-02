@@ -1,5 +1,9 @@
 site_name: Doppel
 site_description: A doppelganger for your backend -- an HTTP proxy that forwards, degrades, or replaces it.
+# Where GitHub Pages serves this from. Needed for the sitemap and the
+# canonical link; a project site lives under /<repo>/, not at the domain root,
+# and without this both point at the wrong place.
+site_url: https://lorem-dev.github.io/doppel/
 repo_url: https://github.com/lorem-dev/doppel
 edit_uri: ""
 

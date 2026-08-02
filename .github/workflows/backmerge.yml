@@ -1,0 +1,92 @@
+# After anything lands on main, keep develop in sync by opening a pull request
+# that merges main back into develop.
+#
+# A pull request rather than a direct push, for two reasons: the merge is
+# visible and reviewable, and CI runs on it. A back-merge is where a release
+# commit meets work that continued on develop, so it is exactly the merge most
+# likely to conflict -- resolve conflicts on the pull request.
+#
+# This repository's branching is `feature/* -> develop -> main`, so main only
+# ever moves through a release merge. Nothing here assumes that: if main moves
+# for any other reason, the same pull request opens.
+
+name: Back-merge main -> develop
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+# Never two of these at once, and never cancel one mid-flight: a cancelled run
+# can leave the pull request half-created.
+concurrency:
+  group: backmerge
+  cancel-in-progress: false
+
+jobs:
+  open-backmerge-pr:
+    name: Open or refresh the back-merge pull request
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # `git merge-base` below needs both branches, so the full history.
+          fetch-depth: 0
+
+      - name: Check whether develop already contains main
+        id: check
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet origin/develop >/dev/null; then
+            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+            echo "There is no develop branch; nothing to back-merge into."
+            exit 0
+          fi
+          if git merge-base --is-ancestor origin/main origin/develop; then
+            echo "needs_pr=false" >> "$GITHUB_OUTPUT"
+            echo "develop already contains main; nothing to do."
+          else
+            echo "needs_pr=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open the back-merge pull request
+        if: steps.check.outputs.needs_pr == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(git rev-parse --short origin/main)"
+          MAIN_SUBJECT="$(git log -1 --format='%s' origin/main)"
+
+          EXISTING="$(gh pr list --head main --base develop --state open --json number --jq '.[0].number')"
+          if [ -n "$EXISTING" ]; then
+            echo "PR #$EXISTING is already open for main -> develop; the push updates it."
+            exit 0
+          fi
+
+          BODY_FILE="$(mktemp)"
+          cat > "$BODY_FILE" <<EOF
+          Automated back-merge of \`main\` into \`develop\`.
+
+          Latest commit on main: \`${MAIN_SHA}\` -- ${MAIN_SUBJECT}
+
+          Opened by \`${WORKFLOW_NAME}\`, run \`${RUN_ID}\`.
+
+          Merge this (or turn on auto-merge) to keep \`develop\` in step with
+          \`main\`. Resolve any conflicts here rather than on develop.
+          EOF
+
+          gh pr create \
+            --base develop \
+            --head main \
+            --title "chore: back-merge main into develop" \
+            --body-file "$BODY_FILE"
