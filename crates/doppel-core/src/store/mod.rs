@@ -132,6 +132,12 @@ pub enum StoreError {
     Serialize(String),
     #[error("template name `{name}` rejected: {reason}")]
     BadTemplateName { name: String, reason: String },
+    /// The store cannot be reached, or can be reached and is not ready to
+    /// serve -- an unmigrated schema, a refused connection. Distinct from
+    /// `Io`, which is about one path failing, and from `NotFound`, which
+    /// means the store answered and has no such configuration.
+    #[error("{0}")]
+    Unavailable(String),
     #[error("revision mismatch: expected {expected:?}, actual {actual:?}")]
     RevisionMismatch {
         expected: Revision,

@@ -34,6 +34,30 @@ pub enum ConfigCommand {
     Validate(StoreArgs),
     /// Ask a running server to reload its configuration.
     Reload(ReloadArgs),
+    /// Apply any database migrations the configured database has not seen.
+    ///
+    /// Its own command, and never done on startup: a process that silently
+    /// alters a shared schema when it boots turns a rollback into data loss,
+    /// and the operator who rolled back is the one least expecting it.
+    Migrate(MigrateArgs),
+}
+
+#[derive(Args)]
+pub struct MigrateArgs {
+    /// The database to migrate. Required: there is nothing to migrate without
+    /// one, and defaulting to some local guess would let a mistyped
+    /// environment migrate the wrong database.
+    #[arg(long, env = "DOPPEL_DATABASE_URL")]
+    pub database_url: String,
+}
+
+/// Hand-written, like `StoreArgs`'s, so `{:?}` cannot print the password.
+impl std::fmt::Debug for MigrateArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MigrateArgs")
+            .field("database_url", &mask_dsn(&self.database_url))
+            .finish()
+    }
 }
 
 #[derive(Debug, Args)]

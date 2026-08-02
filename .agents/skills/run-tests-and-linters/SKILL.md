@@ -18,8 +18,25 @@ cargo test
 Run the gate so its output lands in a file, and quote the file:
 
 ```bash
-{ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test; } 2>&1 | tee /tmp/doppel-gate.txt
+docker compose up -d --wait
+export DOPPEL_TEST_DATABASE_URL=postgres://doppel:doppel@127.0.0.1:55432/doppel
+export DOPPEL_REQUIRE_DATABASE=1
+
+{ cargo fmt --check \
+  && cargo clippy --all-targets --all-features -- -D warnings \
+  && cargo test --workspace \
+  && cargo test --workspace --all-features; } 2>&1 | tee /tmp/doppel-gate.txt
 ```
+
+The database comes up first, and `DOPPEL_REQUIRE_DATABASE` turns a missing
+URL into a test failure. Without it the PostgreSQL tests skip and pass, and
+the skip notice they print is swallowed by `cargo test`'s output capture --
+measured, not assumed: a full gate run contained zero occurrences of it. So
+the variable, not the message, is what stops "skipped" from becoming "never
+verified".
+
+Both feature configurations are run because `sentry` is off by default; an
+integration that only ever compiles one way is half-tested.
 
 This is not ceremony. Over this project's history several reports stated test
 counts, error codes or compiler diagnostics that did not survive being checked

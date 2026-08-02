@@ -270,3 +270,46 @@ fn a_configuration_still_carrying_server_workers_is_rejected_by_name() {
         "the error must name the removed field, got: {stderr}"
     );
 }
+
+#[test]
+fn config_migrate_masks_the_password_when_the_database_is_unreachable() {
+    // The DSN reaches stderr on this path, and it is the one place an
+    // operator's password could be printed by a command they ran to fix a
+    // connection problem.
+    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
+        .args([
+            "config",
+            "migrate",
+            "--database-url",
+            "postgres://user:hunter2@127.0.0.1:1/nope",
+        ])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(!stderr.contains("hunter2"), "the password leaked: {stderr}");
+    assert!(
+        stderr.contains("***"),
+        "expected a masked dsn, got: {stderr}"
+    );
+    // The host survives, because that is what the operator is checking.
+    assert!(stderr.contains("127.0.0.1"), "{stderr}");
+}
+
+#[test]
+fn config_migrate_requires_a_database_url() {
+    // Defaulting to a local guess would let a mistyped environment migrate
+    // the wrong database, which is not a mistake anyone notices in time.
+    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
+        .args(["config", "migrate"])
+        .env_remove("DOPPEL_DATABASE_URL")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("database-url"),
+        "the message must name the missing argument"
+    );
+}

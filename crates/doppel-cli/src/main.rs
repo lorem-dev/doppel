@@ -40,6 +40,20 @@ fn run(command: Command) -> u8 {
         Command::Config {
             command: ConfigCommand::Reload(args),
         } => run_on_light_runtime(async move { commands::reload::reload(&args).await }),
+        Command::Config {
+            command: ConfigCommand::Migrate(args),
+        } => run_on_light_runtime(async move {
+            match commands::migrate::migrate(&args).await {
+                Ok(report) => {
+                    println!("{report}");
+                    0
+                }
+                Err(err) => {
+                    eprintln!("{err}");
+                    err.exit_code()
+                }
+            }
+        }),
         Command::Serve(args) => run_serve(args),
     }
 }

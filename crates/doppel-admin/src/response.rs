@@ -73,7 +73,10 @@ pub fn store_error(err: &StoreError) -> Error {
             ErrorCode::Conflict,
             "the stored configuration changed while this request was being applied",
         ),
-        StoreError::NotFound(_) | StoreError::Io { .. } | StoreError::Serialize(_) => {
+        StoreError::NotFound(_)
+        | StoreError::Io { .. }
+        | StoreError::Serialize(_)
+        | StoreError::Unavailable(_) => {
             tracing::error!(error = %err, "configuration store failure");
             Error::new(
                 ErrorCode::StoreError,
