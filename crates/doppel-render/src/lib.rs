@@ -8,5 +8,5 @@
 pub mod extract;
 pub mod render;
 
-pub use extract::{Selector, Variables, parse_body};
+pub use extract::{Variables, parse_body};
 pub use render::Renderer;

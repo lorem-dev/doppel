@@ -1,8 +1,9 @@
 //! Matching a request against a proxy's mocks, and binding its variables.
 
 use axum::http::{HeaderMap, Method};
-use doppel_core::{CompiledMock, CompiledProxy, Error};
-use doppel_render::{Selector, Variables};
+use doppel_core::config::Selector;
+use doppel_core::{CompiledMock, CompiledProxy};
+use doppel_render::Variables;
 
 /// Finds the first mock, in configuration order, whose method and path match
 /// the request, and binds its named capture groups into [`Variables`].
@@ -68,41 +69,30 @@ pub fn bind_headers(mock: &CompiledMock, headers: &HeaderMap, vars: &mut Variabl
 /// repeated in the query string keeps its first value, matching this
 /// codebase's existing convention for a repeated header (see the
 /// `x-forwarded-for` handling in `upstream.rs`).
-pub fn bind_query(
-    mock: &CompiledMock,
-    query: Option<&str>,
-    vars: &mut Variables,
-) -> Result<(), Error> {
+pub fn bind_query(mock: &CompiledMock, query: Option<&str>, vars: &mut Variables) {
     if mock.query_vars.is_empty() {
-        return Ok(());
+        return;
     }
     let root = query_object(query.unwrap_or(""));
-    bind_selectors(&mock.query_vars, &root, vars)
+    bind_selectors(&mock.query_vars, &root, vars);
 }
 
 /// Binds the mock's declared body variables against an already-parsed body.
 /// The caller is responsible for buffering and parsing the body only when
 /// `mock.body_vars` is non-empty, per section 6 of the design.
-pub fn bind_body(
-    mock: &CompiledMock,
-    root: &serde_json::Value,
-    vars: &mut Variables,
-) -> Result<(), Error> {
-    bind_selectors(&mock.body_vars, root, vars)
+pub fn bind_body(mock: &CompiledMock, root: &serde_json::Value, vars: &mut Variables) {
+    bind_selectors(&mock.body_vars, root, vars);
 }
 
-fn bind_selectors(
-    pairs: &[(String, String)],
-    root: &serde_json::Value,
-    vars: &mut Variables,
-) -> Result<(), Error> {
-    for (name, raw_selector) in pairs {
-        let selector = Selector::parse(raw_selector)?;
+/// Infallible now. It used to re-parse each selector's text per request and
+/// return a `Result` for a failure a loaded configuration could not produce;
+/// the selectors arrive parsed.
+fn bind_selectors(pairs: &[(String, Selector)], root: &serde_json::Value, vars: &mut Variables) {
+    for (name, selector) in pairs {
         if let Some(value) = selector.eval(root) {
             vars.insert(name, value.clone());
         }
     }
-    Ok(())
 }
 
 /// A URL good only for giving `Url::parse` an absolute form to parse the raw

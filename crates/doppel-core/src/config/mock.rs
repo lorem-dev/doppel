@@ -20,16 +20,16 @@ pub struct MockConfig {
 #[serde(deny_unknown_fields)]
 pub struct MockRequest {
     pub method: crate::config::HttpMethod,
-    pub url: String,
+    pub url: crate::config::Pattern,
     /// Variable name -> request header name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, crate::config::HeaderName>,
     /// Variable name -> selector such as `.filter`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub query: BTreeMap<String, String>,
+    pub query: BTreeMap<String, crate::config::Selector>,
     /// Variable name -> selector such as `.content.items`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub body: BTreeMap<String, String>,
+    pub body: BTreeMap<String, crate::config::Selector>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]

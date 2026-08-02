@@ -276,6 +276,24 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Mock patterns and selectors
+
+A mock's `request.url` is a regular expression, matched unanchored against the
+request path. Its named capture groups become template variables. It is
+compiled when the document is read and kept compiled, so the request path
+never compiles it again.
+
+A query or body selector is a leading dot followed by dot-separated field
+names: `.filter`, `.content.items`. It addresses object keys only; a segment
+reaching an array yields the array, and a missing key binds nothing rather
+than failing the request.
+
+Rules **V18** and **V23** did these checks. Both are types now, and both
+removed a second copy of the same work: `Runtime::compile` used to recompile
+every pattern, and the render path used to re-parse every selector on every
+request -- each with its own failure branch for input a loaded configuration
+could not contain.
+
 ## Headers
 
 Every field naming an HTTP header -- `admin.auth.header`, a proxy's

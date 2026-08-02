@@ -1,9 +1,11 @@
-//! Rules V16, V18..V21, V23..V25, V30 and V31.
+//! Rules V16, V19..V21, V25, V30 and V31.
 //!
-//! V17 (a known, upper-case method) and V22 (a status in 100..=599) are gone:
-//! `config::HttpMethod` and `config::HttpStatus` refuse the same values while
-//! the document is being parsed, with the same messages. What is left here
-//! needs more than one field to decide.
+//! V17 (a known, upper-case method), V18 (a compilable url pattern), V22 (a
+//! status in 100..=599), V23 (a well-formed selector) and V24 (a header name)
+//! are gone: `HttpMethod`, `Pattern`, `HttpStatus`, `Selector` and
+//! `HeaderName` refuse the same values while the document is being parsed,
+//! with the same messages. What is left here needs more than one field to
+//! decide.
 
 use std::collections::BTreeSet;
 
@@ -37,17 +39,9 @@ pub(super) fn check(proxy: &ProxyConfig, proxy_path: &str, v: &mut Violations) {
 }
 
 fn check_request(request: &MockRequest, path: &str, v: &mut Violations) {
-    // V18
-    let captures: BTreeSet<String> = match regex::Regex::new(&request.url) {
-        Ok(re) => re.capture_names().flatten().map(str::to_owned).collect(),
-        Err(err) => {
-            v.push(
-                format!("{path}.request.url"),
-                format!("`{}` is not a valid regex: {err}", request.url),
-            );
-            BTreeSet::new()
-        }
-    };
+    // No V18 here: `config::Pattern` compiled it at parse time, so what is
+    // left is reading the capture names off a regex that is known good.
+    let captures: BTreeSet<String> = request.url.capture_names().into_iter().collect();
 
     // V19. V24 is `config::HeaderName`, on the value side of this map.
     for variable in request.headers.keys() {
@@ -58,33 +52,16 @@ fn check_request(request: &MockRequest, path: &str, v: &mut Violations) {
         );
     }
 
-    // V19 and V23
+    // V19. V23 is `config::Selector`.
     for (source, selectors) in [("query", &request.query), ("body", &request.body)] {
-        for (variable, selector) in selectors {
+        for variable in selectors.keys() {
             v.require(
                 !captures.contains(variable),
                 format!("{path}.request.{source}.{variable}"),
                 format!("variable `{variable}` collides with a capture group in `url`"),
             );
-            if let Err(reason) = check_selector(selector) {
-                v.push(format!("{path}.request.{source}.{variable}"), reason);
-            }
         }
     }
-}
-
-/// V23: a selector is a leading `.` followed by non-empty dot-separated segments.
-fn check_selector(selector: &str) -> Result<(), String> {
-    let Some(rest) = selector.strip_prefix('.') else {
-        return Err(format!("selector `{selector}` must start with `.`"));
-    };
-    if rest.is_empty() {
-        return Err("selector must name at least one field".to_owned());
-    }
-    if rest.split('.').any(str::is_empty) {
-        return Err(format!("selector `{selector}` has an empty path segment"));
-    }
-    Ok(())
 }
 
 fn check_response(response: &MockResponse, path: &str, v: &mut Violations) {
@@ -241,12 +218,14 @@ proxies:
     }
 
     #[test]
-    fn v18_url_must_compile_as_a_regex() {
-        assert_violation(
-            &good().replace(r"/api/(?P<id>\d+)/", "/api/(unclosed/"),
-            "proxies[0].mocks[0].request.url",
-            "is not a valid regex",
-        );
+    fn a_url_pattern_that_does_not_compile_fails_at_load() {
+        // This was V18. `config::Pattern` compiles it at parse time and keeps
+        // the result, so the compile that used to happen twice -- once to
+        // check, once for real -- happens once.
+        let err = load_from_str(&good().replace(r"/api/(?P<id>\d+)/", "/api/(unclosed/"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("is not a valid regex"), "{err}");
     }
 
     #[test]
@@ -328,17 +307,19 @@ proxies:
     }
 
     #[test]
-    fn v23_selectors_must_be_well_formed() {
-        assert_violation(
-            &good().replace("filter: .filter", "filter: filter"),
-            "proxies[0].mocks[0].request.query.filter",
-            "must start with `.`",
-        );
-        assert_violation(
-            &good().replace(".content.name", ".content..name"),
-            "proxies[0].mocks[0].request.body.itemName",
-            "empty path segment",
-        );
+    fn a_malformed_selector_fails_at_load() {
+        // This was V23, and `doppel_render::Selector` parsed the same grammar
+        // a second time per request. Both are `config::Selector` now.
+        for (from, to, expected) in [
+            ("filter: .filter", "filter: filter", "must start with `.`"),
+            (".content.name", ".content..name", "empty path segment"),
+            ("filter: .filter", "filter: .", "at least one field"),
+        ] {
+            let err = load_from_str(&good().replace(from, to))
+                .expect_err(&format!("`{to}` must not parse"))
+                .to_string();
+            assert!(err.contains(expected), "{to}: {err}");
+        }
     }
 
     #[test]

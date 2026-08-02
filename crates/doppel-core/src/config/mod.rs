@@ -5,9 +5,11 @@ pub mod duration;
 pub mod header;
 pub mod mock;
 pub mod name;
+pub mod pattern;
 pub mod port;
 pub mod proxy;
 pub mod ratio;
+pub mod selector;
 pub mod server;
 pub mod size;
 pub mod status;
@@ -26,9 +28,11 @@ pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
 pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{Name, NameError};
+pub use pattern::{Pattern, PatternError};
 pub use port::{Port, PortError};
 pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind};
 pub use ratio::{Ratio, RatioError};
+pub use selector::{Selector, SelectorError};
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,
 };

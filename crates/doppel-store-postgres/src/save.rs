@@ -228,7 +228,7 @@ impl PostgresStore {
         .bind(mock.name.as_str())
         .bind(ordinal)
         .bind(mock.request.method.as_str())
-        .bind(&mock.request.url)
+        .bind(mock.request.url.as_str())
         .bind(i32::from(mock.response.status.get()))
         .bind(mock.response.body.as_deref())
         .bind(mock.response.json.as_deref())

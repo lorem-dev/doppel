@@ -28,45 +28,10 @@ impl Variables {
     }
 }
 
-/// A parsed `.a.b.c` selector: dot-separated segments after a leading dot,
-/// addressing object keys only.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Selector(Vec<String>);
-
-impl Selector {
-    /// Parses a selector of the form `.a.b.c`. Config validation (V23)
-    /// already enforces this shape, so a failure here is defence in depth
-    /// rather than the primary check.
-    pub fn parse(raw: &str) -> Result<Self, Error> {
-        let rest = raw.strip_prefix('.').ok_or_else(|| {
-            Error::new(
-                ErrorCode::BodyExtractionError,
-                format!("selector `{raw}` must start with `.`"),
-            )
-        })?;
-
-        let segments: Vec<String> = rest.split('.').map(str::to_owned).collect();
-        if segments.iter().any(String::is_empty) {
-            return Err(Error::new(
-                ErrorCode::BodyExtractionError,
-                format!("selector `{raw}` has an empty segment"),
-            ));
-        }
-
-        Ok(Self(segments))
-    }
-
-    /// Walks `root` by the selector's segments. Only object keys are
-    /// addressed; a segment that reaches an array yields the array itself,
-    /// and a missing key yields `None` rather than an error, since an
-    /// absent field is a normal outcome.
-    #[must_use]
-    pub fn eval<'v>(&self, root: &'v serde_json::Value) -> Option<&'v serde_json::Value> {
-        self.0
-            .iter()
-            .try_fold(root, |value, segment| value.as_object()?.get(segment))
-    }
-}
+// There was a `Selector` here, parsing `.a.b.c` on every request and calling
+// itself "defence in depth" behind rule V23. Both are gone: the selector is
+// `doppel_core::config::Selector`, parsed once when the document is read, and
+// walking it is a method on that type. One grammar, in one place.
 
 /// Parses a JSON request body once, for every body selector of one mock.
 ///
@@ -89,62 +54,6 @@ pub fn parse_body(bytes: &[u8]) -> Result<serde_json::Value, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_single_segment_selector_parses() {
-        assert_eq!(
-            Selector::parse(".filter").unwrap(),
-            Selector(vec!["filter".to_owned()])
-        );
-    }
-
-    #[test]
-    fn a_multi_segment_selector_parses() {
-        assert_eq!(
-            Selector::parse(".content.items").unwrap(),
-            Selector(vec!["content".to_owned(), "items".to_owned()])
-        );
-    }
-
-    #[test]
-    fn a_selector_without_a_leading_dot_is_rejected() {
-        let err = Selector::parse("content.items").unwrap_err();
-        assert_eq!(err.code, ErrorCode::BodyExtractionError);
-    }
-
-    #[test]
-    fn a_lone_dot_is_rejected_as_an_empty_segment() {
-        let err = Selector::parse(".").unwrap_err();
-        assert_eq!(err.code, ErrorCode::BodyExtractionError);
-    }
-
-    #[test]
-    fn a_missing_segment_yields_none() {
-        let root = serde_json::json!({"content": {"id": 1}});
-        let selector = Selector::parse(".content.missing").unwrap();
-        assert_eq!(selector.eval(&root), None);
-    }
-
-    #[test]
-    fn a_segment_reaching_an_array_yields_the_array_itself() {
-        let root = serde_json::json!({"content": {"items": [1, 2, 3]}});
-        let selector = Selector::parse(".content.items").unwrap();
-        assert_eq!(selector.eval(&root), Some(&serde_json::json!([1, 2, 3])));
-    }
-
-    #[test]
-    fn a_selector_against_a_scalar_root_yields_none_rather_than_panicking() {
-        let root = serde_json::json!(42);
-        let selector = Selector::parse(".content.items").unwrap();
-        assert_eq!(selector.eval(&root), None);
-    }
-
-    #[test]
-    fn a_deeply_nested_path_resolves() {
-        let root = serde_json::json!({"a": {"b": {"c": {"d": "found"}}}});
-        let selector = Selector::parse(".a.b.c.d").unwrap();
-        assert_eq!(selector.eval(&root), Some(&serde_json::json!("found")));
-    }
 
     #[test]
     fn non_json_body_yields_body_extraction_error() {

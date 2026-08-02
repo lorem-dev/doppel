@@ -49,10 +49,10 @@ pub struct CompiledMock {
     /// Variable name -> request header name, lowercased so the request path
     /// never has to case-fold a header name again.
     pub header_vars: Vec<(String, String)>,
-    /// Variable name -> raw `.a.b` query selector.
-    pub query_vars: Vec<(String, String)>,
-    /// Variable name -> raw `.a.b` body selector.
-    pub body_vars: Vec<(String, String)>,
+    /// Variable name -> query selector, already parsed.
+    pub query_vars: Vec<(String, crate::config::Selector)>,
+    /// Variable name -> body selector, already parsed.
+    pub body_vars: Vec<(String, crate::config::Selector)>,
     pub status: u16,
     pub body: MockBody,
     /// Response header name -> template source, rendered per request.
@@ -198,27 +198,18 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
     })
 }
 
-/// Compiles one mock: the regex once, here (a failure is defence in depth
-/// behind rule V18, which already rejects an unparseable pattern), the three
-/// extraction maps split out by source, and the response resolved to a
-/// single `MockBody`. See `MockBody::Template` for why the template case does
-/// not read the file it names.
+/// Compiles one mock: the three extraction maps split out by source, and the
+/// response resolved to a single `MockBody`. See `MockBody::Template` for why
+/// the template case does not read the file it names.
+///
+/// No regex compile and no failure branch for one. `config::Pattern` holds
+/// the pattern already compiled, so there is no second compile here and
+/// nothing that could fail at it -- this used to compile the regex again and
+/// call the result "defence in depth behind rule V18".
 fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Error> {
-    let pattern = regex::Regex::new(&mock.request.url).map_err(|e| {
-        Error::new(
-            ErrorCode::ConfigInvalid,
-            format!(
-                "proxy `{proxy_name}` mock `{}` has an unusable url pattern: {e}",
-                mock.name
-            ),
-        )
-    })?;
-
-    let capture_names = pattern
-        .capture_names()
-        .flatten()
-        .map(str::to_owned)
-        .collect();
+    let _ = proxy_name;
+    let pattern = mock.request.url.as_regex().clone();
+    let capture_names = mock.request.url.capture_names();
 
     let header_vars = mock
         .request
@@ -637,16 +628,14 @@ proxies:
             let proxy1 = rt.proxy_by_name("proxy1").unwrap();
 
             // mock2 declares query.filter/.sort and three body selectors.
-            assert!(
-                mock(proxy1, "mock2")
-                    .query_vars
-                    .contains(&("filter".to_owned(), ".filter".to_owned()))
-            );
-            assert!(
-                mock(proxy1, "mock2")
-                    .body_vars
-                    .contains(&("resourceItems".to_owned(), ".content.items".to_owned()))
-            );
+            assert!(mock(proxy1, "mock2").query_vars.contains(&(
+                "filter".to_owned(),
+                crate::config::Selector::parse(".filter").unwrap()
+            )));
+            assert!(mock(proxy1, "mock2").body_vars.contains(&(
+                "resourceItems".to_owned(),
+                crate::config::Selector::parse(".content.items").unwrap()
+            )));
         }
 
         #[test]

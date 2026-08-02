@@ -349,7 +349,7 @@ async fn serve_mock(
     request: Request,
 ) -> Result<Response, Error> {
     crate::mock::bind_headers(mock, request.headers(), &mut vars);
-    crate::mock::bind_query(mock, request.uri().query(), &mut vars)?;
+    crate::mock::bind_query(mock, request.uri().query(), &mut vars);
 
     if !mock.body_vars.is_empty() {
         // Buffering is deferred to exactly here: only a mock that declares a
@@ -368,7 +368,7 @@ async fn serve_mock(
                 )
             })?;
         let root = doppel_render::parse_body(&bytes)?;
-        crate::mock::bind_body(mock, &root, &mut vars)?;
+        crate::mock::bind_body(mock, &root, &mut vars);
     }
 
     let renderer = Renderer::new();

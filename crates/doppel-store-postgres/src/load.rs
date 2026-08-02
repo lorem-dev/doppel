@@ -147,7 +147,7 @@ impl PostgresStore {
                     name: name(row, "name")?,
                     request: MockRequest {
                         method: method(row, "method")?,
-                        url: text(row, "url_pattern")?,
+                        url: pattern(row, "url_pattern")?,
                         headers: json_column(row, "request_headers")?,
                         query: json_column(row, "request_query")?,
                         body: json_column(row, "request_body")?,
@@ -338,6 +338,12 @@ fn optional_ratio(
 /// A stored latency, checked on the way in.
 fn seconds(value: f64, column: &str) -> Result<doppel_core::config::Seconds, StoreError> {
     doppel_core::config::Seconds::parse(value).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored url pattern, checked on the way in.
+fn pattern(row: &PgRow, column: &str) -> Result<doppel_core::config::Pattern, StoreError> {
+    let raw: String = row.try_get(column).map_err(query_failed)?;
+    doppel_core::config::Pattern::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 /// A stored header name, checked on the way in.
