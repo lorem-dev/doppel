@@ -104,7 +104,7 @@ admin:
   tokens: []
   access: {}
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http
@@ -195,17 +195,6 @@ proxies:
     }
 
     #[test]
-    fn byte_size_parses_suffixes() {
-        assert_eq!("1M".parse::<ByteSize>().unwrap().0, 1024 * 1024);
-        assert_eq!("512K".parse::<ByteSize>().unwrap().0, 512 * 1024);
-        assert_eq!("2G".parse::<ByteSize>().unwrap().0, 2 * 1024 * 1024 * 1024);
-        assert_eq!("4096".parse::<ByteSize>().unwrap().0, 4096);
-        assert_eq!("1MB".parse::<ByteSize>().unwrap().0, 1024 * 1024);
-        assert!("banana".parse::<ByteSize>().is_err());
-        assert!("".parse::<ByteSize>().is_err());
-    }
-
-    #[test]
     fn tcp_type_deserializes_so_validation_can_reject_it_with_a_good_message() {
         let text = MINIMAL.replace("type: http", "type: tcp");
         let config = load_from_str(&text).unwrap();
@@ -220,18 +209,18 @@ proxies:
 
     #[test]
     fn upload_limit_plain_integer_deserializes() {
-        let text = MINIMAL.replace("limit: 1M", "limit: 4096");
+        let text = MINIMAL.replace("limit: 1Mi", "limit: 4096");
         let config = load_from_str(&text).unwrap();
         assert_eq!(config.admin.upload.limit.0, 4096);
 
-        let text = MINIMAL.replace("limit: 1M", "limit: 0");
+        let text = MINIMAL.replace("limit: 1Mi", "limit: 0");
         let config = load_from_str(&text).unwrap();
         assert_eq!(config.admin.upload.limit.0, 0);
     }
 
     #[test]
     fn upload_limit_negative_integer_is_rejected() {
-        let text = MINIMAL.replace("limit: 1M", "limit: -1");
+        let text = MINIMAL.replace("limit: 1Mi", "limit: -1");
         let err = load_from_str(&text);
         assert!(err.is_err());
     }
@@ -246,7 +235,7 @@ proxies:
     fn body_limit_written_as_512k_parses_through_byte_size() {
         let text = MINIMAL.replace(
             "    url: \"https://example.com/\"",
-            "    url: \"https://example.com/\"\n    body_limit: 512K",
+            "    url: \"https://example.com/\"\n    body_limit: 512Ki",
         );
         let config = load_from_str(&text).unwrap();
         assert_eq!(config.proxies[0].body_limit.0, 512 * 1024);

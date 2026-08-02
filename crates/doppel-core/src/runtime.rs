@@ -311,7 +311,7 @@ admin:
   tokens: []
   access: {}
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http
@@ -496,7 +496,7 @@ admin:
   tokens: []
   access: {}
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http
@@ -652,7 +652,7 @@ proxies:
         #[test]
         fn body_limit_reaches_compiled_proxy() {
             let text =
-                TWO_PROXIES.replace("    timeout: 5", "    timeout: 5\n    body_limit: 512K");
+                TWO_PROXIES.replace("    timeout: 5", "    timeout: 5\n    body_limit: 512Ki");
             let rt = compile(&text);
             assert_eq!(rt.proxies[0].body_limit, 512 * 1024);
             // p2 never sets body_limit, so it falls back to the config

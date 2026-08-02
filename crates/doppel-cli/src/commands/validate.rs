@@ -88,7 +88,7 @@ admin:
   tokens: []
   access: {}
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http
@@ -119,7 +119,7 @@ proxies:
         let dir = tempfile::tempdir().unwrap();
         let text = GOOD
             .replace("port: 8081", "port: 8080")
-            .replace("limit: 1M", "limit: 0");
+            .replace("limit: 1Mi", "limit: 0");
         let report = validate(&args(dir.path(), &text)).await;
         assert_eq!(report.exit_code(), 1);
         assert!(report.violations.iter().any(|v| v.path == "admin.port"));

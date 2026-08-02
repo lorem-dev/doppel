@@ -367,7 +367,7 @@ admin:
   tokens: []
   access: {}
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http
@@ -524,7 +524,7 @@ admin:
     tokens: []
     access: {}
     upload:
-        limit: 1M
+        limit: 1Mi
 proxies:
     - name: p1
       type: http

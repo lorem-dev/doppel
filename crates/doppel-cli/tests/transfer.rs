@@ -174,7 +174,7 @@ async fn an_invalid_document_writes_nothing_and_reports_every_violation() {
         &source,
         reference()
             .replace("timeout: 60", "timeout: 0")
-            .replace("limit: 1M", "limit: 0"),
+            .replace("limit: 1Mi", "limit: 0"),
     )
     .unwrap();
 

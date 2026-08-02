@@ -99,7 +99,7 @@ admin:
   tokens: []
   access: {}
   upload:
-    limit: 1M
+    limit: 1Mi
 
 proxies:
   - name: backend

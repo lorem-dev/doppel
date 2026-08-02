@@ -225,7 +225,7 @@ admin:
   host: "127.0.0.1"
   port: 18081
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: alpha
     type: http

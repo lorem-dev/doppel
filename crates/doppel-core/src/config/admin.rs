@@ -142,14 +142,7 @@ pub struct AccessConfig {
     pub upload: Subjects,
 }
 
-/// The default for every action that changes something.
-///
-/// Reads default to public: a proxy listing and `/status` give nothing away.
-/// Writes do not, because the alternative is that omitting an `access` block
-/// hands any unauthenticated caller the ability to rewrite the proxy set --
-/// and the most common configuration is the one nobody wrote. Rule V34 then
-/// refuses an *explicit* public write, so the safe state cannot be reached by
-/// accident in either direction.
+/// The admin listener runs unless a configuration says otherwise.
 fn enabled() -> bool {
     true
 }
@@ -207,40 +200,69 @@ pub struct UploadConfig {
     pub limit: ByteSize,
 }
 
-/// A byte count written as `4096`, `512K`, `1M` or `2G`.
+/// A byte count written as `4096`, `512Ki`, `1Mi` or `2Gi`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ByteSize(pub u64);
 
 impl FromStr for ByteSize {
     type Err = String;
 
+    /// `4096`, `512Ki`, `1Mi`, `2Gi` for binary units; `1MB`, `2GB` for
+    /// decimal ones.
+    ///
+    /// A bare `K`, `M` or `G` is refused rather than guessed at -- see the
+    /// match arm that handles it.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let trimmed = s.trim();
         if trimmed.is_empty() {
             return Err("byte size is empty".to_owned());
         }
-        let upper = trimmed.to_ascii_uppercase();
-        let digits_end = upper
+
+        let digits_end = trimmed
             .find(|c: char| !c.is_ascii_digit())
-            .unwrap_or(upper.len());
-        let (digits, suffix) = upper.split_at(digits_end);
+            .unwrap_or(trimmed.len());
+        let (digits, suffix) = trimmed.split_at(digits_end);
         if digits.is_empty() {
             return Err(format!("`{trimmed}` does not start with a number"));
         }
         let value: u64 = digits
             .parse()
             .map_err(|_| format!("`{digits}` is not a number"))?;
-        // Strip at most one trailing `B` (`1KB` means the same as `1K`); a
-        // second one is not an alternate spelling but a mistake, so `5BB`
-        // must be rejected rather than silently parsed as 5 bytes.
-        let unit = suffix.strip_suffix('B').unwrap_or(suffix);
-        let multiplier = match unit {
-            "" => 1_u64,
-            "K" => 1024,
-            "M" => 1024 * 1024,
-            "G" => 1024 * 1024 * 1024,
+
+        // Case-insensitive on input, because `MiB` and `mib` cannot mean two
+        // different things, while the documentation gives one spelling.
+        //
+        // The whole suffix is matched at once rather than having a trailing
+        // `B` stripped first: stripping would collapse `MB` into `M`, which is
+        // exactly the pair that must stay distinguishable -- one is decimal
+        // and the other is the ambiguous spelling being retired.
+        let multiplier: u64 = match suffix.to_ascii_uppercase().as_str() {
+            "" | "B" => 1,
+            "KI" | "KIB" => 1024,
+            "MI" | "MIB" => 1024 * 1024,
+            "GI" | "GIB" => 1024 * 1024 * 1024,
+            "KB" => 1000,
+            "MB" => 1000 * 1000,
+            "GB" => 1000 * 1000 * 1000,
+            // Bare `K`, `M`, `G`. This spelling meant the binary unit in this
+            // project's own past, which contradicts SI, and silently
+            // reinterpreting it as decimal would change the size of every
+            // buffer already configured without a word. Refusing makes it fail
+            // loudly, once, with both replacements named.
+            unit @ ("K" | "M" | "G") => {
+                let (binary, decimal) = match unit {
+                    "K" => ("Ki", "kB"),
+                    "M" => ("Mi", "MB"),
+                    _ => ("Gi", "GB"),
+                };
+                return Err(format!(
+                    "`{trimmed}` is ambiguous: write `{value}{binary}` for the binary unit \
+                     or `{value}{decimal}` for the decimal one"
+                ));
+            }
             other => return Err(format!("unknown size suffix `{other}`")),
         };
+
         value
             .checked_mul(multiplier)
             .map(ByteSize)
@@ -262,7 +284,7 @@ impl<'de> Deserialize<'de> for ByteSize {
             type Value = ByteSize;
 
             fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-                f.write_str("a byte count such as 4096 or 1M")
+                f.write_str("a byte count such as 4096 or 1Mi")
             }
 
             fn visit_u64<E: de::Error>(self, value: u64) -> Result<ByteSize, E> {
@@ -290,41 +312,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_bare_number_is_bytes() {
+    fn binary_and_decimal_size_suffixes_mean_different_things() {
+        // The distinction the ambiguity was hiding: `1Mi` and `1MB` are not
+        // the same number, and a configuration that meant one while getting
+        // the other is off by five percent with nothing to show for it.
+        assert_eq!("1Mi".parse::<ByteSize>().unwrap().0, 1_048_576);
+        assert_eq!("1MB".parse::<ByteSize>().unwrap().0, 1_000_000);
+        assert_eq!("512Ki".parse::<ByteSize>().unwrap().0, 524_288);
+        assert_eq!("512kB".parse::<ByteSize>().unwrap().0, 512_000);
+        assert_eq!("2Gi".parse::<ByteSize>().unwrap().0, 2 * 1024 * 1024 * 1024);
+        assert_eq!("2GB".parse::<ByteSize>().unwrap().0, 2_000_000_000);
+        // `MiB` is the same as `Mi`, spelled in full.
+        assert_eq!("1MiB".parse::<ByteSize>().unwrap().0, 1_048_576);
+        // Case is not meaningful on input; the documentation gives one
+        // spelling and this accepts what people type.
+        assert_eq!("1mib".parse::<ByteSize>().unwrap().0, 1_048_576);
+        // A plain count, with or without the unit letter.
         assert_eq!("4096".parse::<ByteSize>().unwrap().0, 4096);
+        assert_eq!("4096B".parse::<ByteSize>().unwrap().0, 4096);
     }
 
     #[test]
-    fn each_suffix_applies_its_multiplier() {
-        assert_eq!("512K".parse::<ByteSize>().unwrap().0, 512 * 1024);
-        assert_eq!("1M".parse::<ByteSize>().unwrap().0, 1024 * 1024);
-        assert_eq!("2G".parse::<ByteSize>().unwrap().0, 2 * 1024 * 1024 * 1024);
+    fn a_bare_k_m_or_g_is_refused_with_both_replacements_named() {
+        // It meant the binary unit here once, which contradicts SI. Silently
+        // reinterpreting it as decimal would shrink every configured buffer
+        // without a word, so it fails instead -- and the message has to say
+        // what to write, because the operator cannot guess which was meant.
+        for (input, binary, decimal) in [
+            ("1M", "1Mi", "1MB"),
+            ("8K", "8Ki", "8kB"),
+            ("3G", "3Gi", "3GB"),
+        ] {
+            let err = input.parse::<ByteSize>().unwrap_err();
+            assert!(err.contains(binary), "{input}: {err}");
+            assert!(err.contains(decimal), "{input}: {err}");
+        }
     }
 
     #[test]
-    fn a_single_trailing_b_is_the_same_unit() {
-        assert_eq!(
-            "1KB".parse::<ByteSize>().unwrap().0,
-            "1K".parse::<ByteSize>().unwrap().0
-        );
-        assert_eq!("5B".parse::<ByteSize>().unwrap().0, 5);
-    }
-
-    #[test]
-    fn a_doubled_trailing_b_is_rejected_rather_than_silently_stripped() {
-        // Without the fix, `trim_end_matches('B')` stripped every trailing
-        // `B`, so `5BB` parsed as 5 bytes instead of being rejected.
-        let err = "5BB".parse::<ByteSize>().unwrap_err();
-        assert!(err.contains("unknown size suffix"), "got `{err}`");
-
-        let err = "10KBB".parse::<ByteSize>().unwrap_err();
-        assert!(err.contains("unknown size suffix"), "got `{err}`");
-    }
-
-    #[test]
-    fn an_unknown_suffix_is_rejected() {
-        let err = "5T".parse::<ByteSize>().unwrap_err();
-        assert!(err.contains("unknown size suffix"), "got `{err}`");
+    fn nonsense_suffixes_are_still_refused() {
+        for input in ["5BB", "1X", "banana", "", "Mi"] {
+            assert!(
+                input.parse::<ByteSize>().is_err(),
+                "`{input}` must not parse"
+            );
+        }
     }
 }
 
@@ -376,7 +408,7 @@ mod schemas {
                 .item(
                     ObjectBuilder::new()
                         .schema_type(Type::String)
-                        .examples([serde_json::json!("1M")]),
+                        .examples([serde_json::json!("1Mi")]),
                 )
                 .into()
         }

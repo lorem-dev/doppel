@@ -182,7 +182,7 @@ admin:
     delete: admin
     upload: admin
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: open
     type: http

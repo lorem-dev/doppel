@@ -139,7 +139,7 @@ admin:
     read: public
     update: user1
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http
@@ -347,7 +347,7 @@ proxies:
     #[test]
     fn v29_upload_limit_must_be_positive() {
         assert_violation(
-            &good().replace("limit: 1M", "limit: 0"),
+            &good().replace("limit: 1Mi", "limit: 0"),
             "admin.upload.limit",
             "greater than 0",
         );
@@ -356,7 +356,7 @@ proxies:
     #[test]
     fn all_violations_are_reported_at_once() {
         let text = good().replace("port: 8080", "port: 0");
-        let text = text.replace("limit: 1M", "limit: 0");
+        let text = text.replace("limit: 1Mi", "limit: 0");
         let found = violations(&text);
         assert!(
             found.len() >= 2,

@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn a_byte_size_field_documents_both_of_its_wire_forms() {
         // Same reasoning as `Subjects`: `body_limit` accepts `1048576` and
-        // `"1M"`, and a client generated from an integer-only schema could
+        // `"1Mi"`, and a client generated from an integer-only schema could
         // not send the form the reference configuration uses.
         let doc = document();
         let size = &doc["components"]["schemas"]["ByteSize"];

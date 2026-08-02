@@ -104,7 +104,7 @@ admin:
     delete: admin
     upload: admin
   upload:
-    limit: 1M
+    limit: 1Mi
 ```
 
 `enable` defaults to `true`. Set it to `false` to run the proxy with no admin
@@ -148,8 +148,18 @@ configuration wants an unauthenticated caller rewriting the proxy set.
 and counts, and strips any credentials from the upstream before printing
 it.
 
-`upload.limit` accepts `4096`, `512K`, `1M`, `2G`. It must be greater than
-zero.
+`upload.limit` is a byte count. It must be greater than zero.
+
+Binary and decimal units are both accepted and mean different things:
+`Ki`/`Mi`/`Gi` (equivalently `KiB`/`MiB`/`GiB`) are powers of 1024, and
+`kB`/`MB`/`GB` are powers of 1000. A plain number is bytes. Case is not
+significant on input.
+
+A bare `K`, `M` or `G` is **refused**. It meant the binary unit in earlier
+versions, which contradicts SI, and quietly reinterpreting it as decimal would
+have shrunk every configured buffer by a few percent with nothing to show for
+it. The error names both replacements, so the fix is a one-character edit and
+the choice is the operator's.
 
 ## `proxies`
 
@@ -161,7 +171,7 @@ proxies:
     type: http
     url: "https://external-service.com/api/v1/"
     timeout: 60
-    body_limit: 1M
+    body_limit: 1Mi
     resolve:
       type: default
     access:

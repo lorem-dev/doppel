@@ -161,7 +161,7 @@ admin:
       token: {SECRET_TOKEN}
   access: {{}}
   upload:
-    limit: 1M
+    limit: 1Mi
 proxies:
   - name: p1
     type: http

@@ -41,13 +41,13 @@ admin:
     delete: ["admin"]
     upload: ["admin"]
   upload:
-    limit: 2M
+    limit: 2Mi
 proxies:
   - name: alpha
     type: http
     url: "https://alpha.example.com/api/"
     timeout: 45
-    body_limit: 512K
+    body_limit: 512Ki
     replace: 0.25
     resolve:
       type: default
