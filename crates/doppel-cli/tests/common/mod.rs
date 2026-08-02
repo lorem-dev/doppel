@@ -186,11 +186,27 @@ pub struct Server {
     port: u16,
     pub socket: PathBuf,
     pub config_path: PathBuf,
+    pub templates: PathBuf,
     _dir: tempfile::TempDir,
 }
 
 impl Server {
     pub fn start(upstream_port: u16) -> Self {
+        Self::start_with(upstream_port, config)
+    }
+
+    /// Start a server from a caller-supplied configuration.
+    ///
+    /// The builder receives the four values only this harness knows -- the
+    /// port it allocated, the upstream's port, the control socket path and the
+    /// templates directory -- and returns the whole config document. This
+    /// exists so a suite can exercise a configuration this module has no
+    /// business knowing about, such as one carrying mocks, without every other
+    /// suite paying for those fields.
+    pub fn start_with(
+        upstream_port: u16,
+        build_config: impl FnOnce(u16, u16, &Path, &Path) -> String,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Kept short deliberately: see `assert_socket_path_has_headroom`.
         let socket = dir.path().join("d.sock");
@@ -201,7 +217,7 @@ impl Server {
         let port = free_port();
         std::fs::write(
             &config_path,
-            config(port, upstream_port, &socket, &templates),
+            build_config(port, upstream_port, &socket, &templates),
         )
         .unwrap();
 
@@ -220,8 +236,37 @@ impl Server {
             port,
             socket,
             config_path,
+            templates,
             _dir: dir,
         }
+    }
+
+    /// The port this server is listening on, for a suite that needs to build
+    /// a request this harness does not model.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Place a template file at `<templates.dir>/<proxy>/<file>`.
+    ///
+    /// Safe to call after the server is up: templates are read per request,
+    /// not at startup, precisely so a later phase can upload them at runtime.
+    pub fn write_template(&self, proxy: &str, file: &str, contents: &str) {
+        let dir = self.templates.join(proxy);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(file), contents).unwrap();
+    }
+
+    /// Send a request with a body and return the status and body of the reply.
+    pub fn request(&self, method: &str, path: &str, body: &str) -> (u16, String) {
+        let url = format!("http://127.0.0.1:{}{path}", self.port);
+        let response = reqwest::blocking::Client::new()
+            .request(method.parse().unwrap(), url)
+            .body(body.to_owned())
+            .send()
+            .unwrap();
+        let status = response.status().as_u16();
+        (status, response.text().unwrap())
     }
 
     pub fn get(&self, path: &str) -> (u16, String) {

@@ -60,34 +60,13 @@ proxies:
       max: 0.2
     replace: 1.0  # serve mocks for 100 percent of matching requests
     body_limit: 1M  # bounds the body buffered for mocks that extract from it (mock2, mock6 below); default 1M
+    # Order matters. Patterns are matched as unanchored regexes, so a general
+    # pattern placed first shadows every more specific one below it: with
+    # `/api/v1/resource/` ahead of `/api/v1/resource/(?P<resourceId>\d+)/`,
+    # the second can never fire, because the first already matches that path.
+    # Specific patterns therefore come first here. Doppel does not detect this
+    # for you -- a shadowed mock is a valid configuration, just a useless one.
     mocks:
-      - name: mock1
-        request:
-          method: GET
-          url: /api/v1/resource/
-        response:
-          status: 200
-          body: '{"message": "Success"}'
-          headers:
-            Content-Type: application/json
-
-      - name: mock2
-        request:
-          method: POST
-          url: /api/v1/resource/
-          body:
-            resourceName: .name
-            resourceDescription: .description
-            resourceItems: .content.items
-          query:
-            filter: .filter
-            sort: .sort
-        response:
-          status: 201
-          json: '{"message": "Resource created", "name": "{{ resourceName }}", "description": "{{ resourceDescription }}", "items": {{ resourceItems | length }}}'
-          headers:
-            Content-Type: application/json
-
       - name: mock3
         request:
           method: GET
@@ -101,8 +80,12 @@ proxies:
             percentage: 0.5
             min: 0.1
             max: 0.3
-
       - name: mock4
+        # Referencing an extracted header makes that header required: rendering
+        # is strict, so a request without X-Request-ID fails this mock with
+        # TEMPLATE_RENDER_ERROR rather than rendering an empty string. Use
+        # `{{ requestId | default('') }}` in the templates below if the header
+        # should be optional.
         request:
           method: GET
           url: /api/v1/resource/(?P<resourceId>\d+)/
@@ -114,7 +97,6 @@ proxies:
           headers:
             X-Resource-ID: "{{ resourceId }}"
             X-Request-ID: "{{ requestId }}"
-
       - name: mock5
         request:
           method: DELETE
@@ -125,7 +107,6 @@ proxies:
           status: 204  # 204 forbids a body, so none is declared
           headers:
             X-Resource-ID: "{{ resourceId }}"
-
       - name: mock6
         request:
           method: PUT
@@ -143,6 +124,31 @@ proxies:
           loss:
             percentage: 0.0
             status: 503
+      - name: mock1
+        request:
+          method: GET
+          url: /api/v1/resource/
+        response:
+          status: 200
+          body: '{"message": "Success"}'
+          headers:
+            Content-Type: application/json
+      - name: mock2
+        request:
+          method: POST
+          url: /api/v1/resource/
+          body:
+            resourceName: .name
+            resourceDescription: .description
+            resourceItems: .content.items
+          query:
+            filter: .filter
+            sort: .sort
+        response:
+          status: 201
+          json: '{"message": "Resource created", "name": "{{ resourceName }}", "description": "{{ resourceDescription }}", "items": {{ resourceItems | length }}}'
+          headers:
+            Content-Type: application/json
 
   - name: proxy2
     type: http

@@ -505,7 +505,7 @@ proxies:
       - name: m1
         request:
           method: GET
-          url: /api/(?P<first>\d+)/(?P<second>\w+)/
+          url: /api/(?P<zebra>\d+)/(?P<alpha>\w+)/
         response:
           status: 200
           body: 'plain'
@@ -545,16 +545,35 @@ proxies:
         fn capture_names_are_extracted_in_declaration_order_for_multiple_groups() {
             let config = Arc::new(load_from_str(WITH_MOCKS).unwrap());
             let rt = Runtime::compile(config, Revision(1)).unwrap();
+            // Adversarially named: `zebra` is declared before `alpha`, so a
+            // regression that sorted the capture names instead of preserving
+            // the order the pattern declares them in would flip this and fail.
             assert_eq!(
-                rt.proxies[0].mocks[0].capture_names,
-                vec!["first".to_owned(), "second".to_owned()]
+                mock(rt.proxy_by_name("p1").unwrap(), "m1").capture_names,
+                vec!["zebra".to_owned(), "alpha".to_owned()]
             );
+        }
+
+        /// Look a reference-config mock up by name rather than by position.
+        ///
+        /// These tests are about what compilation produces, not about the
+        /// order `main.example.yaml` happens to list its mocks in -- and that
+        /// order is deliberately significant to matching, so it changes when
+        /// the example is improved. Indexing by position coupled these tests
+        /// to a decision they do not care about; five of them broke the first
+        /// time the example was reordered.
+        fn mock<'a>(proxy: &'a CompiledProxy, name: &str) -> &'a CompiledMock {
+            proxy
+                .mocks
+                .iter()
+                .find(|m| m.name == name)
+                .unwrap_or_else(|| panic!("the reference config must define `{name}`"))
         }
 
         #[test]
         fn a_mock_with_no_captures_yields_an_empty_capture_names() {
             let rt = compile_reference();
-            let mock1 = &rt.proxy_by_name("proxy1").unwrap().mocks[0];
+            let mock1 = mock(rt.proxy_by_name("proxy1").unwrap(), "mock1");
             assert_eq!(mock1.name, "mock1");
             assert!(mock1.capture_names.is_empty());
         }
@@ -563,25 +582,18 @@ proxies:
         fn the_three_config_body_fields_map_to_the_matching_mock_body_variant() {
             let rt = compile_reference();
             let proxy1 = rt.proxy_by_name("proxy1").unwrap();
-
-            assert_eq!(proxy1.mocks[0].name, "mock1");
             assert_eq!(
-                proxy1.mocks[0].body,
+                mock(proxy1, "mock1").body,
                 MockBody::Text(r#"{"message": "Success"}"#.to_owned())
             );
-
-            assert_eq!(proxy1.mocks[1].name, "mock2");
-            assert!(matches!(proxy1.mocks[1].body, MockBody::Json(_)));
-
-            assert_eq!(proxy1.mocks[5].name, "mock6");
+            assert!(matches!(mock(proxy1, "mock2").body, MockBody::Json(_)));
             assert_eq!(
-                proxy1.mocks[5].body,
+                mock(proxy1, "mock6").body,
                 MockBody::Template("put.json.j2".to_owned())
             );
 
             // mock5 answers 204, which forbids a body (rule V30).
-            assert_eq!(proxy1.mocks[4].name, "mock5");
-            assert_eq!(proxy1.mocks[4].body, MockBody::None);
+            assert_eq!(mock(proxy1, "mock5").body, MockBody::None);
         }
 
         #[test]
@@ -590,24 +602,21 @@ proxies:
             let proxy1 = rt.proxy_by_name("proxy1").unwrap();
 
             // mock1 declares no per-mock override at all.
-            assert_eq!(proxy1.mocks[0].name, "mock1");
-            assert_eq!(proxy1.mocks[0].replace, None);
-            assert_eq!(proxy1.mocks[0].loss, None);
-            assert_eq!(proxy1.mocks[0].latency, None);
+            assert_eq!(mock(proxy1, "mock1").replace, None);
+            assert_eq!(mock(proxy1, "mock1").loss, None);
+            assert_eq!(mock(proxy1, "mock1").latency, None);
 
             // mock3 overrides replace and latency, but not loss.
-            assert_eq!(proxy1.mocks[2].name, "mock3");
-            assert_eq!(proxy1.mocks[2].replace, Some(0.5));
-            assert_eq!(proxy1.mocks[2].loss, None);
-            assert!(proxy1.mocks[2].latency.is_some());
-            assert!((proxy1.mocks[2].latency.unwrap().percentage - 0.5).abs() < f64::EPSILON);
+            assert_eq!(mock(proxy1, "mock3").replace, Some(0.5));
+            assert_eq!(mock(proxy1, "mock3").loss, None);
+            assert!(mock(proxy1, "mock3").latency.is_some());
+            assert!((mock(proxy1, "mock3").latency.unwrap().percentage - 0.5).abs() < f64::EPSILON);
 
             // mock6 overrides loss only.
-            assert_eq!(proxy1.mocks[5].name, "mock6");
-            assert_eq!(proxy1.mocks[5].replace, None);
-            assert_eq!(proxy1.mocks[5].latency, None);
-            assert!(proxy1.mocks[5].loss.is_some());
-            assert_eq!(proxy1.mocks[5].loss.unwrap().status, 503);
+            assert_eq!(mock(proxy1, "mock6").replace, None);
+            assert_eq!(mock(proxy1, "mock6").latency, None);
+            assert!(mock(proxy1, "mock6").loss.is_some());
+            assert_eq!(mock(proxy1, "mock6").loss.unwrap().status, 503);
         }
 
         #[test]
@@ -616,9 +625,8 @@ proxies:
             let proxy1 = rt.proxy_by_name("proxy1").unwrap();
 
             // mock4 declares `requestId: X-Request-ID`.
-            assert_eq!(proxy1.mocks[3].name, "mock4");
             assert_eq!(
-                proxy1.mocks[3].header_vars,
+                mock(proxy1, "mock4").header_vars,
                 vec![("requestId".to_owned(), "x-request-id".to_owned())]
             );
         }
@@ -629,14 +637,13 @@ proxies:
             let proxy1 = rt.proxy_by_name("proxy1").unwrap();
 
             // mock2 declares query.filter/.sort and three body selectors.
-            assert_eq!(proxy1.mocks[1].name, "mock2");
             assert!(
-                proxy1.mocks[1]
+                mock(proxy1, "mock2")
                     .query_vars
                     .contains(&("filter".to_owned(), ".filter".to_owned()))
             );
             assert!(
-                proxy1.mocks[1]
+                mock(proxy1, "mock2")
                     .body_vars
                     .contains(&("resourceItems".to_owned(), ".content.items".to_owned()))
             );
