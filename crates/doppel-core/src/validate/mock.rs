@@ -31,13 +31,7 @@ pub(super) fn check(proxy: &ProxyConfig, proxy_path: &str, v: &mut Violations) {
 
         // V25
         if let Some(over) = &mock.proxy {
-            super::proxy::check_faults(
-                over.loss.as_ref(),
-                over.latency.as_ref(),
-                over.replace,
-                &format!("{path}.proxy"),
-                v,
-            );
+            super::proxy::check_faults(over.latency.as_ref(), &format!("{path}.proxy"), v);
         }
     }
 }
@@ -363,18 +357,22 @@ proxies:
 
     #[test]
     fn v25_mock_fault_override_obeys_the_same_bounds() {
-        let text = good()
-            + "        proxy:\n          replace: 2.0\n          latency:\n            percentage: 0.5\n            min: 0.9\n            max: 0.1\n";
+        // V25 is the claim that a mock's `proxy` block is held to the same
+        // standard as the proxy's own. Both halves of that are still true;
+        // they now arrive through different doors, so the test uses both.
+        let ordering = good()
+            + "        proxy:\n          latency:\n            percentage: 0.5\n            min: 0.9\n            max: 0.1\n";
         assert_violation(
-            &text,
-            "proxies[0].mocks[0].proxy.replace",
-            "between 0.0 and 1.0",
-        );
-        assert_violation(
-            &text,
+            &ordering,
             "proxies[0].mocks[0].proxy.latency.min",
             "min must be <= max",
         );
+
+        let out_of_range = good() + "        proxy:\n          replace: 2.0\n";
+        let err = load_from_str(&out_of_range)
+            .expect_err("a replace of 2.0 must not parse")
+            .to_string();
+        assert!(err.contains("between 0.0 and 1.0"), "{err}");
     }
 
     #[test]

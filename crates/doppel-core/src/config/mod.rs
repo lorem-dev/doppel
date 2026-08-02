@@ -1,10 +1,12 @@
 //! The configuration model and its YAML representation.
 
 pub mod admin;
+pub mod duration;
 pub mod mock;
 pub mod name;
 pub mod port;
 pub mod proxy;
+pub mod ratio;
 pub mod server;
 pub mod status;
 pub mod token;
@@ -18,10 +20,12 @@ pub use admin::{
     AccessConfig, AdminConfig, AuthConfig, ByteSize, ProxyAccessConfig, Subjects, TokenConfig,
     UploadConfig,
 };
+pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{Name, NameError};
 pub use port::{Port, PortError};
 pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind};
+pub use ratio::{Ratio, RatioError};
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,
 };

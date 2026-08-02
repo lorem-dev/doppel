@@ -120,7 +120,7 @@ impl PostgresStore {
                     other => return Err(corrupt("proxies.kind", &format!("is `{other}`"))),
                 },
                 url: text(row, "url")?,
-                timeout: optional_u64(row, "timeout_seconds")?,
+                timeout: timeout(row, "timeout_seconds")?,
                 resolve: ResolveConfig {
                     kind: match text(row, "resolve_kind")?.as_str() {
                         "default" => ResolveKind::Default,
@@ -135,7 +135,7 @@ impl PostgresStore {
                 headers: json_column::<BTreeMap<String, String>>(row, "headers")?,
                 loss: loss_from(row)?,
                 latency: latency_from(row)?,
-                replace: row.try_get("replace_ratio").map_err(query_failed)?,
+                replace: optional_ratio(row, "replace_ratio")?,
                 body_limit: ByteSize(
                     u64::try_from(row.try_get::<i64, _>("body_limit").map_err(query_failed)?)
                         .map_err(|_| corrupt("proxies.body_limit", "is negative"))?,
@@ -228,7 +228,7 @@ fn loss_from(row: &PgRow) -> Result<Option<LossConfig>, StoreError> {
     match (percentage, status) {
         (None, None) => Ok(None),
         (Some(percentage), Some(status)) => Ok(Some(LossConfig {
-            percentage,
+            percentage: ratio(percentage, "proxies.loss_percentage")?,
             status: narrow_status(status, "proxies.loss_status")?,
         })),
         _ => Err(corrupt(
@@ -245,9 +245,9 @@ fn latency_from(row: &PgRow) -> Result<Option<LatencyConfig>, StoreError> {
     match (percentage, min, max) {
         (None, None, None) => Ok(None),
         (Some(percentage), Some(min), Some(max)) => Ok(Some(LatencyConfig {
-            percentage,
-            min,
-            max,
+            percentage: ratio(percentage, "proxies.latency_percentage")?,
+            min: seconds(min, "proxies.latency_min")?,
+            max: seconds(max, "proxies.latency_max")?,
         })),
         _ => Err(corrupt(
             "proxies.latency_*",
@@ -314,6 +314,41 @@ fn method(row: &PgRow, column: &str) -> Result<doppel_core::config::HttpMethod, 
     let raw: String = row.try_get(column).map_err(query_failed)?;
     raw.parse()
         .map_err(|err: doppel_core::config::MethodError| corrupt(column, &err.to_string()))
+}
+
+/// A stored timeout, checked on the way in.
+///
+/// The column is a nullable `bigint`, so both halves of the range are
+/// reachable from a hand-edited row: a negative value, and a positive one
+/// past what a timeout may be.
+fn timeout(
+    row: &PgRow,
+    column: &str,
+) -> Result<Option<doppel_core::config::TimeoutSeconds>, StoreError> {
+    optional_u64(row, column)?
+        .map(|value| {
+            doppel_core::config::TimeoutSeconds::parse(value)
+                .map_err(|err| corrupt(column, &err.to_string()))
+        })
+        .transpose()
+}
+
+/// A stored probability, checked on the way in.
+fn ratio(value: f64, column: &str) -> Result<doppel_core::config::Ratio, StoreError> {
+    doppel_core::config::Ratio::parse(value).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+fn optional_ratio(
+    row: &PgRow,
+    column: &str,
+) -> Result<Option<doppel_core::config::Ratio>, StoreError> {
+    let value: Option<f64> = row.try_get(column).map_err(query_failed)?;
+    value.map(|value| ratio(value, column)).transpose()
+}
+
+/// A stored latency, checked on the way in.
+fn seconds(value: f64, column: &str) -> Result<doppel_core::config::Seconds, StoreError> {
+    doppel_core::config::Seconds::parse(value).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 fn optional_u64(row: &PgRow, column: &str) -> Result<Option<u64>, StoreError> {

@@ -174,7 +174,9 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
     Ok(CompiledProxy {
         name: proxy.name.to_string(),
         base_url,
-        timeout: proxy.timeout.map_or(DEFAULT_TIMEOUT, Duration::from_secs),
+        timeout: proxy
+            .timeout
+            .map_or(DEFAULT_TIMEOUT, crate::config::TimeoutSeconds::as_duration),
         headers: proxy
             .headers
             .iter()
@@ -182,7 +184,7 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
             .collect(),
         loss: proxy.loss,
         latency: proxy.latency,
-        replace: proxy.replace.unwrap_or(1.0),
+        replace: proxy.replace.map_or(1.0, crate::config::Ratio::get),
         resolve_header: match proxy.resolve.kind {
             ResolveKind::Header => proxy
                 .resolve
@@ -270,7 +272,7 @@ fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Err
         status: mock.response.status.get(),
         body,
         headers,
-        replace,
+        replace: replace.map(crate::config::Ratio::get),
         loss,
         latency,
     })
@@ -610,7 +612,10 @@ proxies:
             assert_eq!(mock(proxy1, "mock3").replace, Some(0.5));
             assert_eq!(mock(proxy1, "mock3").loss, None);
             assert!(mock(proxy1, "mock3").latency.is_some());
-            assert!((mock(proxy1, "mock3").latency.unwrap().percentage - 0.5).abs() < f64::EPSILON);
+            assert!(
+                (mock(proxy1, "mock3").latency.unwrap().percentage.get() - 0.5).abs()
+                    < f64::EPSILON
+            );
 
             // mock6 overrides loss only.
             assert_eq!(mock(proxy1, "mock6").replace, None);

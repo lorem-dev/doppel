@@ -182,16 +182,20 @@ impl PostgresStore {
         .bind(ordinal)
         .bind(as_text(&proxy.kind)?)
         .bind(&proxy.url)
-        .bind(proxy.timeout.map(|t| i64::try_from(t).unwrap_or(i64::MAX)))
+        .bind(
+            proxy
+                .timeout
+                .map(|t| i64::try_from(t.get()).unwrap_or(i64::MAX)),
+        )
         .bind(i64::try_from(proxy.body_limit.0).unwrap_or(i64::MAX))
-        .bind(proxy.replace)
+        .bind(proxy.replace.map(doppel_core::config::Ratio::get))
         .bind(as_text(&proxy.resolve.kind)?)
         .bind(proxy.resolve.header.as_deref())
-        .bind(proxy.loss.as_ref().map(|l| l.percentage))
+        .bind(proxy.loss.as_ref().map(|l| l.percentage.get()))
         .bind(proxy.loss.as_ref().map(|l| i32::from(l.status.get())))
-        .bind(proxy.latency.as_ref().map(|l| l.percentage))
-        .bind(proxy.latency.as_ref().map(|l| l.min))
-        .bind(proxy.latency.as_ref().map(|l| l.max))
+        .bind(proxy.latency.as_ref().map(|l| l.percentage.get()))
+        .bind(proxy.latency.as_ref().map(|l| l.min.get()))
+        .bind(proxy.latency.as_ref().map(|l| l.max.get()))
         .bind(as_json(&proxy.headers)?)
         .bind(proxy.access.as_ref().map(as_json).transpose()?)
         .execute(&mut **tx)

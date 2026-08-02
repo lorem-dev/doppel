@@ -62,7 +62,7 @@ impl MockResponse {
 #[serde(deny_unknown_fields)]
 pub struct MockProxyOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replace: Option<f64>,
+    pub replace: Option<crate::config::Ratio>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loss: Option<LossConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

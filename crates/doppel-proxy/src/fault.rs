@@ -69,7 +69,7 @@ pub fn decide(
     sampler: &dyn Sampler,
 ) -> FaultDecision {
     if let Some(loss) = loss
-        && fires(loss.percentage, sampler)
+        && fires(loss.percentage.get(), sampler)
     {
         return FaultDecision {
             loss_status: Some(loss.status.get()),
@@ -78,9 +78,15 @@ pub fn decide(
     }
 
     let delay = latency.and_then(|cfg| {
-        if fires(cfg.percentage, sampler) {
-            let span = cfg.max - cfg.min;
-            let seconds = cfg.min + span * sampler.sample();
+        if fires(cfg.percentage.get(), sampler) {
+            // Unwrapped to `f64` for the arithmetic rather than given
+            // operators on `Seconds`: the interpolation goes through a
+            // difference and a product, neither of which is a duration, so
+            // an addition that happened to typecheck would prove nothing.
+            // The result is back inside `[min, max]` by construction.
+            let min = cfg.min.get();
+            let span = cfg.max.get() - min;
+            let seconds = min + span * sampler.sample();
             Some(Duration::from_secs_f64(seconds))
         } else {
             None
@@ -109,18 +115,26 @@ mod tests {
     use super::*;
     use doppel_core::config::{LatencyConfig, LossConfig};
 
+    fn ratio(value: f64) -> doppel_core::config::Ratio {
+        doppel_core::config::Ratio::parse(value).unwrap()
+    }
+
+    fn seconds(value: f64) -> doppel_core::config::Seconds {
+        doppel_core::config::Seconds::parse(value).unwrap()
+    }
+
     fn loss(percentage: f64) -> LossConfig {
         LossConfig {
-            percentage,
+            percentage: ratio(percentage),
             status: doppel_core::config::HttpStatus::parse(503).unwrap(),
         }
     }
 
     fn latency(percentage: f64) -> LatencyConfig {
         LatencyConfig {
-            percentage,
-            min: 0.1,
-            max: 0.2,
+            percentage: ratio(percentage),
+            min: seconds(0.1),
+            max: seconds(0.2),
         }
     }
 
@@ -192,9 +206,9 @@ mod tests {
     #[test]
     fn equal_min_and_max_yield_a_fixed_delay() {
         let cfg = LatencyConfig {
-            percentage: 1.0,
-            min: 0.25,
-            max: 0.25,
+            percentage: ratio(1.0),
+            min: seconds(0.25),
+            max: seconds(0.25),
         };
         let d = decide(None, Some(&cfg), &SequenceSampler::new(vec![0.0, 0.7]));
         assert_eq!(d.latency, Some(Duration::from_millis(250)));

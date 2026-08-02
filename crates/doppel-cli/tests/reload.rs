@@ -58,7 +58,16 @@ fn reload_of_an_invalid_config_is_rejected_and_traffic_keeps_flowing() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("CONFIG_INVALID"), "got: {stdout}");
-    assert!(stdout.contains("proxies[0].timeout"), "got: {stdout}");
+    // The message locates the proxy and the line rather than a config path:
+    // `timeout: 0` is refused by `TimeoutSeconds` while the document is being
+    // parsed, so there is no rule to attribute it to. What matters for a
+    // reload is unchanged -- it is rejected, it says which proxy, and it says
+    // what to do.
+    assert!(stdout.contains("proxies[0]"), "got: {stdout}");
+    assert!(
+        stdout.contains("would mean no timeout at all"),
+        "got: {stdout}"
+    );
 
     let (status, body) = server.get("/still-here");
     assert_eq!(status, 200, "the previous config must still be serving");

@@ -48,6 +48,44 @@ fn config_validate_exits_one_and_lists_violations() {
         &dir.path().join("s.sock"),
         &dir.path().join("t"),
     )
+    // A rule violation rather than a bad single value: bounds on one number
+    // are types now, and a document carrying one fails to parse, which is a
+    // different report (see the test below). `min` above `max` needs two
+    // fields, so it is still a rule and still arrives with a config path.
+    .replace(
+        "    resolve:",
+        "    latency:\n      percentage: 0.5\n      min: 0.9\n      max: 0.1\n    resolve:",
+    );
+    std::fs::write(&path, text).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
+        .args(["config", "validate", "--config"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("proxies[0].latency.min"), "{stdout}");
+    assert!(stdout.contains("min must be <= max"), "{stdout}");
+}
+
+#[test]
+fn config_validate_exits_one_and_locates_a_value_the_type_refuses() {
+    // The other half of the same command. A value no type accepts stops the
+    // parse, so there is no rule to report -- what has to survive is that the
+    // exit code is still 1 and the message still says where to look.
+    let up = upstream();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("main.yaml");
+    let text = config(
+        Ports {
+            server: free_port(),
+            admin: free_port(),
+            upstream: up.port,
+        },
+        &dir.path().join("s.sock"),
+        &dir.path().join("t"),
+    )
     .replace("    resolve:", "    timeout: 0\n    resolve:");
     std::fs::write(&path, text).unwrap();
 
@@ -57,7 +95,10 @@ fn config_validate_exits_one_and_lists_violations() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&output.stdout).contains("proxies[0].timeout"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("proxies[0]"), "{stdout}");
+    assert!(stdout.contains("would mean no timeout at all"), "{stdout}");
+    assert!(stdout.contains("line"), "the line must be named: {stdout}");
 }
 
 #[test]

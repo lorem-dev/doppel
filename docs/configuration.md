@@ -276,6 +276,30 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Numbers with units
+
+| Field | Type | Range |
+|---|---|---|
+| `loss.percentage`, `latency.percentage`, `replace` | probability | 0.0 to 1.0 |
+| `latency.min`, `latency.max` | seconds | 0 to 300 |
+| `timeout` | whole seconds | 1 to 3600 |
+
+The probabilities are fractions despite the field name: 50% is `0.5`. Writing
+`50` is refused, and the message says so, because the old rule reported it as
+"out of range" and left the reader to work out which range.
+
+The upper bounds are sanity bounds, not protocol ones. A latency past five
+minutes outlives every client that would wait for it, and a timeout past an
+hour is a value written in milliseconds far more often than it is an intent --
+`timeout: 30000` is refused with that named.
+
+A timeout of 0 is refused rather than read as "no timeout": leave `timeout`
+out to get the default.
+
+Rules **V9**, **V12**, **V13** and the sign half of **V14** did these checks
+and are gone. What is left of V14 is the ordering: `min` must not exceed
+`max`, which needs both fields and so cannot be a type.
+
 ## Methods and statuses
 
 A mock's `request.method` is one of the methods Doppel knows, spelled in upper

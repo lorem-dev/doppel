@@ -191,6 +191,17 @@ impl std::fmt::Debug for StoreArgs {
 pub enum CliError {
     #[error("{0}")]
     Failed(String),
+    /// The configuration itself is unreadable or malformed.
+    ///
+    /// Separate from `Failed` for one reason: it is a finding about the
+    /// document, so `config validate` prints it to stdout with the
+    /// violations, while an unreachable store goes to stderr. Most bad values
+    /// now fail here rather than as a rule -- the types refuse them while the
+    /// document is being parsed -- so a validate that wrote them to stderr
+    /// would leave anything reading its stdout seeing an empty findings list
+    /// for a broken configuration.
+    #[error("{0}")]
+    BadConfig(String),
 }
 
 impl CliError {
@@ -205,7 +216,7 @@ impl CliError {
     #[must_use]
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::Failed(_) => 1,
+            Self::Failed(_) | Self::BadConfig(_) => 1,
         }
     }
 }
@@ -244,7 +255,15 @@ impl StoreArgs {
                 let probe = PostgresStore::connect(url, &self.config_name, ".")
                     .await
                     .map_err(store_failed(url))?;
-                let (config, _) = probe.load().await.map_err(store_failed(url))?;
+                let (config, _) = probe.load().await.map_err(|err| match err {
+                    // A stored configuration that no longer parses is the
+                    // same kind of finding as a malformed file, and reaches
+                    // the operator through the same channel.
+                    doppel_core::store::StoreError::Invalid(_) => {
+                        CliError::BadConfig(format!("{}: {err}", mask_dsn(url)))
+                    }
+                    other => store_failed(url)(other),
+                })?;
                 drop(probe);
 
                 let store =
@@ -254,8 +273,22 @@ impl StoreArgs {
                 Ok((Arc::new(store), config))
             }
             StoreKind::File => {
-                let config = doppel_core::config::load_from_path(&self.config)
-                    .map_err(|err| CliError::Failed(err.to_string()))?;
+                let config = doppel_core::config::load_from_path(&self.config).map_err(|err| {
+                    match err {
+                        // A document that does not parse is a finding about
+                        // the configuration. A file that is absent or
+                        // unreadable is the file store failing to answer at
+                        // all, which is the other kind of problem -- there is
+                        // no configuration to have found anything about.
+                        doppel_core::config::ConfigError::Parse(_) => {
+                            CliError::BadConfig(err.to_string())
+                        }
+                        doppel_core::config::ConfigError::NotFound(_)
+                        | doppel_core::config::ConfigError::Io { .. } => {
+                            CliError::Failed(err.to_string())
+                        }
+                    }
+                })?;
                 let store = FileStore::new(self.config.clone(), config.templates.dir.clone());
                 Ok((Arc::new(store), config))
             }

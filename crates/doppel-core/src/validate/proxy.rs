@@ -1,4 +1,10 @@
-//! Rules V5..V15, V32 and V33, plus dispatch into the mock rules.
+//! Rules V5..V8, V10..V11, V14..V15, V32 and V33, plus dispatch into the
+//! mock rules.
+//!
+//! V9 (a positive timeout), V12 and V13 (a probability in 0..=1, a status in
+//! 100..=599) and the non-negative half of V14 are gone: `TimeoutSeconds`,
+//! `Ratio`, `HttpStatus` and `Seconds` refuse those values while the document
+//! is being parsed.
 //!
 //! V35 is gone: it applied `sanitize` to a proxy name, and `config::Name` now
 //! refuses the same shapes while the document is being parsed. One check, at
@@ -68,15 +74,6 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             }
         }
 
-        // V9
-        if let Some(timeout) = proxy.timeout {
-            v.require(
-                timeout > 0,
-                format!("{path}.timeout"),
-                "timeout must be greater than 0",
-            );
-        }
-
         // V10 and V11
         match proxy.resolve.kind {
             ResolveKind::Default => {
@@ -101,14 +98,8 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             },
         }
 
-        // V12, V13, V14
-        check_faults(
-            proxy.loss.as_ref(),
-            proxy.latency.as_ref(),
-            proxy.replace,
-            &path,
-            v,
-        );
+        // V14
+        check_faults(proxy.latency.as_ref(), &path, v);
 
         // V15 -- both an invalid name and an invalid value are reported at
         // the same specific `headers.<name>` path, per the convention that
@@ -141,54 +132,25 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
     }
 }
 
-/// Shared by the proxy block and, via rule V25, by each mock's `proxy` override.
+/// V14, shared by the proxy block and, via rule V25, by each mock's `proxy`
+/// override.
+///
+/// One check is left of what used to be three rules. Every bound on a single
+/// number -- the probabilities, the status, the sign of a latency -- is now a
+/// type. What remains needs two fields at once, and no type over one value
+/// can express it.
 pub(super) fn check_faults(
-    loss: Option<&crate::config::LossConfig>,
     latency: Option<&crate::config::LatencyConfig>,
-    replace: Option<f64>,
     path: &str,
     v: &mut Violations,
 ) {
-    if let Some(loss) = loss {
-        v.require(
-            is_ratio(loss.percentage),
-            format!("{path}.loss.percentage"),
-            "must be between 0.0 and 1.0",
-        );
-    }
     if let Some(latency) = latency {
-        v.require(
-            is_ratio(latency.percentage),
-            format!("{path}.latency.percentage"),
-            "must be between 0.0 and 1.0",
-        );
-        v.require(
-            latency.min >= 0.0,
-            format!("{path}.latency.min"),
-            "must be >= 0",
-        );
-        v.require(
-            latency.max >= 0.0,
-            format!("{path}.latency.max"),
-            "must be >= 0",
-        );
         v.require(
             latency.min <= latency.max,
             format!("{path}.latency.min"),
             "min must be <= max",
         );
     }
-    if let Some(replace) = replace {
-        v.require(
-            is_ratio(replace),
-            format!("{path}.replace"),
-            "must be between 0.0 and 1.0",
-        );
-    }
-}
-
-fn is_ratio(value: f64) -> bool {
-    value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
 #[cfg(test)]
@@ -326,12 +288,21 @@ proxies:
     }
 
     #[test]
-    fn v9_timeout_must_be_positive() {
-        assert_violation(
-            &good().replace("timeout: 30", "timeout: 0"),
-            "proxies[0].timeout",
-            "greater than 0",
-        );
+    fn a_timeout_that_is_not_a_timeout_fails_at_load() {
+        // This was V9, now `config::TimeoutSeconds`. The bound gained an
+        // upper end with the type: 30000 is a timeout written in
+        // milliseconds, and 0 is not a timeout at all.
+        for (bad, expected) in [
+            ("0", "leave `timeout` out"),
+            ("-1", "must not be negative"),
+            ("30000", "seconds, not milliseconds"),
+        ] {
+            let text = good().replace("timeout: 30", &format!("timeout: {bad}"));
+            let err = load_from_str(&text)
+                .expect_err(&format!("timeout {bad} must not parse"))
+                .to_string();
+            assert!(err.contains(expected), "{bad}: {err}");
+        }
     }
 
     #[test]
@@ -372,17 +343,20 @@ proxies:
     }
 
     #[test]
-    fn v12_percentages_are_bounded() {
-        assert_violation(
-            &good().replace("percentage: 0.1", "percentage: 1.5"),
-            "proxies[0].loss.percentage",
-            "between 0.0 and 1.0",
-        );
-        assert_violation(
-            &good().replace("replace: 1.0", "replace: -0.1"),
-            "proxies[0].replace",
-            "between 0.0 and 1.0",
-        );
+    fn a_probability_outside_zero_to_one_fails_at_load() {
+        // This was V12, now `config::Ratio`. The message gained the hint the
+        // rule never had: someone writing `50` meant fifty percent.
+        for (field, from, to) in [
+            ("loss.percentage", "percentage: 0.1", "percentage: 1.5"),
+            ("replace", "replace: 1.0", "replace: -0.1"),
+            ("loss.percentage", "percentage: 0.1", "percentage: 50"),
+        ] {
+            let err = load_from_str(&good().replace(from, to))
+                .expect_err(&format!("{field} = {to} must not parse"))
+                .to_string();
+            assert!(err.contains("between 0.0 and 1.0"), "{to}: {err}");
+            assert!(err.contains("50% is `0.5`"), "{to}: {err}");
+        }
     }
 
     #[test]
@@ -400,17 +374,27 @@ proxies:
     }
 
     #[test]
-    fn v14_latency_bounds_must_be_ordered_and_nonnegative() {
+    fn v14_latency_bounds_must_be_ordered() {
+        // All that is left of V14. Ordering needs both fields, so it stays a
+        // rule; the sign and the upper bound moved into `config::Seconds`.
         assert_violation(
             &good().replace("min: 0.1", "min: 0.9"),
             "proxies[0].latency.min",
             "must be <= max",
         );
-        assert_violation(
-            &good().replace("min: 0.1", "min: -1.0"),
-            "proxies[0].latency.min",
-            "must be >= 0",
-        );
+    }
+
+    #[test]
+    fn a_latency_that_is_not_a_latency_fails_at_load() {
+        for (bad, expected) in [
+            ("-1.0", "must not be negative"),
+            ("500.0", "300 second maximum"),
+        ] {
+            let err = load_from_str(&good().replace("min: 0.1", &format!("min: {bad}")))
+                .expect_err(&format!("min {bad} must not parse"))
+                .to_string();
+            assert!(err.contains(expected), "{bad}: {err}");
+        }
     }
 
     #[test]

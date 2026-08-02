@@ -10,6 +10,10 @@ use crate::cli::StoreArgs;
 pub struct Report {
     pub violations: Vec<Violation>,
     pub message: Option<String>,
+    /// Whether `message` is a finding about the configuration rather than a
+    /// failure to reach the store. It decides which stream `print` uses; see
+    /// its doc comment.
+    pub message_is_a_finding: bool,
     /// Overrides the exit code that would otherwise be derived from
     /// `violations`/`message` (which can only ever be 0 or 1). A failure that
     /// carries its own exit code -- `StoreArgs::open()` refusing
@@ -38,6 +42,7 @@ pub async fn validate(args: &StoreArgs) -> Report {
             return Report {
                 violations: Vec::new(),
                 message: Some(err.to_string()),
+                message_is_a_finding: matches!(err, crate::cli::CliError::BadConfig(_)),
                 code: Some(err.exit_code()),
             };
         }
@@ -48,6 +53,7 @@ pub async fn validate(args: &StoreArgs) -> Report {
         Err(violations) => Report {
             violations,
             message: None,
+            message_is_a_finding: false,
             code: None,
         },
     }
@@ -55,14 +61,24 @@ pub async fn validate(args: &StoreArgs) -> Report {
 
 /// Print a report and return the process exit code.
 ///
-/// Stream convention (see `main.rs`): the violations list and the
-/// "configuration is valid" message are this command's actual output, so
-/// they go to stdout. `report.message` is only ever set when `args.open()`
-/// failed to reach or open the store in the first place -- not this
-/// command's output -- so it goes to stderr.
+/// Stream convention (see `main.rs`): everything this command found out
+/// about the configuration goes to stdout, and everything that stopped it
+/// looking goes to stderr.
+///
+/// So the violations, the "configuration is valid" line, and a message saying
+/// the document does not parse are all stdout; a message saying the database
+/// could not be reached is stderr. The distinction is not cosmetic: with most
+/// single-value bounds now enforced by the types, a malformed value stops the
+/// parse rather than producing a violation, and routing that to stderr would
+/// make `doppel config validate | ...` report nothing wrong with a
+/// configuration that does not load.
 pub fn print(report: &Report) -> u8 {
     if let Some(message) = &report.message {
-        eprintln!("{message}");
+        if report.message_is_a_finding {
+            println!("{message}");
+        } else {
+            eprintln!("{message}");
+        }
     }
     for violation in &report.violations {
         println!("{violation}");
@@ -129,6 +145,34 @@ proxies:
                 .iter()
                 .any(|v| v.path == "admin.upload.limit")
         );
+    }
+
+    #[tokio::test]
+    async fn a_malformed_config_is_a_finding_and_a_missing_store_is_not() {
+        // The two share the `message` field and must not share a stream: one
+        // is what the command found out about the configuration, the other is
+        // what stopped it looking.
+        let dir = tempfile::tempdir().unwrap();
+        let bad = GOOD.replace(
+            "    url: \"https://example.com/\"",
+            "    url: \"https://example.com/\"\n    timeout: 0",
+        );
+        let report = validate(&args(dir.path(), &bad)).await;
+        assert_eq!(report.exit_code(), 1);
+        assert!(report.message_is_a_finding, "{report:?}");
+        assert!(
+            report.message.as_deref().unwrap().contains("no timeout"),
+            "{report:?}"
+        );
+
+        let unreachable = StoreArgs {
+            store: StoreKind::Postgres,
+            config: "./main.yaml".into(),
+            config_name: "default".to_owned(),
+            database_url: None,
+        };
+        let report = validate(&unreachable).await;
+        assert!(!report.message_is_a_finding, "{report:?}");
     }
 
     #[tokio::test]

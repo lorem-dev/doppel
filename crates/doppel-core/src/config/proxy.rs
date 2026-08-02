@@ -46,16 +46,16 @@ impl Default for ResolveConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LossConfig {
-    pub percentage: f64,
+    pub percentage: super::Ratio,
     pub status: super::HttpStatus,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct LatencyConfig {
-    pub percentage: f64,
-    pub min: f64,
-    pub max: f64,
+    pub percentage: super::Ratio,
+    pub min: super::Seconds,
+    pub max: super::Seconds,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
@@ -66,7 +66,7 @@ pub struct ProxyConfig {
     pub kind: ProxyKind,
     pub url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<u64>,
+    pub timeout: Option<super::TimeoutSeconds>,
     #[serde(default)]
     pub resolve: ResolveConfig,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,7 +78,7 @@ pub struct ProxyConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latency: Option<LatencyConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replace: Option<f64>,
+    pub replace: Option<super::Ratio>,
     /// Bounds the request body a matched mock is allowed to buffer in order
     /// to extract from it; phase 1 streams bodies deliberately, and reading
     /// `.content.items` needs the whole thing in hand. See rule V33.

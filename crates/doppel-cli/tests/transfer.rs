@@ -169,12 +169,15 @@ async fn an_invalid_document_writes_nothing_and_reports_every_violation() {
     let schema = migrated(&url).await;
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("main.yaml");
-    // Two faults, so "every violation" is a claim the test can actually check.
+    // Two faults, so "every violation" is a claim the test can actually
+    // check -- and two that are genuinely rules rather than values a type
+    // refuses. Parsing stops at the first error, so a document with a bad
+    // single value could never demonstrate that the rule set collects.
     std::fs::write(
         &source,
         reference()
-            .replace("timeout: 60", "timeout: 0")
-            .replace("limit: 1Mi", "limit: 0"),
+            .replace("port: 8081", "port: 8080")
+            .replace("      max: 0.2", "      max: 0.01"),
     )
     .unwrap();
 
@@ -192,8 +195,8 @@ async fn an_invalid_document_writes_nothing_and_reports_every_violation() {
         !pushed.status.success(),
         "an invalid document must not push"
     );
-    assert!(stderr.contains("timeout"), "{stderr}");
-    assert!(stderr.contains("upload.limit"), "{stderr}");
+    assert!(stderr.contains("admin.port"), "{stderr}");
+    assert!(stderr.contains("latency.min"), "{stderr}");
     assert_eq!(
         schema.count("configurations").await,
         0,
