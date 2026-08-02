@@ -381,3 +381,72 @@ async fn the_documented_error_envelope_is_the_one_the_api_actually_sends() {
     documented.sort();
     assert_eq!(fields, documented);
 }
+
+#[tokio::test]
+async fn an_unknown_route_answers_the_error_envelope_not_an_empty_body() {
+    // The paths a client hits by accident were the ones axum answered with
+    // no body at all, so a client parsing errors uniformly got nothing to
+    // parse exactly when it most needed the message.
+    let harness = Harness::new();
+    let reply = Call::get("/api/v1/nope").send(harness.router()).await;
+
+    assert_eq!(reply.status, 404, "{}", reply.body);
+    assert_eq!(reply.error_code(), "NOT_FOUND");
+    assert!(reply.body.contains("/api/v1/nope"), "{}", reply.body);
+}
+
+#[tokio::test]
+async fn a_wrong_method_answers_405_with_both_an_envelope_and_an_allow_header() {
+    // Distinct from the 404 above: the resource exists and the verb is
+    // wrong, which the client fixes differently. RFC 9110 also requires the
+    // `Allow` header, so the envelope must not come at its expense.
+    let harness = Harness::new();
+    let reply = Call::delete("/api/v1/proxies")
+        .token(ROOT)
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reply.status, 405, "{}", reply.body);
+    assert_eq!(reply.error_code(), "METHOD_NOT_ALLOWED");
+    let allow = reply.allow.expect("405 must carry Allow");
+    assert!(allow.contains("GET"), "{allow}");
+    assert!(allow.contains("POST"), "{allow}");
+    assert!(!allow.contains("DELETE"), "{allow}");
+}
+
+#[tokio::test]
+async fn an_oversized_configuration_document_is_refused_in_the_envelope() {
+    // axum's own body limit answers with a plain-text 413 from a layer that
+    // cannot produce this envelope, so every route that takes a body does
+    // its own bounding.
+    let harness = Harness::new();
+    let reply = Call::post("/api/v1/proxies")
+        .token(ROOT)
+        .raw("x".repeat(2 * 1024 * 1024))
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reply.status, 413, "{}", reply.body);
+    assert_eq!(reply.error_code(), "UPLOAD_TOO_LARGE");
+    assert_eq!(harness.stored().proxies.len(), 2);
+}
+
+#[tokio::test]
+async fn a_configuration_document_of_ordinary_size_is_not_refused() {
+    // The bound must not be so tight that a real document trips it. This one
+    // carries a comfortably large headers map.
+    let harness = Harness::new();
+    let mut proxy = proxy_json("gamma", "https://gamma.example.com/api/");
+    let headers: serde_json::Map<String, serde_json::Value> = (0..200)
+        .map(|i| (format!("X-Header-{i}"), serde_json::json!("value")))
+        .collect();
+    proxy["proxy"]["headers"] = serde_json::Value::Object(headers);
+
+    let reply = Call::post("/api/v1/proxies")
+        .token(ROOT)
+        .json(proxy)
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reply.status, 201, "{}", reply.body);
+}

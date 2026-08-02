@@ -303,6 +303,7 @@ pub struct Reply {
     pub etag: Option<String>,
     pub location: Option<String>,
     pub content_type: Option<String>,
+    pub allow: Option<String>,
     pub body: String,
 }
 
@@ -319,6 +320,7 @@ impl Reply {
         let etag = header("etag");
         let location = header("location");
         let content_type = header("content-type");
+        let allow = header("allow");
         let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
             .await
             .expect("collect body");
@@ -327,6 +329,7 @@ impl Reply {
             etag,
             location,
             content_type,
+            allow,
             body: String::from_utf8(bytes.to_vec()).expect("body is utf-8"),
         }
     }

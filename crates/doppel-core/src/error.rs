@@ -16,6 +16,7 @@ pub enum ErrorCode {
     Unauthorized,
     Forbidden,
     NotFound,
+    MethodNotAllowed,
     Conflict,
     UploadTooLarge,
     TemplateNotDeclared,
@@ -40,6 +41,11 @@ impl ErrorCode {
             Self::ConfigInvalid => 400,
             Self::Unauthorized => 401,
             Self::Forbidden => 403,
+            // Distinct from `NotFound`: the resource is there and the verb is
+            // wrong, which a client fixes by changing the verb rather than
+            // the path. RFC 9110 also requires an `Allow` header alongside
+            // it, which the router supplies.
+            Self::MethodNotAllowed => 405,
             // `Conflict` and `RevisionMismatch` report the same HTTP status,
             // 409, but stay separate codes here on purpose: the status is
             // what an HTTP-level intermediary cares about, but a client
@@ -80,6 +86,7 @@ impl ErrorCode {
             Self::Unauthorized => "UNAUTHORIZED",
             Self::Forbidden => "FORBIDDEN",
             Self::NotFound => "NOT_FOUND",
+            Self::MethodNotAllowed => "METHOD_NOT_ALLOWED",
             Self::Conflict => "CONFLICT",
             Self::UploadTooLarge => "UPLOAD_TOO_LARGE",
             Self::TemplateNotDeclared => "TEMPLATE_NOT_DECLARED",
@@ -115,6 +122,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "UNAUTHORIZED" => Ok(Self::Unauthorized),
             "FORBIDDEN" => Ok(Self::Forbidden),
             "NOT_FOUND" => Ok(Self::NotFound),
+            "METHOD_NOT_ALLOWED" => Ok(Self::MethodNotAllowed),
             "CONFLICT" => Ok(Self::Conflict),
             "UPLOAD_TOO_LARGE" => Ok(Self::UploadTooLarge),
             "TEMPLATE_NOT_DECLARED" => Ok(Self::TemplateNotDeclared),
@@ -178,14 +186,14 @@ mod tests {
     /// HTTP status. `all_codes_map_to_their_documented_status`,
     /// `all_codes_map_to_their_documented_wire_string` and
     /// `every_code_round_trips_through_json` below are all driven from this
-    /// one list rather than each hand-listing the seventeen variants
+    /// one list rather than each hand-listing the eighteen variants
     /// separately, so a code missing from one of them cannot happen without
     /// being missing from all.
     ///
     /// `all_codes_are_listed_exactly_once` is what keeps this list itself
     /// honest: `assert_listed`'s match has no wildcard arm, so the compiler
     /// refuses to build this test suite at all the moment `ErrorCode` gains
-    /// an eighteenth variant without a corresponding arm added there --
+    /// a nineteenth variant without a corresponding arm added there --
     /// regardless of whether that arm is ever reached at runtime. Each arm
     /// also asserts its variant appears in `ALL_CODES` exactly once, so an
     /// entry that is present in the enum but quietly dropped from this list
@@ -201,6 +209,7 @@ mod tests {
         (ErrorCode::Unauthorized, "UNAUTHORIZED", 401),
         (ErrorCode::Forbidden, "FORBIDDEN", 403),
         (ErrorCode::NotFound, "NOT_FOUND", 404),
+        (ErrorCode::MethodNotAllowed, "METHOD_NOT_ALLOWED", 405),
         (ErrorCode::Conflict, "CONFLICT", 409),
         (ErrorCode::UploadTooLarge, "UPLOAD_TOO_LARGE", 413),
         (ErrorCode::TemplateNotDeclared, "TEMPLATE_NOT_DECLARED", 422),
@@ -225,6 +234,7 @@ mod tests {
             | ErrorCode::Unauthorized
             | ErrorCode::Forbidden
             | ErrorCode::NotFound
+            | ErrorCode::MethodNotAllowed
             | ErrorCode::Conflict
             | ErrorCode::UploadTooLarge
             | ErrorCode::TemplateNotDeclared

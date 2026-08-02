@@ -210,7 +210,9 @@ Every error is the same envelope:
 { "status": "error", "message": "...", "code": "ERROR_CODE" }
 ```
 
-The code set is closed. A client may switch on it exhaustively.
+The code set is closed. A client may switch on it exhaustively, and that
+holds for the routes the framework answers too: an unknown path, a wrong verb
+and an oversized body all carry the envelope rather than an empty body.
 
 | Code | Status | Meaning |
 |---|---|---|
@@ -218,11 +220,12 @@ The code set is closed. A client may switch on it exhaustively.
 | `INVALID_REQUEST_PATH` | 400 | A request path that would resolve outside the upstream |
 | `UNAUTHORIZED` | 401 | No token, or one this process does not know |
 | `FORBIDDEN` | 403 | A known token without the right |
-| `NOT_FOUND` | 404 | No such proxy, or no such template file |
+| `NOT_FOUND` | 404 | No such proxy, no such template file, or no such route |
+| `METHOD_NOT_ALLOWED` | 405 | The path exists and does not accept that verb; the response also carries `Allow` |
 | `PROXY_NOT_RESOLVED` | 404 | No proxy matched and there is no default |
 | `CONFLICT` | 409 | The name exists, or the store is under sustained contention |
 | `REVISION_MISMATCH` | 409 | The proxy changed since it was read |
-| `UPLOAD_TOO_LARGE` | 413 | Over `admin.upload.limit` |
+| `UPLOAD_TOO_LARGE` | 413 | A template body over `admin.upload.limit`, or a configuration document over 1 MiB |
 | `TEMPLATE_NOT_DECLARED` | 422 | No mock names that file |
 | `REVISION_REQUIRED` | 428 | An update carried no revision |
 | `TEMPLATE_RENDER_ERROR` | 500 | A mock template failed to render |

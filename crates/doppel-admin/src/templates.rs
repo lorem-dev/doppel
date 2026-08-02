@@ -3,7 +3,7 @@
 use axum::Router;
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use doppel_core::config::ProxyConfig;
@@ -12,6 +12,7 @@ use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 
 use crate::access::{Action, authorize, caller_from_headers};
+use crate::body::read_body;
 use crate::proxies::{find, load, not_found};
 use crate::response::{ApiError, store_error};
 use crate::state::AdminState;
@@ -206,39 +207,6 @@ fn require_proxy<'a>(config: &'a Config, name: &str) -> Result<&'a ProxyConfig, 
     find(config, name).ok_or_else(|| not_found(name))
 }
 
-/// Collect an upload, refusing anything over `limit` bytes.
-async fn read_body(body: Body, headers: &HeaderMap, limit: u64) -> Result<Vec<u8>, Error> {
-    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-
-    // A `Content-Length` over the limit is refused before a single byte is
-    // read. This is also what makes the mapping below safe: with the
-    // announced-length case handled here, `to_bytes` failing is either a
-    // chunked body that ran past the limit or a transfer that broke, and
-    // both mean the same thing to whoever sent it -- no file was stored.
-    let announced = headers
-        .get(header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok());
-    if announced.is_some_and(|announced| announced > limit as u64) {
-        return Err(too_large(limit));
-    }
-
-    axum::body::to_bytes(body, limit)
-        .await
-        .map(|bytes| bytes.to_vec())
-        .map_err(|err| {
-            tracing::debug!(error = %err, "upload body rejected");
-            too_large(limit)
-        })
-}
-
-fn too_large(limit: usize) -> Error {
-    Error::new(
-        ErrorCode::UploadTooLarge,
-        format!("template body exceeds the configured upload limit of {limit} bytes"),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,45 +291,5 @@ proxies:
     #[test]
     fn a_proxy_with_no_mocks_declares_nothing() {
         assert!(declared(&proxy_with(" []")).is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_body_at_the_limit_is_kept_and_one_over_it_is_refused() {
-        let headers = HeaderMap::new();
-        let at = read_body(Body::from(vec![b'x'; 8]), &headers, 8)
-            .await
-            .unwrap();
-        assert_eq!(at.len(), 8);
-
-        let over = read_body(Body::from(vec![b'x'; 9]), &headers, 8)
-            .await
-            .unwrap_err();
-        assert_eq!(over.code, ErrorCode::UploadTooLarge);
-        assert_eq!(over.status(), 413);
-    }
-
-    #[tokio::test]
-    async fn an_announced_length_of_exactly_the_limit_is_accepted() {
-        // The boundary, on the header path rather than the buffered one. An
-        // exclusive comparison here would reject the exact size an operator
-        // configured, and only a body that announces its length would hit
-        // it.
-        let mut headers = HeaderMap::new();
-        headers.insert(header::CONTENT_LENGTH, "8".parse().unwrap());
-        let body = read_body(Body::from(vec![b'x'; 8]), &headers, 8)
-            .await
-            .unwrap();
-        assert_eq!(body.len(), 8);
-    }
-
-    #[tokio::test]
-    async fn an_announced_length_over_the_limit_is_refused_without_reading() {
-        // The body here is empty, so only the header can have caused the
-        // rejection: a client that lies large is stopped before it can
-        // stream anything at all.
-        let mut headers = HeaderMap::new();
-        headers.insert(header::CONTENT_LENGTH, "999".parse().unwrap());
-        let err = read_body(Body::empty(), &headers, 8).await.unwrap_err();
-        assert_eq!(err.code, ErrorCode::UploadTooLarge);
     }
 }

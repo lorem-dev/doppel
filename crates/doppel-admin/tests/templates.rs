@@ -344,3 +344,36 @@ async fn listing_templates_needs_read_not_upload() {
 
     assert_eq!(reply.status, 200, "{}", reply.body);
 }
+
+#[tokio::test]
+async fn recreating_a_proxy_does_not_inherit_a_previous_one_s_template() {
+    // The hazard: a delete writes the configuration and then fails to sweep
+    // the files (an IO error reports 500 but cannot undo the write). Creating
+    // the same name again would otherwise pick up the old file and render it,
+    // which is worse than an error because it looks like it worked.
+    let harness = harness();
+    harness.write_template("gamma", "one.json.j2", "STALE CONTENT");
+    assert!(harness.template_path("gamma", "one.json.j2").exists());
+
+    let created = json!({
+        "proxy": {
+            "name": "gamma",
+            "type": "http",
+            "url": "https://gamma.example.com/api/",
+            "resolve": { "type": "header", "header": "X-Proxy-Name" },
+            "mocks": [{
+                "name": "one",
+                "request": { "method": "GET", "url": "/one/" },
+                "response": { "status": 200, "template": "one.json.j2" },
+            }],
+        }
+    });
+    let reply = Call::post("/api/v1/proxies")
+        .token(ROOT)
+        .json(created)
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reply.status, 201, "{}", reply.body);
+    assert_absent(&harness.template_path("gamma", "one.json.j2"));
+}

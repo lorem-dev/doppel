@@ -1,8 +1,8 @@
 //! Proxy create, read, update, delete and list.
 
 use axum::Router;
-use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::body::Body;
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -13,6 +13,7 @@ use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Action, authorize, caller_from_headers};
+use crate::body::{MAX_DOCUMENT_BYTES, read_body};
 use crate::response::{ApiError, config_invalid, store_error};
 use crate::state::AdminState;
 
@@ -34,6 +35,10 @@ pub fn routes() -> Router<AdminState> {
             "/api/v1/proxies/{name}",
             get(read).put(update).delete(remove),
         )
+        // Replaced, not removed: `read_body` below bounds these bodies at
+        // `MAX_DOCUMENT_BYTES`. axum's own limit answers with a plain-text
+        // 413 from a layer that cannot produce this API's error envelope.
+        .route_layer(DefaultBodyLimit::disable())
 }
 
 /// One proxy as the API represents it: the configuration document, plus the
@@ -125,14 +130,14 @@ pub(crate) async fn read(
 pub(crate) async fn create(
     State(state): State<AdminState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Response, ApiError> {
     let config = load(&state).await?;
     let caller = caller_from_headers(&config.admin, &headers);
     authorize(&config.admin, None, Action::Create, &caller)?;
     drop(config);
 
-    let request = parse_request(&body)?;
+    let request = parse_request(&read_body(body, &headers, MAX_DOCUMENT_BYTES).await?)?;
     if request.revision.is_some() {
         // A revision names a version of something that already exists, so a
         // create cannot have one. Ignoring it would let a client that meant
@@ -176,6 +181,18 @@ pub(crate) async fn create(
     })
     .await?;
 
+    // A brand-new proxy owns no files, so anything under its name is a
+    // leftover -- from a delete whose template sweep failed after the
+    // configuration write had landed, which reports a 500 but cannot undo the
+    // write. Without this, re-creating a proxy with the same name and the same
+    // mock would silently render the *old* file. Nothing legitimate can be
+    // here: an upload requires the proxy to exist already.
+    state
+        .store()
+        .retain_templates(&name, &[])
+        .await
+        .map_err(|err| store_error(&err))?;
+
     Ok(with_etag(StatusCode::CREATED, created, Some(location)))
 }
 
@@ -200,14 +217,14 @@ pub(crate) async fn update(
     State(state): State<AdminState>,
     Path(name): Path<String>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Result<Response, ApiError> {
     let config = load(&state).await?;
     let caller = caller_from_headers(&config.admin, &headers);
     authorize(&config.admin, find(&config, &name), Action::Update, &caller)?;
     drop(config);
 
-    let request = parse_request(&body)?;
+    let request = parse_request(&read_body(body, &headers, MAX_DOCUMENT_BYTES).await?)?;
     if request.proxy.name != name {
         // A proxy's name is also its template directory. Renaming through PUT
         // would strand the old directory and leave the new proxy pointing at
