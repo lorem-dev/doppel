@@ -4,6 +4,8 @@
 //! depends on: a database driver and its TLS stack have no business inside the
 //! proxy, the renderer or the admin API, none of which talk to a database.
 
+mod load;
+
 use doppel_core::store::StoreError;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;

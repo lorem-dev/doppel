@@ -52,9 +52,13 @@ CREATE TABLE proxies (
     ordinal            INTEGER NOT NULL,
     kind               TEXT NOT NULL,
     url                TEXT NOT NULL,
-    timeout_seconds    DOUBLE PRECISION,
+    -- Seconds, and a whole number: `ProxyConfig::timeout` is `Option<u64>`.
+    -- A floating-point column would round-trip a value the type cannot hold.
+    timeout_seconds    BIGINT,
     body_limit         BIGINT NOT NULL,
-    replace_ratio      DOUBLE PRECISION NOT NULL,
+    -- Nullable, because the field is `Option<f64>`: absent means "use the
+    -- default", which is not the same as 1.0 written out.
+    replace_ratio      DOUBLE PRECISION,
     resolve_kind       TEXT NOT NULL,
     resolve_header     TEXT,
     loss_percentage    DOUBLE PRECISION,
