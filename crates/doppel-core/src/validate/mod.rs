@@ -392,7 +392,7 @@ proxies:
         // sentence listing the rules that remain, and `V3` occurs inside
         // `V35`. Hence parsing the table's first column rather than
         // substring-matching prose.
-        let docs = include_str!("../../../../docs/configuration.md");
+        let docs = include_str!("../../../../docs/usage/configuration.md");
         let after = docs
             .split_once("### Retired rules")
             .expect("the retired-rules section must exist")

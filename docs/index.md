@@ -21,11 +21,11 @@ yet.
 - **Reloads** its configuration without dropping requests in flight.
 - **Serves an admin API** -- proxy CRUD, template upload, reload, status,
   Prometheus metrics and Swagger UI -- behind token access control. See
-  [Admin API](admin-api.md).
+  [Admin API](usage/admin-api.md).
 - **Reports to Sentry**, optionally, behind a cargo feature.
 - **Stores its configuration** in a YAML file or in PostgreSQL, with
   `config push` and `config pull` to move between them. See
-  [Configuration storage](storage.md).
+  [Configuration storage](usage/storage.md).
 
 ## What it does not do yet
 
@@ -39,25 +39,32 @@ The configuration model already accepts and validates the settings those
 features will use, so a config written today will not need rewriting when they
 land.
 
-## The shape of it
-
-```
-client  -->  doppel  -->  upstream
-              |
-              +-- resolve which proxy handles this request (by header, or the default)
-              +-- maybe drop it            (loss)
-              +-- maybe delay it           (latency)
-              +-- maybe answer it itself   (a matching mock, subject to `replace`)
-              +-- otherwise forward it
-```
-
-That order is fixed. Faults are a property of the proxy, so they apply before
-an endpoint is chosen; a mock replaces the endpoint, so it comes after.
-
 ## Where to go next
 
-- [Getting started](getting-started.md) -- run it against a real backend in a
-  few minutes.
-- [Configuration reference](configuration.md) -- every field.
-- [Mocks and templating](mocks.md) -- matching, variables, rendering, and the
-  sharp edges.
+The documentation is in three parts.
+
+**Overview** -- this page, and [Concepts](overview/concepts.md), which fixes
+the six words the rest of it leans on and shows how a request is handled.
+
+**Usage** -- ordered from first run to the awkward cases:
+
+1. [Getting started](usage/getting-started.md) -- running it against a real
+   backend in a few minutes.
+2. [Proxying to an upstream](usage/proxying.md) -- URL joining, headers,
+   timeouts, and what is refused.
+3. [Injecting faults](usage/faults.md) -- latency, loss, and replacing a
+   backend gradually.
+4. [Mocking endpoints](usage/mocks.md) -- matching, variables, templates, and
+   the sharp edges.
+5. [Several backends behind one port](usage/multiple-backends.md) -- header
+   resolution.
+6. [Changing configuration while it runs](usage/runtime-changes.md) -- reloads,
+   tokens, and editing one proxy over HTTP.
+7. [The admin API](usage/admin-api.md) and
+   [PostgreSQL](usage/storage.md) for anything running in more than one place.
+
+with the [configuration reference](usage/configuration.md) and the
+[CLI reference](usage/cli.md) at the end for looking things up.
+
+**Development** -- [architecture and the crates](development/architecture.md),
+and [how to work on it](development/index.md).

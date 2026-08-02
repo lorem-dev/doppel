@@ -1,4 +1,7 @@
-# Development
+# Working on Doppel
+
+How the workspace is laid out and why is in [Architecture](architecture.md).
+This page is the mechanics.
 
 ## The gate
 
@@ -19,21 +22,6 @@ Capture its output rather than recalling it:
 { cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test; } 2>&1 | tee /tmp/gate.txt
 ```
 
-## The crates
-
-| Crate | Owns |
-|---|---|
-| `doppel-core` | Configuration model, validation, the store, the compiled runtime, the error model |
-| `doppel-render` | Variable extraction and template rendering; knows nothing about HTTP |
-| `doppel-proxy` | Resolution, fault injection, mock matching, upstream forwarding, the request pipeline |
-| `doppel-telemetry` | Logging setup |
-| `doppel-cli` | The `doppel` binary, the control channel, command wiring |
-
-Dependencies point one way: `doppel-cli` on the rest, `doppel-proxy` on
-`doppel-render` and `doppel-core`, `doppel-core` on nothing in the workspace.
-That is what lets rendering be tested without a network and validation without
-a runtime.
-
 ## Tests
 
 Unit tests live beside the code. Integration tests in
@@ -50,6 +38,30 @@ Two habits this codebase holds to:
 - **Fixtures should discriminate.** Ordering tests use adversarial names --
   `zeta` declared before `alpha` -- so a regression that sorts instead of
   preserving order actually fails.
+
+## Tests that need a database
+
+The PostgreSQL suites skip themselves when there is nothing to connect to, so
+`cargo test` works on a machine with no database.
+
+```bash
+docker compose up -d --wait
+export DOPPEL_TEST_DATABASE_URL=postgres://doppel:doppel@127.0.0.1:55432/doppel
+cargo test
+```
+
+Each test creates its own schema and drops it afterwards, so the suites can run
+in parallel against one database.
+
+| Variable | Effect |
+|---|---|
+| `DOPPEL_TEST_DATABASE_URL` | Where the database suites connect. Unset means they skip. |
+| `DOPPEL_REQUIRE_DATABASE` | Turns a skip into a failure. Set it in CI, or a broken database looks like a green run. |
+
+The second exists because a skip is invisible: `cargo test` captures the output
+of passing tests, so a notice printed on the skip path never reaches anyone. A
+run that was supposed to exercise the store and silently did not is worse than
+one that failed.
 
 ## Building the documentation
 

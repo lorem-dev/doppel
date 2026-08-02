@@ -10,34 +10,18 @@ This file is addressed to AI coding agents. Read it fully before touching code.
 
 Doppel is a CLI-driven HTTP reverse proxy: a doppelganger that stands in for a
 real backend so its clients can be developed and tested against a realistic,
-deliberately degraded, or entirely absent upstream. It is a Cargo workspace of
-independently owned crates under `crates/`. Dependencies point one way,
-converging on `doppel-core`, so the config model and validation are exercised
-without a network and the proxy logic is exercised without an admin API.
+deliberately degraded, or entirely absent upstream.
 
-| Crate | Owns |
-|---|---|
-| `doppel-core` | Configuration model, YAML loading, validation, the `ConfigStore` trait and its file-backed implementation, the compiled runtime, the error model. |
-| `doppel-proxy` | The proxy listener, request resolution, fault injection, mock matching, and upstream forwarding. |
-| `doppel-render` | Jinja2 rendering for mock responses. |
-| `doppel-admin` | The admin HTTP API: token access control, proxy CRUD, template files, reload, status, metrics, the OpenAPI document. |
-| `doppel-store-postgres` | `PostgresStore`, and the sqlx migrations that own its schema. |
-| `doppel-telemetry` | Logging initialization and optional Sentry. |
-| `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other crates together. |
+The workspace layout, the crates and what each owns, the dependency direction,
+and the design decisions that shape them -- parse-don't-validate, the compiled
+runtime, how authorization is scoped, the two stores behind one trait -- are in
+[docs/development/architecture.md](./docs/development/architecture.md). Read it
+before changing anything structural; it is one file rather than two so the two
+cannot drift.
 
-```
-doppel-cli -> { doppel-proxy, doppel-admin, doppel-store-postgres,
-                doppel-telemetry, doppel-core }
-doppel-proxy -> { doppel-render, doppel-core }
-doppel-admin -> doppel-core
-doppel-store-postgres -> doppel-core
-doppel-render -> doppel-core
-doppel-telemetry -> doppel-core
-doppel-core -> (nothing in this workspace)
-```
-
-See `README.md` for what the project does and does not do yet, and
-`.superpowers/specs/` (git-ignored, not shipped) for the full design.
+`docs/` is the mkdocs site, in three sections: `overview/` for what Doppel is,
+`usage/` for how to use it, `development/` for how to work on it.
+`.superpowers/specs/` (git-ignored, not shipped) holds the full design.
 
 ---
 
@@ -80,30 +64,19 @@ survive being checked against a transcript. Run the gate with
 
 ### Configuration: parse, don't validate
 
-A constraint on a single configuration value belongs in a type, not in a
-validation rule. `crates/doppel-core/src/config/` holds one module per kind of
-value -- `Name`, `Token`, `Port`, `HttpStatus`, `HttpMethod`, `Ratio`,
-`Seconds`, `TimeoutSeconds`, `ByteSize`, `UpstreamUrl`, `HeaderName`,
-`HeaderValue`, `Pattern`, `Selector`, `TemplateName` -- each refusing bad
-input while the document is being parsed.
+The rule, and where the reasoning lives:
+[Architecture](./docs/development/architecture.md#configuration-parse-dont-validate).
 
-The rule set (`crates/doppel-core/src/validate/`) is for what a type cannot
-decide: anything needing two fields at once, or the whole document. Duplicate
-names, `min <= max`, "this field is required when that one says so", "the two
-listeners must not share a port".
+What it means when you are adding a constraint:
 
-When adding a constraint, ask which it is. Getting it wrong the other way is
-what the retired-rules table in `docs/configuration.md` records: nineteen
-rules that each checked one value, several of them alongside a second copy of
-the same check elsewhere in the codebase that could drift out of step.
-
-Retiring a rule means updating `LIVE`, `RETIRED` and that table together --
-there are tests that will not let you do otherwise.
-
-A type that carries something expensive to derive should carry it derived:
-`Pattern` holds the compiled regex, `UpstreamUrl` the parsed URL, `Selector`
-its segments. That is what removes the second parse rather than merely moving
-the first one.
+- A bound on **one value** goes in a type under
+  `crates/doppel-core/src/config/`, refusing the value while the document is
+  being parsed.
+- A check needing **two fields or the whole document** goes in the rule set
+  under `crates/doppel-core/src/validate/`.
+- Retiring a rule means updating `LIVE`, `RETIRED` and the retired-rules table
+  in `docs/usage/configuration.md` together. Three tests will not let you do
+  otherwise.
 
 ### Commit Rules
 

@@ -30,11 +30,11 @@
 - Serves an admin HTTP API on a second port: proxy CRUD with optimistic
   concurrency, template upload, reload, a status endpoint, Prometheus metrics
   and a generated Swagger UI, behind token access control. See
-  [the documentation](docs/admin-api.md).
+  [the documentation](docs/usage/admin-api.md).
 - Reports errors to Sentry, optionally, behind the `sentry` cargo feature.
 - Stores its configuration in a YAML file or in PostgreSQL, selected by
   `--store`, with `config push` and `config pull` to move a configuration
-  between the two. See [the documentation](docs/storage.md).
+  between the two. See [the documentation](docs/usage/storage.md).
 
 ## What it does not do yet
 
@@ -42,7 +42,7 @@
   saying so, rather than being quietly ignored.
 
 Mocked responses and Jinja2 templating are implemented -- see
-[the documentation](docs/mocks.md).
+[the documentation](docs/usage/mocks.md).
 
 ## Documentation
 

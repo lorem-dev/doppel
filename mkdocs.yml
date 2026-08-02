@@ -23,16 +23,24 @@ theme:
         name: Switch to light mode
 
 nav:
-  - Home: index.md
-  - Getting started: getting-started.md
-  - Configuration reference: configuration.md
-  - Mocks and templating: mocks.md
-  - Proxy behaviour: proxying.md
-  - Configuration storage: storage.md
-  - Admin API: admin-api.md
-  - CLI reference: cli.md
-  - Observability: observability.md
-  - Development: development.md
+  - Overview:
+      - What Doppel is: index.md
+      - Concepts: overview/concepts.md
+  - Usage:
+      - Getting started: usage/getting-started.md
+      - Proxying to an upstream: usage/proxying.md
+      - Injecting faults: usage/faults.md
+      - Mocking endpoints: usage/mocks.md
+      - Several backends behind one port: usage/multiple-backends.md
+      - Changing configuration while it runs: usage/runtime-changes.md
+      - The admin API: usage/admin-api.md
+      - Storing configuration in PostgreSQL: usage/storage.md
+      - Observability: usage/observability.md
+      - Configuration reference: usage/configuration.md
+      - CLI reference: usage/cli.md
+  - Development:
+      - Working on Doppel: development/index.md
+      - Architecture: development/architecture.md
 
 markdown_extensions:
   - admonition
