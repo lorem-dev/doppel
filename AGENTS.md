@@ -78,6 +78,33 @@ survive being checked against a transcript. Run the gate with
   (curly quotes, em dashes, ellipsis characters) outside of i18n catalogs and
   UI strings.
 
+### Configuration: parse, don't validate
+
+A constraint on a single configuration value belongs in a type, not in a
+validation rule. `crates/doppel-core/src/config/` holds one module per kind of
+value -- `Name`, `Token`, `Port`, `HttpStatus`, `HttpMethod`, `Ratio`,
+`Seconds`, `TimeoutSeconds`, `ByteSize`, `UpstreamUrl`, `HeaderName`,
+`HeaderValue`, `Pattern`, `Selector`, `TemplateName` -- each refusing bad
+input while the document is being parsed.
+
+The rule set (`crates/doppel-core/src/validate/`) is for what a type cannot
+decide: anything needing two fields at once, or the whole document. Duplicate
+names, `min <= max`, "this field is required when that one says so", "the two
+listeners must not share a port".
+
+When adding a constraint, ask which it is. Getting it wrong the other way is
+what the retired-rules table in `docs/configuration.md` records: nineteen
+rules that each checked one value, several of them alongside a second copy of
+the same check elsewhere in the codebase that could drift out of step.
+
+Retiring a rule means updating `LIVE`, `RETIRED` and that table together --
+there are tests that will not let you do otherwise.
+
+A type that carries something expensive to derive should carry it derived:
+`Pattern` holds the compiled regex, `UpstreamUrl` the parsed URL, `Selector`
+its segments. That is what removes the second parse rather than merely moving
+the first one.
+
 ### Commit Rules
 
 Follow CONTRIBUTING.md exactly:
