@@ -338,6 +338,101 @@ proxies:
         );
     }
 
+    /// Every rule still in the rule set.
+    ///
+    /// Written out rather than counted, because it is the thing the tests
+    /// below compare the source and the documentation against.
+    const LIVE: [u8; 16] = [1, 5, 6, 7, 10, 11, 14, 16, 19, 20, 21, 25, 26, 27, 30, 34];
+
+    /// Every rule that has been retired, and is therefore never reused.
+    const RETIRED: [u8; 19] = [
+        2, 3, 4, 8, 9, 12, 13, 15, 17, 18, 22, 23, 24, 28, 29, 31, 32, 33, 35,
+    ];
+
+    #[test]
+    fn every_number_from_v1_to_v35_is_accounted_for() {
+        // The two lists are the map. If a rule is retired and dropped from
+        // `LIVE` without being added to `RETIRED`, its number silently
+        // becomes available for reuse -- and a message quoted in an old
+        // issue would then mean two different things.
+        let mut all: Vec<u8> = LIVE.iter().chain(RETIRED.iter()).copied().collect();
+        all.sort_unstable();
+        assert_eq!(all, (1..=35).collect::<Vec<u8>>());
+    }
+
+    #[test]
+    fn each_live_rule_is_marked_in_the_source_that_implements_it() {
+        // A rule that leaves the code without leaving `LIVE` would otherwise
+        // sit in the documentation as something this program still checks.
+        let source = concat!(
+            include_str!("server.rs"),
+            include_str!("access.rs"),
+            include_str!("proxy.rs"),
+            include_str!("mock.rs"),
+        );
+        for rule in LIVE {
+            let marker = format!("// V{rule}");
+            assert!(
+                source.contains(&marker),
+                "V{rule} is listed as live but no `{marker}` marks where it runs"
+            );
+        }
+    }
+
+    #[test]
+    fn the_documented_retired_rules_are_exactly_the_retired_rules() {
+        // The table exists so a reader who hits an old message can find out
+        // where the check went. Compared as a set in both directions: a
+        // retirement missing from the table leaves a number nothing
+        // explains, and a number in the table that is not retired says a
+        // check moved when it did not.
+        //
+        // The first cut of this searched the whole document for `V<n>` and
+        // passed while claiming V7 was documented -- `V7` occurs in the
+        // sentence listing the rules that remain, and `V3` occurs inside
+        // `V35`. Hence parsing the table's first column rather than
+        // substring-matching prose.
+        let docs = include_str!("../../../../docs/configuration.md");
+        let after = docs
+            .split_once("### Retired rules")
+            .expect("the retired-rules section must exist")
+            .1;
+        let table = after.split_once("\n## ").map_or(after, |(head, _)| head);
+
+        let mut documented: Vec<u8> = table
+            .lines()
+            // A row marked `(part)` is a rule that lost one of its checks to
+            // a type and kept the rest. It is still live, so it belongs in
+            // `LIVE`, and the row is there to say where the other half went.
+            // V14 is the only one: the sign of a latency became `Seconds`,
+            // while `min <= max` needs both fields and stayed a rule.
+            .filter(|line| !line.contains("(part)"))
+            .filter_map(|line| line.strip_prefix("| V"))
+            .flat_map(|row| {
+                let cell = row.split('|').next().unwrap_or_default();
+                cell.split(", V")
+                    .filter_map(|number| {
+                        number
+                            .split_whitespace()
+                            .next()?
+                            .trim_end_matches(&[',', ' '][..])
+                            .parse::<u8>()
+                            .ok()
+                    })
+                    .collect::<Vec<u8>>()
+            })
+            .collect();
+        documented.sort_unstable();
+        documented.dedup();
+
+        let mut retired = RETIRED.to_vec();
+        retired.sort_unstable();
+        assert_eq!(
+            documented, retired,
+            "the retired-rules table and `RETIRED` disagree"
+        );
+    }
+
     #[test]
     fn reference_config_is_valid() {
         let text = std::fs::read_to_string(concat!(

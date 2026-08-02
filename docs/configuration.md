@@ -262,6 +262,37 @@ accepted: `admin.access` may not grant `create`, `update`, `delete` or
 `upload` to `public`. No configuration wants an unauthenticated caller
 rewriting the proxy set.
 
+### Retired rules
+
+Most of the original rule set is gone, not because the checks were dropped but
+because they moved into the types and now run while the document is being
+parsed. A message quoted in an old issue can be looked up here.
+
+| Rule | Was | Now |
+|---|---|---|
+| V2 | `server.host` is an IP | `IpAddr` |
+| V3 | `server.workers` is positive | the field is `--workers` |
+| V4 | log level and format are known | `LogLevel`, `LogFormat` |
+| V8, V32 | upstream url is absolute http(s), no query | [`UpstreamUrl`](#upstream-urls) |
+| V9 | timeout is positive | [`TimeoutSeconds`](#numbers-with-units) |
+| V12, V13 | probability in 0..=1, status in 100..=599 | [`Ratio`](#numbers-with-units), [`HttpStatus`](#methods-and-statuses) |
+| V14 (part) | latency bounds are non-negative | [`Seconds`](#numbers-with-units) |
+| V15, V24 | header names and values are well formed | [`HeaderName`, `HeaderValue`](#headers) |
+| V17 | method is known and upper case | [`HttpMethod`](#methods-and-statuses) |
+| V18 | mock url pattern compiles | [`Pattern`](#mock-patterns-and-selectors) |
+| V22 | response status in 100..=599 | [`HttpStatus`](#methods-and-statuses) |
+| V23 | selector is well formed | [`Selector`](#mock-patterns-and-selectors) |
+| V28 | proxy `access` overrides a permitted action | `ProxyAccessConfig` |
+| V29, V33 | size limits are positive | [`ByteSize`](#sizes) |
+| V31 | template file name is safe | [`TemplateName`](#template-file-names) |
+| V35 | proxy name is a usable directory name | [`Name`](#names) |
+
+A retired number is never reused.
+
+Sixteen rules remain: V1, V5, V6, V7, V10, V11, V14, V16, V19, V20, V21, V25,
+V26, V27, V30 and V34. Each needs more than one field to decide, which is
+exactly why none of them could become a type.
+
 ## Names
 
 A proxy name, a mock name, a token name and a group name follow one rule:
