@@ -86,15 +86,28 @@ impl Default for Renderer {
 
 /// Turns a minijinja error into `TEMPLATE_RENDER_ERROR`.
 ///
-/// For an undefined variable, minijinja's own message is just "undefined
-/// value" with no indication of which variable -- the name is lost by the
-/// time the VM notices the value is undefined. minijinja does keep the byte
-/// range of the failing expression and the template source when debug mode
-/// is on (forced on in `new`, above), so that range is sliced out of the
-/// source to name the variable explicitly. Every other error kind --
-/// syntax errors, a filter applied to the wrong type, bad arithmetic --
-/// already carries a specific, readable message from minijinja itself, so
-/// those are passed through as-is.
+/// For a bare undefined variable (`ErrorKind::UndefinedError`), minijinja's
+/// own message is just "undefined value" with no indication of which
+/// variable -- the name is lost by the time the VM notices the value is
+/// undefined. minijinja does keep the byte range of the failing expression
+/// and the template source when debug mode is on (forced on in `new`,
+/// above), so that range is sliced out of the source to name the variable
+/// explicitly. That is the best message available for this kind, so it is
+/// used whenever it is available.
+///
+/// An undefined value used as the operand of a filter or a binary operator
+/// does not take this path, though -- minijinja raises `InvalidOperation`
+/// there instead, with a message that says a value was undefined but never
+/// which one (confirmed empirically against minijinja 2.21.0: `{{ missing |
+/// length }}` and `{{ missing + 1 }}` both land here). Chasing the specific
+/// set of error kinds that can carry an undefined operand would mean losing
+/// every time minijinja adds one, so instead every render error, of any
+/// kind, gets the template line it failed on attached to its message via
+/// `render_snippet`. The byte range itself is too narrow for this: for a
+/// filter it covers only the filter's name, not its argument, so slicing
+/// exactly that range would still drop the variable. The whole source line
+/// keeps the variable visible regardless of which sub-expression minijinja
+/// chose to blame.
 fn render_error(err: minijinja::Error) -> Error {
     if err.kind() == minijinja::ErrorKind::UndefinedError
         && let (Some(range), Some(source)) = (err.range(), err.template_source())
@@ -106,7 +119,23 @@ fn render_error(err: minijinja::Error) -> Error {
         );
     }
 
-    Error::new(ErrorCode::TemplateRenderError, err.to_string())
+    match render_snippet(&err) {
+        Some(snippet) => Error::new(
+            ErrorCode::TemplateRenderError,
+            format!("{err} (in expression: {snippet})"),
+        ),
+        None => Error::new(ErrorCode::TemplateRenderError, err.to_string()),
+    }
+}
+
+/// The template source line a render error occurred on, trimmed of
+/// surrounding whitespace. `None` when minijinja did not attach line
+/// information, or debug mode did not capture the source to slice it from
+/// (should not happen here, since `Renderer::new` forces debug mode on).
+fn render_snippet(err: &minijinja::Error) -> Option<&str> {
+    let line = err.line()?;
+    let source = err.template_source()?;
+    source.lines().nth(line - 1).map(str::trim)
 }
 
 #[cfg(test)]
@@ -223,5 +252,65 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::TemplateRenderError);
+    }
+
+    #[test]
+    fn an_undefined_variable_behind_a_filter_errors_and_the_message_identifies_it() {
+        // The exact expression main.example.yaml uses: `length` over a
+        // body-extracted array. minijinja raises `InvalidOperation` here,
+        // not `UndefinedError`, so the message must not depend on the
+        // special-cased undefined path to name the variable.
+        let renderer = Renderer::new();
+        let vars = Variables::new();
+
+        let err = renderer
+            .render_str("{{ resourceItems | length }}", &vars)
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::TemplateRenderError);
+        assert!(
+            err.message.contains("resourceItems"),
+            "message did not identify the undefined variable behind the filter: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn an_undefined_variable_in_a_binary_operation_errors_and_the_message_identifies_it() {
+        // Also `InvalidOperation`, not `UndefinedError`: an operator applied
+        // to an undefined operand loses the name the same way a filter does.
+        let renderer = Renderer::new();
+        let vars = Variables::new();
+
+        let err = renderer.render_str("{{ missing + 1 }}", &vars).unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::TemplateRenderError);
+        assert!(
+            err.message.contains("missing"),
+            "message did not identify the undefined variable in the operation: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn a_render_error_with_no_undefined_operand_still_carries_the_expression_snippet() {
+        // Neither operand here is undefined -- `count` is bound, just to the
+        // wrong type. This pins the general snippet mechanism itself rather
+        // than a side effect of naming an undefined variable: the message
+        // must carry the failing expression for any render error, not only
+        // ones that happen to involve an undefined value.
+        let renderer = Renderer::new();
+        let vars = vars_from(&[("count", serde_json::json!(5))]);
+
+        let err = renderer
+            .render_str("{{ count | length }}", &vars)
+            .unwrap_err();
+
+        assert_eq!(err.code, ErrorCode::TemplateRenderError);
+        assert!(
+            err.message.contains("count") && err.message.contains("length"),
+            "message did not carry the offending template snippet: {}",
+            err.message
+        );
     }
 }
