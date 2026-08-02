@@ -39,6 +39,7 @@ nav:
   - Usage:
       - Installing: usage/installation.md
       - Getting started: usage/getting-started.md
+      - Running in Docker: usage/docker.md
       - Proxying to an upstream: usage/proxying.md
       - Injecting faults: usage/faults.md
       - Mocking endpoints: usage/mocks.md

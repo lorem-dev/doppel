@@ -65,10 +65,25 @@ grep -n 'doppel-\${target}\|asset=' scripts/install.sh
 grep -n 'asset=' .github/workflows/release.yml
 ```
 
-The three targets in the workflow matrix, the three in `install.sh`'s `case`,
+The three targets in the `build` matrix, the three in `install.sh`'s `case`,
 and the three in `release_downloads.py`'s `TARGETS` must be the same three. A
 target added to the build and not to the installer produces an archive nobody
 can install with one line, and nothing else notices.
+
+The `musl` job's two targets are deliberately *not* in those three: they are
+copied into the container image and are not release assets. What has to hold
+for them is that the `image` job's `install` lines name the artifacts the
+`musl` job produced -- a rename there fails the job, which is the good case,
+but check it rather than assuming.
+
+For the image itself:
+
+```bash
+grep -n 'images:\|tags:' -A6 .github/workflows/release.yml | sed -n '/metadata-action/,+12p'
+```
+
+`latest=false` must still be there. A moving tag is one an unpinned deployment
+follows into a release nobody reviewed, and a pre-release would take it.
 
 ## Then check commit hygiene
 

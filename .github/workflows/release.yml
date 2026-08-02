@@ -120,6 +120,138 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  musl:
+    name: Build ${{ matrix.target }} (for the image)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # Separate from `build` rather than two more matrix rows: these are not
+    # release assets. They exist only to be copied into the Alpine image, and
+    # keeping them out of the `doppel-*` artifact namespace is what stops the
+    # publish job's glob from attaching them to the release.
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: |
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      # zig as the cross compiler and linker. Ubuntu packages `musl-tools` for
+      # x86_64 only -- there is no `aarch64-linux-musl-gcc` to install -- and
+      # `ring` compiles C, so a linker alone would not be enough anyway. The
+      # alternative is `cross`, which runs the build in Docker; this is faster
+      # and has one moving part instead of two.
+      - name: Install zig and cargo-zigbuild
+        uses: mlugg/setup-zig@v2
+      - run: cargo install cargo-zigbuild --locked
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Build
+        run: cargo zigbuild --release --locked --target ${{ matrix.target }} -p doppel-cli
+
+      - name: Upload the binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/doppel
+          if-no-files-found: error
+          retention-days: 1
+
+  image:
+    name: Build and push the image
+    needs: musl
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Collect the musl binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: docker-*
+          path: staging
+
+      # buildx needs one path per platform, named the way the Dockerfile's
+      # `TARGETPLATFORM` resolves. Laid out here rather than in the Dockerfile
+      # so the Dockerfile stays buildable by hand from a single binary.
+      - name: Lay the binaries out by platform
+        run: |
+          set -euo pipefail
+          mkdir -p dist/linux/amd64 dist/linux/arm64
+          install -m 0755 staging/docker-x86_64-unknown-linux-musl/doppel dist/linux/amd64/doppel
+          install -m 0755 staging/docker-aarch64-unknown-linux-musl/doppel dist/linux/arm64/doppel
+          file dist/linux/*/doppel
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Every tag carries the `-alpine` suffix, naming the base the image is
+      # built on. That is the convention the images this one sits next to use
+      # (`postgres:17.6-alpine`, `node:22-alpine`), and it leaves the
+      # unsuffixed names free for a second base later without renaming
+      # anything anyone has already pinned.
+      #
+      # No `latest`. A tag that moves is one an unpinned deployment follows
+      # into a release nobody reviewed, and a pre-release would take it with
+      # the naive configuration. Final releases get `1.2.3-alpine`,
+      # `1.2-alpine` and `1-alpine`; a pre-release gets its full version and
+      # nothing else.
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: loremdev/doppel
+          flavor: |
+            latest=false
+            suffix=-alpine
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+            type=semver,pattern={{major}},enable=${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.title=Doppel
+            org.opencontainers.image.description=An HTTP proxy that forwards, degrades, or replaces a backend
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # No `build-args`: the Dockerfile reads `TARGETPLATFORM`, which
+          # buildx sets per platform, and defaults `BIN` from it. Passing one
+          # here would be a fixed string and would give both architectures the
+          # same binary.
+
   publish:
     name: Publish the release
     needs: build

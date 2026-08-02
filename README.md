@@ -25,6 +25,17 @@ Prebuilt binaries are published for macOS on Apple Silicon and Linux on x86-64
 and arm64. Anywhere else, `cargo install --path crates/doppel-cli`. See
 [the documentation](docs/usage/installation.md).
 
+Or run the image:
+
+```bash
+docker run --rm -p 8080:8080 -p 8081:8081 \
+  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  loremdev/doppel:1.2.3-alpine
+```
+
+Published for `linux/amd64` and `linux/arm64`, with no `latest` tag -- pin the
+version. See [Running in Docker](docs/usage/docker.md).
+
 ## What it does
 
 - Forwards HTTP requests to a configured upstream, streaming both request and
