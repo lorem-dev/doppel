@@ -1,0 +1,42 @@
+site_name: Doppel
+site_description: A doppelganger for your backend -- an HTTP proxy that forwards, degrades, or replaces it.
+repo_url: https://github.com/lorem-dev/doppel
+edit_uri: ""
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Getting started: getting-started.md
+  - Configuration reference: configuration.md
+  - Mocks and templating: mocks.md
+  - Proxy behaviour: proxying.md
+  - CLI reference: cli.md
+  - Observability: observability.md
+  - Development: development.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+strict: true

@@ -43,10 +43,9 @@ Prerequisites: a stable Rust toolchain via rustup (pinned in
 `rust-toolchain.toml`, with `rustfmt` and `clippy`)
 
 ```bash
-# Rust (crates + Tauri backend)
-cargo fmt --check   # formatting
-cargo clippy        # lints
-cargo test          # tests
+cargo fmt --check                          # formatting
+cargo clippy --all-targets -- -D warnings  # lints, warnings are errors
+cargo test                                 # tests
 ```
 
 All of these must pass before a pull request is ready.
@@ -56,9 +55,14 @@ All of these must pass before a pull request is ready.
 Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`) as a single
 dedicated step at the END of a change -- not after every task. While iterating,
 write only the minimal tests needed to guarantee the code works, and run just the
-focused test for what you changed (at most a quick `cargo test -p <crate>` or a
-typecheck of the renderer). The comprehensive gate above is the single final
-check before a change is considered done or a pull request opened.
+focused test for what you changed (at most a quick `cargo test -p <crate>`).
+The comprehensive gate above is the single final check before a change is
+considered done or a pull request opened.
+
+Capture the gate's output when you report it. Over this project's history,
+several reports stated test counts or quoted compiler diagnostics that did not
+survive being checked against a transcript. Run the gate with
+`2>&1 | tee <file>` and quote the file, rather than recalling what it said.
 
 ---
 
@@ -99,39 +103,6 @@ final tag pushed from `develop` fails before anything is built or published.
 
 ---
 
-## CodeGraph
-
-The project uses CodeGraph MCP tools (`codegraph_*`) for structural code
-navigation. The index lives in `.codegraph/` which is git-ignored and not
-shipped.
-
-CodeGraph is an optional accelerator, not a project dependency. If the
-`codegraph_*` tools are not installed or are otherwise unavailable in the
-environment, do not require them and do not prompt the user to set them up:
-silently fall back to the native search and read tools and continue. (This
-differs from "installed but not initialized" - the no-index case below, where
-offering to build the index is appropriate.)
-
-When to use each tool:
-
-- `codegraph_search` -- find a symbol by name (returns kind, location,
-  signature).
-- `codegraph_context` -- get focused context for a task or area (composes
-  search + node + callers + callees in one call; use this first).
-- `codegraph_callers` -- what calls a given function or method.
-- `codegraph_callees` -- what a given function or method calls.
-- `codegraph_impact` -- what would break if a symbol changed.
-- `codegraph_node` -- a symbol's source, signature, or docstring.
-- `codegraph_explore` -- deep survey of an unfamiliar module or pattern
-  (token-heavy; use a subagent for large explorations).
-- `codegraph_files` -- list files under a path.
-- `codegraph_status` -- check index health.
-
-Do not grep for symbol names when `codegraph_search` will answer faster and
-more accurately.
-
----
-
 ## Superpowers
 
 Design specs and implementation plans live in `.superpowers/` which is
@@ -151,8 +122,8 @@ for it:
 | `bump-version` | To start a release -- set the version across every manifest and promote the CHANGES.md Development section, then make the release commit. Does not tag or push. |
 | `check-changes` | After a batch of commits -- verify CHANGES.md (Development section) reflects every change. |
 | `check-docs` | Before a release or after updating commands/options -- verify docs/ and README.md are current. |
-| `run-tests-and-linters` | Before marking any task done -- run the full gate (lint, typecheck, test:cov at 90%). |
-| `check-licenses` | After editing any `package.json` or `Cargo.toml` -- verify all npm and cargo dependencies are license-compliant and update LICENSE. |
+| `run-tests-and-linters` | Before marking any task done -- run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test`, and capture the output. |
+| `check-licenses` | After editing any `Cargo.toml` -- verify every direct dependency is licence-compliant and update LICENSE. |
 | `pre-release-check` | Before cutting a release -- runs the five `check-*` and `run-*` skills above (not `bump-version`) plus version-bump and commit-format checks. |
 
 <!-- CODEGRAPH_START -->

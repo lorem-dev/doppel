@@ -22,17 +22,28 @@ endpoints with templated mock responses.
 
 ## What it does not do yet
 
-- No mocked responses and no Jinja2 templating (phase 2).
 - No admin HTTP API: proxies cannot be created, read, updated or deleted over
   HTTP, and there is no Swagger document for one yet (phase 3).
 - No Prometheus metrics and no Sentry integration (phase 3).
 - No PostgreSQL-backed configuration store; configuration lives in a single
   YAML file on disk (phase 4).
-- No published documentation site; this README and `AGENTS.md` are what
-  exists until the mkdocs build lands (phase 5).
+- No TCP proxying. A `type: tcp` proxy is rejected at load with a message
+  saying so, rather than being quietly ignored.
 
-See `.superpowers/specs/` for the full design if you have access to it; it is
-git-ignored and not shipped with the repository.
+Mocked responses and Jinja2 templating are implemented -- see
+[the documentation](docs/mocks.md).
+
+## Documentation
+
+The full documentation lives in `docs/` and builds with mkdocs and the Material
+theme. Python tooling here is driven by `uv`, never `pip`:
+
+```bash
+uv run --with-requirements docs/requirements.txt mkdocs serve
+```
+
+`.superpowers/specs/` holds the design documents; that directory is git-ignored
+and not shipped.
 
 ## Building and running
 
