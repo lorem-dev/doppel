@@ -20,14 +20,22 @@ theme:
     - navigation.top
     - content.code.copy
     - toc.follow
+  # `custom` for both, with the actual values in
+  # docs/stylesheets/theme.css. Material's named palettes are a fixed list and
+  # none of them is the icon's teal; naming the nearest one would put a colour
+  # in the header that the icon does not contain.
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -54,6 +62,9 @@ nav:
   - Development:
       - Working on Doppel: development/index.md
       - Architecture: development/architecture.md
+
+extra_css:
+  - stylesheets/theme.css
 
 markdown_extensions:
   - admonition
