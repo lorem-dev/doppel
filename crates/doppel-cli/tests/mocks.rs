@@ -13,15 +13,15 @@
 
 mod common;
 
-use common::{Server, upstream};
+use common::{Ports, Server, upstream};
 
 /// Rewrite the reference configuration for a test environment.
-fn reference_config(
-    server_port: u16,
-    upstream_port: u16,
-    socket: &std::path::Path,
-    templates: &std::path::Path,
-) -> String {
+fn reference_config(ports: Ports, socket: &std::path::Path, templates: &std::path::Path) -> String {
+    let Ports {
+        server: server_port,
+        admin: admin_port,
+        upstream: upstream_port,
+    } = ports;
     let raw = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../main.example.yaml"
@@ -31,7 +31,7 @@ fn reference_config(
     let upstream = format!("http://127.0.0.1:{upstream_port}/");
     let replaced = raw
         .replace("port: 8080", &format!("port: {server_port}"))
-        .replace("port: 8081", &format!("port: {}", common::free_port()))
+        .replace("port: 8081", &format!("port: {admin_port}"))
         .replace(
             "socket: /tmp/doppel.sock",
             &format!("socket: {}", socket.display()),

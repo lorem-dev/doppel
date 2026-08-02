@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{config, free_port, upstream};
+use common::{Ports, config, free_port, upstream};
 use std::process::Command;
 
 #[test]
@@ -14,8 +14,11 @@ fn config_validate_exits_zero_on_a_good_config() {
     std::fs::write(
         &path,
         config(
-            free_port(),
-            up.port,
+            Ports {
+                server: free_port(),
+                admin: free_port(),
+                upstream: up.port,
+            },
             &dir.path().join("s.sock"),
             &dir.path().join("t"),
         ),
@@ -37,8 +40,11 @@ fn config_validate_exits_one_and_lists_violations() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.yaml");
     let text = config(
-        free_port(),
-        up.port,
+        Ports {
+            server: free_port(),
+            admin: free_port(),
+            upstream: up.port,
+        },
         &dir.path().join("s.sock"),
         &dir.path().join("t"),
     )
@@ -62,8 +68,11 @@ fn an_environment_variable_supplies_the_config_path() {
     std::fs::write(
         &path,
         config(
-            free_port(),
-            up.port,
+            Ports {
+                server: free_port(),
+                admin: free_port(),
+                upstream: up.port,
+            },
             &dir.path().join("s.sock"),
             &dir.path().join("t"),
         ),
@@ -91,8 +100,11 @@ fn a_cli_flag_beats_the_environment_variable() {
     std::fs::write(
         &good,
         config(
-            free_port(),
-            up.port,
+            Ports {
+                server: free_port(),
+                admin: free_port(),
+                upstream: up.port,
+            },
             &dir.path().join("s.sock"),
             &dir.path().join("t"),
         ),
@@ -103,8 +115,11 @@ fn a_cli_flag_beats_the_environment_variable() {
     std::fs::write(
         &bad,
         config(
-            free_port(),
-            up.port,
+            Ports {
+                server: free_port(),
+                admin: free_port(),
+                upstream: up.port,
+            },
             &dir.path().join("s2.sock"),
             &dir.path().join("t2"),
         )
@@ -206,8 +221,11 @@ fn serve_rejects_zero_workers_with_exit_code_one_not_a_panic() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.yaml");
     let text = config(
-        free_port(),
-        up.port,
+        Ports {
+            server: free_port(),
+            admin: free_port(),
+            upstream: up.port,
+        },
         &dir.path().join("s.sock"),
         &dir.path().join("t"),
     )

@@ -15,6 +15,7 @@ path = "src/main.rs"
 sentry = ["doppel-telemetry/sentry"]
 
 [dependencies]
+doppel-admin = { path = "../doppel-admin" }
 doppel-core = { path = "../doppel-core" }
 doppel-proxy = { path = "../doppel-proxy" }
 doppel-telemetry = { path = "../doppel-telemetry" }

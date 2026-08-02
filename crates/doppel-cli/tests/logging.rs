@@ -4,7 +4,7 @@
 mod common;
 
 use common::{
-    ChildGuard, SECRET_TOKEN, SIGNAL_WAIT_DEADLINE, Server, assert_socket_path_has_headroom,
+    ChildGuard, Ports, SECRET_TOKEN, SIGNAL_WAIT_DEADLINE, Server, assert_socket_path_has_headroom,
     config, free_port, send_sigterm, upstream, wait_after_signal, wait_until_ready,
 };
 use std::process::{Command, Stdio};
@@ -39,7 +39,15 @@ fn admin_token_values_never_reach_the_logs_at_trace_level() {
     let port = free_port();
     std::fs::write(
         &config_path,
-        config(port, up.port, &socket, &dir.path().join("templates")),
+        config(
+            Ports {
+                server: port,
+                admin: free_port(),
+                upstream: up.port,
+            },
+            &socket,
+            &dir.path().join("templates"),
+        ),
     )
     .unwrap();
 
@@ -115,8 +123,8 @@ const SENTRY_DSN: &str = "https://s3cr3tsentrykey@sentry.invalid/42";
 #[test]
 fn a_configured_sentry_dsn_never_reaches_the_logs() {
     let up = upstream();
-    let server = Server::start_with(up.port, |port, upstream_port, socket, templates| {
-        let base = config(port, upstream_port, socket, templates);
+    let server = Server::start_with(up.port, |ports, socket, templates| {
+        let base = config(ports, socket, templates);
         let with_sentry = base.replace(
             "proxies:",
             &format!("sentry:\n  dsn: \"{SENTRY_DSN}\"\nproxies:"),
@@ -153,8 +161,8 @@ fn a_dsn_without_the_feature_is_reported_rather_than_ignored() {
     // already removed once, in `admin.workers`. The default build cannot
     // report to Sentry, so it has to say so.
     let up = upstream();
-    let server = Server::start_with(up.port, |port, upstream_port, socket, templates| {
-        config(port, upstream_port, socket, templates).replace(
+    let server = Server::start_with(up.port, |ports, socket, templates| {
+        config(ports, socket, templates).replace(
             "proxies:",
             &format!("sentry:\n  dsn: \"{SENTRY_DSN}\"\nproxies:"),
         )

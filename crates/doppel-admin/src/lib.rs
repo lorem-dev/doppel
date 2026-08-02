@@ -24,3 +24,18 @@ pub fn router(state: AdminState) -> axum::Router {
         .merge(openapi::routes())
         .with_state(state)
 }
+
+/// Bind nothing, serve until `shutdown` resolves.
+///
+/// Mirrors `doppel_proxy::serve`: the caller owns the listener and the
+/// shutdown signal, so `serve` in the CLI can bind both ports before either
+/// starts and fail startup as a whole if one of them cannot be had.
+pub async fn serve(
+    state: AdminState,
+    listener: tokio::net::TcpListener,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    axum::serve(listener, router(state))
+        .with_graceful_shutdown(shutdown)
+        .await
+}

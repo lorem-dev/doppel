@@ -36,6 +36,10 @@ use std::time::{Duration, Instant};
 /// specific failure (the child's own stderr, surfaced) instead of a bare
 /// ten-second timeout or a mysterious "connection refused".
 ///
+/// Both the proxy port and the admin port are drawn this way, and both are
+/// bound by the child, so a test now has two chances to lose the race per
+/// server it starts.
+///
 /// The port is free when this returns and can be taken by anything before the
 /// child binds it -- the listener is dropped here, which is the only way to
 /// let the child have it. `Server::start_with` closes that race by retrying
@@ -118,7 +122,24 @@ fn read_request_head(stream: &mut TcpStream) -> String {
     String::from_utf8_lossy(&buffer).into_owned()
 }
 
-pub fn config(server_port: u16, upstream_port: u16, socket: &Path, templates: &Path) -> String {
+/// The three ports a configuration has to agree on.
+///
+/// Passed as one value rather than as three `u16` arguments: the two the
+/// child binds and the one it connects to are easy to transpose, and a
+/// transposition produces a server that starts and never works.
+#[derive(Debug, Clone, Copy)]
+pub struct Ports {
+    pub server: u16,
+    pub admin: u16,
+    pub upstream: u16,
+}
+
+pub fn config(ports: Ports, socket: &Path, templates: &Path) -> String {
+    let Ports {
+        server: server_port,
+        admin: admin_port,
+        upstream: upstream_port,
+    } = ports;
     format!(
         r#"
 server:
@@ -133,7 +154,7 @@ templates:
   dir: {templates}
 admin:
   host: "127.0.0.1"
-  port: {}
+  port: {admin_port}
   tokens:
     - name: user1
       group: admin
@@ -148,7 +169,6 @@ proxies:
     resolve:
       type: default
 "#,
-        free_port(),
         socket = socket.display(),
         templates = templates.display(),
     )
@@ -191,6 +211,7 @@ pub struct Server {
     // rather than reaching into this field directly.
     child: Option<Child>,
     port: u16,
+    admin_port: u16,
     pub socket: PathBuf,
     pub config_path: PathBuf,
     pub templates: PathBuf,
@@ -214,7 +235,7 @@ impl Server {
     /// suite paying for those fields.
     pub fn start_with(
         upstream_port: u16,
-        build_config: impl Fn(u16, u16, &Path, &Path) -> String,
+        build_config: impl Fn(Ports, &Path, &Path) -> String,
     ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Kept short deliberately: see `assert_socket_path_has_headroom`.
@@ -232,12 +253,13 @@ impl Server {
         // into a ten-second timeout.
         let mut last: Option<String> = None;
         for _ in 0..PORT_RACE_ATTEMPTS {
-            let port = free_port();
-            std::fs::write(
-                &config_path,
-                build_config(port, upstream_port, &socket, &templates),
-            )
-            .unwrap();
+            let ports = Ports {
+                server: free_port(),
+                admin: free_port(),
+                upstream: upstream_port,
+            };
+            let port = ports.server;
+            std::fs::write(&config_path, build_config(ports, &socket, &templates)).unwrap();
 
             let mut child = Command::new(env!("CARGO_BIN_EXE_doppel"))
                 .args(["serve", "--config"])
@@ -252,6 +274,7 @@ impl Server {
                     return Self {
                         child: Some(child),
                         port,
+                        admin_port: ports.admin,
                         socket,
                         config_path,
                         templates,
@@ -275,6 +298,11 @@ impl Server {
     /// a request this harness does not model.
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    /// The admin listener's port.
+    pub fn admin_port(&self) -> u16 {
+        self.admin_port
     }
 
     /// Place a template file at `<templates.dir>/<proxy>/<file>`.
@@ -302,6 +330,19 @@ impl Server {
     pub fn get(&self, path: &str) -> (u16, String) {
         let url = format!("http://127.0.0.1:{}{path}", self.port);
         let response = reqwest::blocking::get(url).unwrap();
+        let status = response.status().as_u16();
+        (status, response.text().unwrap())
+    }
+
+    /// A GET carrying one header, for the suites that resolve a proxy by
+    /// header rather than by the default.
+    pub fn get_with_header(&self, path: &str, name: &str, value: &str) -> (u16, String) {
+        let url = format!("http://127.0.0.1:{}{path}", self.port);
+        let response = reqwest::blocking::Client::new()
+            .get(url)
+            .header(name, value)
+            .send()
+            .unwrap();
         let status = response.status().as_u16();
         (status, response.text().unwrap())
     }

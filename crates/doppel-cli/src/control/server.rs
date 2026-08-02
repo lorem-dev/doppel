@@ -132,21 +132,25 @@ impl ControlServer {
     /// reload's unapplied-section report can compare against it. See
     /// `reload` below for why that has to be the fixed startup value rather
     /// than whatever the last reload compiled.
+    /// `reload_lock` serializes the reload critical section -- load,
+    /// validate, compile, swap, and the response write -- so the revision
+    /// reported to a client is the one actually installed at the moment it is
+    /// told, never one a concurrent reload has not applied yet.
+    ///
+    /// It is a parameter rather than something this function creates because
+    /// the admin API's reload endpoint does the same thing to the same
+    /// runtime. `serve` passes one mutex to both. Giving each its own would
+    /// compile, read as correct, and let an HTTP reload and a socket reload
+    /// swap runtimes in the wrong order.
     pub async fn run(
         self,
         holder: Arc<RuntimeHolder>,
         store: Arc<dyn ConfigStore>,
         startup_config: Arc<Config>,
+        reload_lock: Arc<Mutex<()>>,
         shutdown: impl Future<Output = ()> + Send,
     ) {
         tracing::info!(path = %self.path().display(), "control channel listening");
-
-        // Serializes the reload critical section (load, validate, compile,
-        // swap, and the response write) across connections, so the
-        // revision reported to a client is the revision actually installed
-        // at the moment it is told, never one a concurrent reload on
-        // another connection has not applied yet.
-        let reload_lock = Arc::new(Mutex::new(()));
 
         let accept = async {
             loop {
@@ -407,9 +411,15 @@ proxies:
         let run_holder = Arc::clone(&holder);
         tokio::spawn(async move {
             server
-                .run(run_holder, store, startup_config, async {
-                    let _ = rx.await;
-                })
+                .run(
+                    run_holder,
+                    store,
+                    startup_config,
+                    Arc::new(Mutex::new(())),
+                    async {
+                        let _ = rx.await;
+                    },
+                )
                 .await;
         });
         // The socket file exists as soon as `bind` returns, but the spawned
@@ -631,9 +641,15 @@ proxies:
         let run_holder = Arc::clone(&holder);
         tokio::spawn(async move {
             server
-                .run(run_holder, store, startup_config, async {
-                    let _ = rx.await;
-                })
+                .run(
+                    run_holder,
+                    store,
+                    startup_config,
+                    Arc::new(Mutex::new(())),
+                    async {
+                        let _ = rx.await;
+                    },
+                )
                 .await;
         });
         wait_until_accepting(&socket).await;
