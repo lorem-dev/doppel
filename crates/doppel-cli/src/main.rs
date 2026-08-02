@@ -41,6 +41,12 @@ fn run(command: Command) -> u8 {
             command: ConfigCommand::Reload(args),
         } => run_on_light_runtime(async move { commands::reload::reload(&args).await }),
         Command::Config {
+            command: ConfigCommand::Push(args),
+        } => run_on_light_runtime(async move { report(commands::transfer::push(&args).await) }),
+        Command::Config {
+            command: ConfigCommand::Pull(args),
+        } => run_on_light_runtime(async move { report(commands::transfer::pull(&args).await) }),
+        Command::Config {
             command: ConfigCommand::Migrate(args),
         } => run_on_light_runtime(async move {
             match commands::migrate::migrate(&args).await {
@@ -122,6 +128,31 @@ fn run_serve(args: ServeArgs) -> u8 {
             }
         }
     })
+}
+
+/// A command's output on stdout, its failure on stderr, per the stream
+/// convention on `main` above.
+fn report(result: Result<String, cli::CliError>) -> u8 {
+    match result {
+        Ok(output) => {
+            // Exactly what the command produced. `config pull` renders a YAML
+            // document that already ends in a newline, and an unconditional
+            // `println!` would append a second one -- so `doppel config pull >
+            // main.yaml` would write a file that differs from the one a push
+            // of it would produce. Everything else here is a one-line report
+            // with no newline of its own.
+            if output.ends_with('\n') {
+                print!("{output}");
+            } else {
+                println!("{output}");
+            }
+            0
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            err.exit_code()
+        }
+    }
 }
 
 /// `version`, `config validate` and `config reload` each do one bounded

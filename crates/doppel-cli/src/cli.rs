@@ -35,12 +35,74 @@ pub enum ConfigCommand {
     Validate(StoreArgs),
     /// Ask a running server to reload its configuration.
     Reload(ReloadArgs),
+    /// Write a YAML configuration into the database.
+    ///
+    /// The two ends are named separately rather than through `--store`: this
+    /// command always reads a file and always writes a database, so a store
+    /// selector here would be a flag with one legal value and a misleading
+    /// name.
+    Push(PushArgs),
+    /// Read a configuration out of the database as YAML.
+    Pull(PullArgs),
     /// Apply any database migrations the configured database has not seen.
     ///
     /// Its own command, and never done on startup: a process that silently
     /// alters a shared schema when it boots turns a rollback into data loss,
     /// and the operator who rolled back is the one least expecting it.
     Migrate(MigrateArgs),
+}
+
+#[derive(Args)]
+pub struct PushArgs {
+    /// The YAML document to write.
+    #[arg(long, env = "DOPPEL_CONFIG_PATH", default_value = "./main.yaml")]
+    pub config: PathBuf,
+    #[arg(long, env = "DOPPEL_DATABASE_URL")]
+    pub database_url: String,
+    #[arg(long, env = "DOPPEL_CONFIG_NAME", default_value = "default")]
+    pub config_name: String,
+    /// Write only if the stored configuration is still at this revision.
+    ///
+    /// Without it the write is unconditional, which is what provisioning
+    /// wants. With it, `push` is the same compare-and-swap the admin API
+    /// uses, so a scripted push cannot silently overwrite a change someone
+    /// made in between.
+    #[arg(long)]
+    pub if_revision: Option<String>,
+}
+
+/// Hand-written, like `StoreArgs`'s, so `{:?}` cannot print the password.
+impl std::fmt::Debug for PushArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PushArgs")
+            .field("config", &self.config)
+            .field("database_url", &mask_dsn(&self.database_url))
+            .field("config_name", &self.config_name)
+            .field("if_revision", &self.if_revision)
+            .finish()
+    }
+}
+
+#[derive(Args)]
+pub struct PullArgs {
+    #[arg(long, env = "DOPPEL_DATABASE_URL")]
+    pub database_url: String,
+    #[arg(long, env = "DOPPEL_CONFIG_NAME", default_value = "default")]
+    pub config_name: String,
+    /// Where to write the document. Absent means stdout, so `pull` composes
+    /// with a pipe.
+    #[arg(long)]
+    pub output: Option<PathBuf>,
+}
+
+impl std::fmt::Debug for PullArgs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PullArgs")
+            .field("database_url", &mask_dsn(&self.database_url))
+            .field("config_name", &self.config_name)
+            .field("output", &self.output)
+            .finish()
+    }
 }
 
 #[derive(Args)]

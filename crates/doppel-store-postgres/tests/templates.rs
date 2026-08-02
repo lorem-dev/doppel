@@ -1,9 +1,7 @@
 //! Template files: rows, and the disk mirror they are kept in step with.
 
-mod common;
-
-use common::{TestSchema, require_database};
 use doppel_core::store::ConfigStore;
+use doppel_store_postgres::test_support::{TestSchema, require_database};
 
 async fn migrated(url: &str) -> TestSchema {
     let schema = TestSchema::create(url).await;

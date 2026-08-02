@@ -5,15 +5,21 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# The schema-per-test harness. On for tests, absent from a release build.
+test-support = ["dep:tempfile"]
+
 [dependencies]
 async-trait.workspace = true
 doppel-core = { path = "../doppel-core" }
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+tempfile = { workspace = true, optional = true }
 tracing.workspace = true
 
 [dev-dependencies]
+doppel-store-postgres = { path = ".", features = ["test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
 

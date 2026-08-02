@@ -1,7 +1,9 @@
-//! A PostgreSQL schema per test.
+//! A PostgreSQL schema per test, shared by every suite that needs one.
 //!
-//! Every file under `tests/` compiles this module separately, so a helper one
-//! file does not use is genuinely dead code there.
+//! Behind the `test-support` feature so it is compiled for tests and absent
+//! from a release binary. It lives in the crate rather than in one suite's
+//! `tests/common` because `doppel-cli`'s suites need it too, and two copies of
+//! advisory-lock bookkeeping would be two things to keep correct.
 #![allow(dead_code)]
 
 use sqlx::{AssertSqlSafe, Connection, PgConnection, PgPool, Row};
@@ -155,8 +157,8 @@ impl TestSchema {
     }
 
     /// Open a store against this schema, with this schema's mirror directory.
-    pub async fn store(&self) -> doppel_store_postgres::PostgresStore {
-        doppel_store_postgres::PostgresStore::connect(&self.url(), "default", self.templates_dir())
+    pub async fn store(&self) -> crate::PostgresStore {
+        crate::PostgresStore::connect(&self.url(), "default", self.templates_dir())
             .await
             .expect("connect")
     }
@@ -179,9 +181,7 @@ impl TestSchema {
         let pool = PgPool::connect(&self.url())
             .await
             .expect("connect with the schema on the search path");
-        doppel_store_postgres::migrate(&pool)
-            .await
-            .expect("run the migrations");
+        crate::migrate(&pool).await.expect("run the migrations");
         pool.close().await;
     }
 

@@ -121,7 +121,11 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 pub enum StoreError {
     #[error("config not found: {0}")]
     NotFound(PathBuf),
-    #[error("config is invalid")]
+    /// The message lists every violation, not just the count. This text is
+    /// what an operator sees from `config push`, and "config is invalid" on
+    /// its own sends them to run a second command to find out what is wrong
+    /// -- when the answer was already in hand.
+    #[error("config is invalid: {}", .0.iter().map(ToString::to_string).collect::<Vec<_>>().join("; "))]
     Invalid(Vec<Violation>),
     #[error("io error on {path}: {source}")]
     Io {

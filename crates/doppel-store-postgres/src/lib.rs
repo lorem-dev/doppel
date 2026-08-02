@@ -8,6 +8,9 @@ mod load;
 mod save;
 mod templates;
 
+#[cfg(feature = "test-support")]
+pub mod test_support;
+
 use doppel_core::store::StoreError;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;

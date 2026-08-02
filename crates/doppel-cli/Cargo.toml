@@ -31,6 +31,7 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+doppel-store-postgres = { path = "../doppel-store-postgres", features = ["test-support"] }
 reqwest = { workspace = true, features = ["blocking"] }
 tempfile.workspace = true
 

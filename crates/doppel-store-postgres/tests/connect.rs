@@ -1,9 +1,7 @@
 //! Connecting, and refusing to connect to a schema that has not been
 //! migrated.
 
-mod common;
-
-use common::{TestSchema, require_database};
+use doppel_store_postgres::test_support::{TestSchema, require_database};
 
 #[tokio::test]
 async fn connect_succeeds_against_a_migrated_schema() {

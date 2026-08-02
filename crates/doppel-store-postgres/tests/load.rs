@@ -1,10 +1,8 @@
 //! Reading a configuration out of the tables.
 
-mod common;
-
-use common::{TestSchema, require_database};
 use doppel_core::store::Revision;
 use doppel_store_postgres::PostgresStore;
+use doppel_store_postgres::test_support::{TestSchema, require_database};
 
 /// A configuration exercising every column the schema has: both resolve
 /// kinds, both fault sections, a mock with all three selector maps, a

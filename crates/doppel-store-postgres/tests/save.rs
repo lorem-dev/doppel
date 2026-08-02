@@ -1,10 +1,8 @@
 //! Writing a configuration, under compare-and-swap.
 
-mod common;
-
-use common::{TestSchema, require_database};
 use doppel_core::store::{Revision, StoreError};
 use doppel_store_postgres::PostgresStore;
+use doppel_store_postgres::test_support::{TestSchema, require_database};
 
 const BASE: &str = r#"
 server:

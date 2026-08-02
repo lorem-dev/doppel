@@ -683,6 +683,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "doppel-core",
+ "doppel-store-postgres",
  "serde",
  "serde_json",
  "sqlx",
