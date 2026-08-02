@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 0.1.0 -- 2026-08-02
+
 The first release. Everything below is new, so the sections are what a reader
 arriving at 0.1.0 needs rather than a diff against something earlier.
 
