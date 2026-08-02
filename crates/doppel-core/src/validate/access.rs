@@ -44,7 +44,8 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             v.push(
                 format!("admin.access.{action}"),
                 format!(
-                    "`{action}` must not be public: an unauthenticated caller                      could rewrite the proxy set. Name a token or a group."
+                    "`{action}` must not be public: an unauthenticated caller could \
+                     rewrite the proxy set. Name a token or a group."
                 ),
             );
         }

@@ -159,12 +159,12 @@ impl Runtime {
 }
 
 fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
-    let base_url = reqwest::Url::parse(&proxy.url).map_err(|e| {
-        Error::new(
-            ErrorCode::ConfigInvalid,
-            format!("proxy `{}` has an unusable url: {e}", proxy.name),
-        )
-    })?;
+    // No parse and no error branch: `config::UpstreamUrl` holds the URL
+    // already parsed. There used to be a fallible step here, guarding against
+    // a string that `validate` should have caught, and a test that reached it
+    // by writing a bad URL straight into the field. Neither is reachable now
+    // -- the field cannot hold one.
+    let base_url = proxy.url.as_url().clone();
 
     let mut mocks = Vec::with_capacity(proxy.mocks.len());
     for mock in &proxy.mocks {
@@ -399,25 +399,20 @@ proxies:
     }
 
     #[test]
-    fn compile_reports_an_unparseable_proxy_url_rather_than_panicking() {
-        // `validate` would normally reject a url like this before `compile`
-        // ever sees it, so this builds the `Config` directly rather than
-        // through `load_from_str`/validation, to reach `compile_proxy`'s
-        // `Url::parse` failure branch -- the second line of defence -- on
-        // its own.
-        let mut config = load_from_str(TWO_PROXIES).unwrap();
-        config.proxies[0].url = "not a url at all".to_owned();
-
-        let err = match Runtime::compile(std::sync::Arc::new(config), Revision(1)) {
-            Ok(_) => panic!("expected compile to reject an unparseable proxy url"),
-            Err(err) => err,
-        };
-        assert_eq!(err.code, crate::ErrorCode::ConfigInvalid);
-        assert!(
-            err.message.contains("p1"),
-            "the offending proxy's name should be in the message, got: {}",
-            err.message
-        );
+    fn an_unparseable_proxy_url_cannot_reach_compile_at_all() {
+        // There used to be a test here that wrote a bad url straight into
+        // the field, to reach `compile_proxy`'s parse-failure branch -- the
+        // second line of defence behind rule V8. `UpstreamUrl` removed both:
+        // the field cannot hold an unparseable url, so there is no branch to
+        // reach and no line of defence to be behind. What is left to assert
+        // is the door that closed.
+        for bad in ["not a url at all", "/relative/", "ftp://example.com/"] {
+            let text = TWO_PROXIES.replace("https://one.example.com/api/", bad);
+            assert!(
+                load_from_str(&text).is_err(),
+                "`{bad}` must not reach a `Config` in the first place"
+            );
+        }
     }
 
     #[test]

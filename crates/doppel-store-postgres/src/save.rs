@@ -181,7 +181,7 @@ impl PostgresStore {
         .bind(proxy.name.as_str())
         .bind(ordinal)
         .bind(as_text(&proxy.kind)?)
-        .bind(&proxy.url)
+        .bind(proxy.url.as_str())
         .bind(
             proxy
                 .timeout

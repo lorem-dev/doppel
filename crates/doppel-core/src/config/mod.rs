@@ -11,6 +11,7 @@ pub mod server;
 pub mod size;
 pub mod status;
 pub mod token;
+pub mod url;
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,7 @@ pub use server::{
 pub use size::{ByteSize, ByteSizeError};
 pub use status::{HttpStatus, StatusError};
 pub use token::{Token, TokenError};
+pub use url::{UpstreamUrl, UrlError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

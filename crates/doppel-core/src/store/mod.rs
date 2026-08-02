@@ -268,7 +268,7 @@ proxies:
         ProxyConfig {
             name: crate::config::Name::parse("p1").unwrap(),
             kind: ProxyKind::Http,
-            url: url.to_owned(),
+            url: crate::config::UpstreamUrl::parse(url).unwrap(),
             timeout: None,
             resolve: ResolveConfig::default(),
             access: None,

@@ -113,7 +113,7 @@ impl PostgresStore {
                     "tcp" => ProxyKind::Tcp,
                     other => return Err(corrupt("proxies.kind", &format!("is `{other}`"))),
                 },
-                url: text(row, "url")?,
+                url: url(row, "url")?,
                 timeout: timeout(row, "timeout_seconds")?,
                 resolve: ResolveConfig {
                     kind: match text(row, "resolve_kind")?.as_str() {
@@ -340,6 +340,12 @@ fn optional_ratio(
 /// A stored latency, checked on the way in.
 fn seconds(value: f64, column: &str) -> Result<doppel_core::config::Seconds, StoreError> {
     doppel_core::config::Seconds::parse(value).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored upstream URL, checked on the way in.
+fn url(row: &PgRow, column: &str) -> Result<doppel_core::config::UpstreamUrl, StoreError> {
+    let raw: String = row.try_get(column).map_err(query_failed)?;
+    doppel_core::config::UpstreamUrl::parse(&raw).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 /// A stored byte limit, checked on the way in.

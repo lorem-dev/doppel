@@ -34,6 +34,17 @@ pub fn startup_advisories(config: &Config) -> Vec<String> {
         }
     }
 
+    for proxy in &config.proxies {
+        if proxy.url.has_credentials() {
+            out.push(format!(
+                "proxy `{}` has a username or password in its upstream url; that \
+                 credential is part of the proxy document the admin API \
+                 returns, so anyone who may read a proxy holds it",
+                proxy.name
+            ));
+        }
+    }
+
     out
 }
 
@@ -43,7 +54,11 @@ mod tests {
     use crate::config::load_from_str;
 
     fn config(server: u16, admin: u16) -> Config {
-        load_from_str(&format!(
+        load_from_str(&raw(server, admin)).unwrap()
+    }
+
+    fn raw(server: u16, admin: u16) -> String {
+        format!(
             r#"
 server:
   host: "127.0.0.1"
@@ -60,8 +75,7 @@ proxies:
     type: http
     url: "https://example.com/"
 "#
-        ))
-        .unwrap()
+        )
     }
 
     #[test]
@@ -80,6 +94,22 @@ proxies:
         let both = startup_advisories(&config(80, 443));
         assert_eq!(both.len(), 2, "{both:?}");
         assert!(both[1].contains("admin.port"), "{}", both[1]);
+    }
+
+    #[test]
+    fn a_credential_in_an_upstream_url_is_named_with_its_proxy() {
+        let text = format!("{}", config(8080, 8081).proxies[0].url);
+        assert_eq!(text, "https://example.com/", "fixture changed");
+
+        let with_credentials = load_from_str(
+            &raw(8080, 8081).replace("https://example.com/", "https://user:secret@example.com/"),
+        )
+        .unwrap();
+        let notes = startup_advisories(&with_credentials);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("`p1`"), "{}", notes[0]);
+        // The advisory must not carry the secret it is warning about.
+        assert!(!notes[0].contains("secret"), "{}", notes[0]);
     }
 
     #[test]

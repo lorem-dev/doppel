@@ -1,11 +1,12 @@
-//! Rules V5..V8, V10..V11, V14..V15 and V32, plus dispatch into the mock
-//! rules.
+//! Rules V5..V7, V10..V11, V14 and V15, plus dispatch into the mock rules.
 //!
 //! V9 (a positive timeout), V12 and V13 (a probability in 0..=1, a status in
 //! 100..=599) and the non-negative half of V14 are gone: `TimeoutSeconds`,
 //! `Ratio`, `HttpStatus` and `Seconds` refuse those values while the document
 //! is being parsed. So is V33: `ByteSize` refuses a limit of zero, which is
 //! what that rule said about `body_limit` and V29 said about `upload.limit`.
+//! V8 and V32 are `config::UpstreamUrl`, which keeps the URL parsed rather
+//! than as text -- so the request path never parses it again either.
 //!
 //! V35 is gone: it applied `sanitize` to a proxy name, and `config::Name` now
 //! refuses the same shapes while the document is being parsed. One check, at
@@ -45,34 +46,6 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
                 format!("{path}.type"),
                 "TCP proxying is not implemented yet",
             );
-        }
-
-        // V8
-        match reqwest::Url::parse(&proxy.url) {
-            Ok(url) => {
-                v.require(
-                    matches!(url.scheme(), "http" | "https"),
-                    format!("{path}.url"),
-                    "url scheme must be http or https",
-                );
-                // V32: `join_upstream` (doppel-proxy) replaces the whole
-                // query wholesale with the incoming request's, so a query
-                // configured here would be silently dropped on every
-                // request rather than merged with it. Rejecting the
-                // configuration is simpler and more honest than teaching
-                // the URL builder to merge two query strings.
-                v.require(
-                    url.query().is_none() && url.fragment().is_none(),
-                    format!("{path}.url"),
-                    "a query string or fragment is not supported on an upstream base url",
-                );
-            }
-            Err(err) => {
-                v.push(
-                    format!("{path}.url"),
-                    format!("url must be absolute: {err}"),
-                );
-            }
         }
 
         // V10 and V11
@@ -244,37 +217,23 @@ proxies:
     }
 
     #[test]
-    fn v8_url_must_be_absolute_http_or_https() {
-        assert_violation(
-            &good().replace(r#""https://example.com/""#, r#""/api""#),
-            "proxies[0].url",
-            "absolute",
-        );
-        assert_violation(
-            &good().replace("https://example.com/", "ftp://example.com/"),
-            "proxies[0].url",
-            "http or https",
-        );
-    }
-
-    #[test]
-    fn v32_a_query_or_fragment_on_the_upstream_url_is_rejected() {
-        assert_violation(
-            &good().replace(
-                r#""https://example.com/""#,
-                r#""https://example.com/?key=abc""#,
-            ),
-            "proxies[0].url",
-            "query string or fragment",
-        );
-        assert_violation(
-            &good().replace(
-                r#""https://example.com/""#,
-                r#""https://example.com/#frag""#,
-            ),
-            "proxies[0].url",
-            "query string or fragment",
-        );
+    fn an_upstream_url_doppel_cannot_forward_over_fails_at_load() {
+        // V8 and V32, now `config::UpstreamUrl`. The last of them is the
+        // reason the type exists rather than just a check: the forwarding
+        // path replaces the query with the incoming request's, so a query
+        // configured here is discarded on every request rather than merged.
+        for (bad, expected) in [
+            ("/api", "must be absolute"),
+            ("ftp://example.com/", "http or https"),
+            ("https://example.com/?key=abc", "query string or fragment"),
+            ("https://example.com/#frag", "query string or fragment"),
+        ] {
+            let text = good().replace("https://example.com/", bad);
+            let err = load_from_str(&text)
+                .expect_err(&format!("`{bad}` must not parse"))
+                .to_string();
+            assert!(err.contains(expected), "{bad}: {err}");
+        }
     }
 
     #[test]

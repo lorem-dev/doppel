@@ -276,6 +276,26 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Upstream URLs
+
+A proxy's `url` is an absolute `http` or `https` URL with no query string and
+no fragment. Rules **V8** and **V32** did those checks; the type does them
+now, and keeps the URL parsed rather than as text, so the forwarding path
+never parses it again.
+
+The query and fragment are refused rather than ignored because the forwarding
+path replaces the query wholesale with the incoming request's. One configured
+here would be discarded on every request, silently, which is worse than being
+told at startup.
+
+The stored form is normalised: `https://example.com` is written back as
+`https://example.com/`. That is what makes two spellings of the same upstream
+produce the same revision.
+
+A URL may carry `user:password@`. It is not refused -- some upstreams want it
+-- but it is logged once at startup, because that credential is part of the
+proxy document `GET /api/v1/proxies` returns.
+
 ## Sizes
 
 `admin.upload.limit` and a proxy's `body_limit` are byte counts, from 1 byte
