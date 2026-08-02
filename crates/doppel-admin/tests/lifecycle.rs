@@ -450,3 +450,28 @@ async fn a_configuration_document_of_ordinary_size_is_not_refused() {
 
     assert_eq!(reply.status, 201, "{}", reply.body);
 }
+
+#[tokio::test]
+async fn turning_the_admin_listener_off_is_reported_as_needing_a_restart() {
+    // `admin` is already in the unapplied set, so the new field inherits the
+    // behaviour -- but inheriting it is a claim, and the claim is what this
+    // checks. An operator who sets `enable: false` and reloads must be told
+    // the listener is still up rather than discovering it later.
+    let harness = Harness::new();
+    harness.overwrite_config(&BASE_CONFIG.replace("admin:\n", "admin:\n  enable: false\n"));
+
+    let reload = Call::post("/api/v1/config/reload")
+        .token(ROOT)
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reload.status, 200, "{}", reload.body);
+    assert_eq!(reload.json()["unapplied"], serde_json::json!(["admin"]));
+
+    // And the listener really is still answering, which is what "unapplied"
+    // means here.
+    assert_eq!(
+        Call::get("/status").send(harness.router()).await.status,
+        200
+    );
+}

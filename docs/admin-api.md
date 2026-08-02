@@ -4,6 +4,10 @@ A second HTTP listener on `admin.host:admin.port`, separate from the proxy
 because the proxy's fallback handler swallows every path -- there is nowhere
 on it an admin route could live.
 
+`admin.enable: false` turns all of it off, including `/status` and `/metrics`,
+and the port is then never bound. See
+[the configuration reference](configuration.md#admin).
+
 Everything the API writes goes through the configuration store. No handler
 touches the filesystem, which is what makes the PostgreSQL store a matter of
 constructing a different store rather than rewriting handlers.

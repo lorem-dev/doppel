@@ -243,22 +243,22 @@ impl PostgresStore {
 /// The bind order is the one `pipe_header` writes, and the tests below
 /// check the statements against it.
 const UPDATE_HEADER: &str = "UPDATE configurations SET revision = $1, \
-     server_host = $4, server_port = $5, log_level = $6, log_format = $7, \
-     control_socket = $8, templates_dir = $9, sentry_dsn = $10, admin_host = $11, \
-     admin_port = $12, admin_auth_header = $13, admin_upload_limit = $14, \
-     admin_access = $15, updated_at = now() \
+     admin_enable = $4, server_host = $5, server_port = $6, log_level = $7, \
+     log_format = $8, control_socket = $9, templates_dir = $10, sentry_dsn = $11, \
+     admin_host = $12, admin_port = $13, admin_auth_header = $14, \
+     admin_upload_limit = $15, admin_access = $16, updated_at = now() \
      WHERE name = $2 AND revision = $3";
 
 const UPSERT_HEADER: &str = "INSERT INTO configurations \
-     (name, revision, server_host, server_port, log_level, log_format, control_socket, \
-      templates_dir, sentry_dsn, admin_host, admin_port, admin_auth_header, \
-      admin_upload_limit, admin_access) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) \
+     (name, revision, admin_enable, server_host, server_port, log_level, log_format, \
+      control_socket, templates_dir, sentry_dsn, admin_host, admin_port, \
+      admin_auth_header, admin_upload_limit, admin_access) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
      ON CONFLICT (name) DO UPDATE SET revision = $2, \
-     server_host = $3, server_port = $4, log_level = $5, log_format = $6, \
-     control_socket = $7, templates_dir = $8, sentry_dsn = $9, admin_host = $10, \
-     admin_port = $11, admin_auth_header = $12, admin_upload_limit = $13, \
-     admin_access = $14, updated_at = now()";
+     admin_enable = $3, server_host = $4, server_port = $5, log_level = $6, \
+     log_format = $7, control_socket = $8, templates_dir = $9, sentry_dsn = $10, \
+     admin_host = $11, admin_port = $12, admin_auth_header = $13, \
+     admin_upload_limit = $14, admin_access = $15, updated_at = now()";
 
 /// Bind the header values in `HEADER_COLUMNS` order.
 ///
@@ -272,7 +272,8 @@ trait BindHeader<'q> {
 
 impl<'q> BindHeader<'q> for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgArguments> {
     fn pipe_header(self, config: &'q Config) -> Self {
-        self.bind(config.server.host.to_string())
+        self.bind(config.admin.enable)
+            .bind(config.server.host.to_string())
             .bind(i32::from(config.server.port))
             .bind(text_of(&config.logging.level))
             .bind(text_of(&config.logging.format))
@@ -341,6 +342,7 @@ mod tests {
     /// consume it, and a constant nothing in the binary reads is dead code the
     /// compiler is right to refuse.
     const HEADER_BINDS: &[&str] = &[
+        "admin_enable",
         "server_host",
         "server_port",
         "log_level",

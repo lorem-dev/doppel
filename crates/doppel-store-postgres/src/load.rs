@@ -81,6 +81,7 @@ impl PostgresStore {
         .collect::<Result<Vec<_>, StoreError>>()?;
 
         Ok(AdminConfig {
+            enable: row.try_get("admin_enable").map_err(query_failed)?,
             host: parse_host(&text(row, "admin_host")?)?,
             port: port(row, "admin_port")?,
             auth: AuthConfig {

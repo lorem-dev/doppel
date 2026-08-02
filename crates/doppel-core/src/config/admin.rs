@@ -9,6 +9,17 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdminConfig {
+    /// Whether to run the admin listener at all.
+    ///
+    /// Defaults to on. Off means the port is never bound and no admin task
+    /// starts; the proxy and the control socket are untouched, so
+    /// `doppel config reload` still works and is then the only way in.
+    ///
+    /// The validation rules do not consult this. A configuration that is only
+    /// safe because nothing serves it is a trap set for whoever turns the
+    /// listener on later, and they will not re-read the rules first.
+    #[serde(default = "enabled")]
+    pub enable: bool,
     pub host: IpAddr,
     pub port: u16,
     #[serde(default)]
@@ -139,6 +150,10 @@ pub struct AccessConfig {
 /// and the most common configuration is the one nobody wrote. Rule V34 then
 /// refuses an *explicit* public write, so the safe state cannot be reached by
 /// accident in either direction.
+fn enabled() -> bool {
+    true
+}
+
 /// The default for every action, reads included.
 ///
 /// Reads were public here at first, on the reasoning that only writes are

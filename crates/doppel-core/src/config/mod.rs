@@ -146,6 +146,16 @@ proxies:
     }
 
     #[test]
+    fn the_admin_listener_is_on_unless_it_is_turned_off() {
+        // The default has to be the one nobody wrote, and a proxy with no way
+        // to administer it is not what an omitted field should mean.
+        assert!(load_from_str(MINIMAL).unwrap().admin.enable);
+
+        let off = MINIMAL.replace("  port: 8081", "  port: 8081\n  enable: false");
+        assert!(!load_from_str(&off).unwrap().admin.enable);
+    }
+
+    #[test]
     fn server_workers_is_no_longer_a_configuration_field() {
         // It sizes the tokio runtime, and a database store cannot be opened
         // before that runtime exists -- so the value has to be known before

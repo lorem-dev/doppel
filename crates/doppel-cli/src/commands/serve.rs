@@ -50,11 +50,31 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
 
     preflight(&config).map_err(CliError::Failed)?;
 
-    // Before the first request can be served, so no traffic goes unrecorded,
-    // and before the admin listener exists, since `/metrics` renders from the
-    // handle this returns.
-    let metrics = doppel_core::metrics::install()
-        .map_err(|err| CliError::Failed(format!("cannot install metrics: {err}")))?;
+    // Only when something can read them. `/metrics` on the admin listener is
+    // the sole reader, so with the listener off a recorder would accumulate
+    // series for nobody. The `metrics` crate falls back to a no-op recorder
+    // when none is installed, so the pipeline's recording calls stay correct
+    // and cost nothing -- "admin off" then means off rather than off-ish.
+    //
+    // Installed before the first request either way, so no traffic goes
+    // unrecorded, and before the admin listener exists, since `/metrics`
+    // renders from the handle this returns.
+    //
+    // One decision, read once, for both the recorder and the listener below.
+    // They were two separate reads of the same field, coupled only by a `zip`
+    // that silently dropped the listener if the other said no -- so removing
+    // one guard would have left a bound port with nothing serving it, and a
+    // mutation flipping one guard was undone by the other.
+    let admin_enabled = config.admin.enable;
+
+    let metrics = if admin_enabled {
+        Some(
+            doppel_core::metrics::install()
+                .map_err(|err| CliError::Failed(format!("cannot install metrics: {err}")))?,
+        )
+    } else {
+        None
+    };
     let started_at = std::time::Instant::now();
 
     let addr = SocketAddr::new(config.server.host, config.server.port);
@@ -73,10 +93,21 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     // Bound before anything is served, and a failure here fails startup.
     // Serving proxy traffic with no admin listener would be a process that
     // looks healthy and cannot be administered, and the operator would find
-    // out at the moment they needed it.
-    let admin_listener = tokio::net::TcpListener::bind(admin_addr)
-        .await
-        .map_err(|err| CliError::Failed(format!("cannot bind admin port {admin_addr}: {err}")))?;
+    // out at the moment they needed it. Unless they asked for exactly that,
+    // in which case the port is never touched -- a disabled listener must not
+    // hold a port, or "disabled" would still collide with whatever else wants
+    // it.
+    let admin_listener = if admin_enabled {
+        Some(
+            tokio::net::TcpListener::bind(admin_addr)
+                .await
+                .map_err(|err| {
+                    CliError::Failed(format!("cannot bind admin port {admin_addr}: {err}"))
+                })?,
+        )
+    } else {
+        None
+    };
     let control = ControlServer::bind(&socket_path).map_err(|err| {
         CliError::Failed(format!(
             "cannot bind control socket {}: {err}",
@@ -90,9 +121,12 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     // each its own would compile and read as correct.
     let reload_lock = Arc::new(Mutex::new(()));
 
+    // The admin address is reported as absent rather than omitted when the
+    // listener is off: a missing field reads as "nothing to say", and the
+    // operator needs to see that the choice was made and honoured.
     tracing::info!(
         %addr,
-        %admin_addr,
+        admin = ?admin_enabled.then_some(admin_addr),
         control_socket = %socket_path.display(),
         proxies = config.proxies.len(),
         "doppel started"
@@ -102,7 +136,11 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     let (shutdown_admin, admin_rx) = tokio::sync::oneshot::channel();
     let (shutdown_control, control_rx) = tokio::sync::oneshot::channel();
 
-    let admin_task = tokio::spawn({
+    // `zip` would express the same thing, and would also quietly discard a
+    // bound listener if the two ever disagreed. They cannot disagree now, and
+    // this says so.
+    let admin_task = admin_listener.map(|listener| {
+        let metrics = metrics.expect("the recorder is installed whenever the listener is");
         let state = AdminState::new(
             Arc::clone(&store),
             Arc::clone(&holder),
@@ -111,15 +149,15 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
             metrics,
             started_at,
         );
-        async move {
-            let result = doppel_admin::serve(state, admin_listener, async {
+        tokio::spawn(async move {
+            let result = doppel_admin::serve(state, listener, async {
                 let _ = admin_rx.await;
             })
             .await;
             if let Err(err) = result {
                 tracing::error!(error = %err, "admin listener stopped");
             }
-        }
+        })
     });
 
     let control_task = tokio::spawn({
@@ -153,7 +191,9 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     // A second signal, or an overrunning drain, must not hang the process.
     let drain = async {
         let _ = proxy_task.await;
-        let _ = admin_task.await;
+        if let Some(admin_task) = admin_task {
+            let _ = admin_task.await;
+        }
         let _ = control_task.await;
     };
     tokio::select! {

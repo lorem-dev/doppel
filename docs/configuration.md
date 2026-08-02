@@ -87,6 +87,7 @@ The admin listener's address, its tokens, and who may do what.
 
 ```yaml
 admin:
+  enable: true
   host: "0.0.0.0"
   port: 8081
   auth:
@@ -105,6 +106,20 @@ admin:
   upload:
     limit: 1M
 ```
+
+`enable` defaults to `true`. Set it to `false` to run the proxy with no admin
+application at all: the port is never bound, so it cannot collide with
+anything, and `/status`, `/metrics`, `/openapi.json` and the whole API are
+gone with it. The proxy listener and the control socket are untouched, which
+makes `doppel config reload` the only remaining way in.
+
+The validation rules do not consult it. A configuration that is only safe
+because nothing serves it is a trap set for whoever turns the listener on
+later, and they will not re-read the rules first -- so rule V34 still refuses
+a public write action with the listener off.
+
+Toggling it takes effect on restart, not on reload; a reload reports `admin`
+among the sections it could not apply.
 
 `auth.header` defaults to `X-Proxy-Authorization` and expects `Bearer {token}`.
 

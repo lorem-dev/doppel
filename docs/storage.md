@@ -71,6 +71,13 @@ the command.
 Running `config migrate` twice is safe; the second run reports that there was
 nothing to do.
 
+sqlx records a checksum per applied migration and refuses to start against a
+database whose applied file no longer matches. Until the first release that
+protection is being spent deliberately: schema changes are merged into the
+initial migration rather than appended, because nothing is deployed and a
+history of one file is easier to read than a history of corrections. After the
+release, migrations are append-only.
+
 ### The schema
 
 Five tables. Deliberately between one opaque blob and full normalisation:

@@ -317,6 +317,21 @@ proxies:
     }
 
     #[test]
+    fn v34_still_refuses_a_public_write_when_the_listener_is_off() {
+        // The rules do not depend on whether the listener runs. Someone who
+        // turns it on later will not re-read them, and a configuration that
+        // was only safe because nothing served it is a trap waiting for that
+        // moment.
+        let text = good()
+            .replace(
+                "  access:\n    read: public\n",
+                "  enable: false\n  access:\n",
+            )
+            .replace("    update: user1\n", "    update: public\n");
+        assert_violation(&text, "admin.access.update", "public");
+    }
+
+    #[test]
     fn an_explicit_public_read_is_still_honoured() {
         // The default is safe; the choice stays the operator's. A
         // configuration with no secrets in it may legitimately expose reads.

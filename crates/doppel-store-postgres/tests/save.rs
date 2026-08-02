@@ -268,3 +268,29 @@ async fn an_unconditional_save_replaces_whatever_was_there() {
 
     schema.drop().await;
 }
+
+#[tokio::test]
+async fn a_disabled_admin_listener_survives_the_round_trip() {
+    // Every other fixture leaves `admin.enable` at its default, so a store
+    // that always read it back as `true` would pass all of them. This is the
+    // only test that can tell.
+    let Some(url) = require_database() else {
+        return;
+    };
+    let schema = migrated(&url).await;
+    let store = store(&schema).await;
+
+    let disabled = parse(&BASE.replace("  port: 18081", "  port: 18081\n  enable: false"));
+    assert!(
+        !disabled.admin.enable,
+        "the fixture must actually disable it"
+    );
+
+    store.save_config(&disabled, None).await.expect("provision");
+    let (loaded, _) = store.load_config().await.expect("load");
+
+    assert!(!loaded.admin.enable);
+    assert_eq!(loaded, disabled);
+
+    schema.drop().await;
+}

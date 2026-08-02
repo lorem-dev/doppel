@@ -316,3 +316,45 @@ fn the_admin_port_refuses_to_start_when_it_is_already_taken() {
     );
     drop(taken);
 }
+
+#[test]
+fn a_disabled_admin_listener_binds_nothing_while_the_proxy_keeps_serving() {
+    // The point of the switch: a deployment that wants a proxy and no
+    // administration surface at all. The control socket stays, because with
+    // the API gone it is the only way to reload.
+    let up = upstream();
+    let server = Server::start_with(up.port, |ports, socket, templates| {
+        let base = config(ports, socket, templates);
+        let disabled = base.replace("admin:\n", "admin:\n  enable: false\n");
+        assert_ne!(
+            disabled, base,
+            "the fixture must actually disable the listener"
+        );
+        disabled
+    });
+
+    // The proxy still proxies.
+    let (status, body) = server.get("/anything");
+    assert_eq!(status, 200, "{body}");
+
+    // Nothing is listening where the admin listener would have been. The port
+    // was allocated by the harness and never bound, so a connection must be
+    // refused rather than answered.
+    let admin = format!("127.0.0.1:{}", server.admin_port());
+    assert!(
+        std::net::TcpStream::connect_timeout(
+            &admin.parse().unwrap(),
+            std::time::Duration::from_millis(500),
+        )
+        .is_err(),
+        "a disabled admin listener must not hold {admin}"
+    );
+
+    // And the control socket still reloads, which is now the only way in.
+    let reload = server.reload();
+    assert!(
+        reload.status.success(),
+        "reload must still work: {}",
+        String::from_utf8_lossy(&reload.stderr)
+    );
+}

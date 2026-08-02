@@ -20,6 +20,10 @@ CREATE TABLE configurations (
     control_socket     TEXT NOT NULL,
     templates_dir      TEXT NOT NULL,
     sentry_dsn         TEXT,
+    -- Whether the admin listener runs at all. Defaulted to true, matching the
+    -- configuration default, so a hand-written INSERT that omits it means the
+    -- same thing in the database as an omitted field means in the document.
+    admin_enable       BOOLEAN NOT NULL DEFAULT true,
     admin_host         TEXT NOT NULL,
     admin_port         INTEGER NOT NULL,
     admin_auth_header  TEXT NOT NULL,
