@@ -11,7 +11,7 @@ use doppel_core::store::name::sanitize;
 use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 
-use crate::access::{Action, authorize, caller_from_headers};
+use crate::access::{Action, authorize, caller_from_headers, policy};
 use crate::body::read_body;
 use crate::proxies::{find, load, not_found};
 use crate::response::{ApiError, store_error};
@@ -80,12 +80,16 @@ pub(crate) async fn list(
     Path(name): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
+    // Policy from the running configuration, data from the store: see
+    // `access::policy`.
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
     // Listing a proxy's files is a read of that proxy, so `read` governs it
     // rather than `upload`: seeing which templates are present is not a
     // change.
-    authorize(&config.admin, find(&config, &name), Action::Read, &caller)?;
+    authorize(&policy.admin, find(&policy, &name), Action::Read, &caller)?;
+
+    let config = load(&state).await?;
     require_proxy(&config, &name)?;
 
     let files = state
@@ -127,9 +131,11 @@ pub(crate) async fn upload(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
+    authorize(&policy.admin, find(&policy, &name), Action::Upload, &caller)?;
+
     let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
-    authorize(&config.admin, find(&config, &name), Action::Upload, &caller)?;
 
     // The three checks in the order the specification fixes: the name is
     // safe, the name is wanted, and only then the body. Reading the body
@@ -181,10 +187,11 @@ pub(crate) async fn remove(
     Path((name, file)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
-    authorize(&config.admin, find(&config, &name), Action::Upload, &caller)?;
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
+    authorize(&policy.admin, find(&policy, &name), Action::Upload, &caller)?;
 
+    let config = load(&state).await?;
     sanitize(&file).map_err(|err| store_error(&err))?;
     require_proxy(&config, &name)?;
 

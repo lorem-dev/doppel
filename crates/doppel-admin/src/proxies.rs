@@ -12,7 +12,7 @@ use doppel_core::validate::validate;
 use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::{Deserialize, Serialize};
 
-use crate::access::{Action, authorize, caller_from_headers};
+use crate::access::{Action, authorize, caller_from_headers, policy};
 use crate::body::{MAX_DOCUMENT_BYTES, read_body};
 use crate::response::{ApiError, config_invalid, store_error};
 use crate::state::AdminState;
@@ -83,10 +83,13 @@ pub(crate) async fn list(
     State(state): State<AdminState>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
-    authorize(&config.admin, None, Action::List, &caller)?;
+    // Policy from the running configuration, data from the store: see
+    // `access::policy`.
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
+    authorize(&policy.admin, None, Action::List, &caller)?;
 
+    let config = load(&state).await?;
     let proxies = config.proxies.iter().map(view).collect();
     Ok(axum::Json(ProxyList { proxies }).into_response())
 }
@@ -106,12 +109,18 @@ pub(crate) async fn read(
     Path(name): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
     // Authorization first, existence second. Swapping these turns the pair of
     // statuses into a way to enumerate proxy names -- see `authorize`.
-    authorize(&config.admin, find(&config, &name), Action::Read, &caller)?;
+    //
+    // The per-proxy override comes from the running configuration too, so a
+    // proxy that exists only in the store is authorized under the global
+    // policy. That is the safe direction: an override can widen access, and
+    // one nobody has reloaded is not yet in force.
+    authorize(&policy.admin, find(&policy, &name), Action::Read, &caller)?;
 
+    let config = load(&state).await?;
     let proxy = find(&config, &name).ok_or_else(|| not_found(&name))?;
     Ok(with_etag(StatusCode::OK, view(proxy), None))
 }
@@ -132,10 +141,10 @@ pub(crate) async fn create(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
-    authorize(&config.admin, None, Action::Create, &caller)?;
-    drop(config);
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
+    authorize(&policy.admin, None, Action::Create, &caller)?;
+    drop(policy);
 
     let request = parse_request(&read_body(body, &headers, MAX_DOCUMENT_BYTES).await?)?;
     if request.revision.is_some() {
@@ -219,10 +228,10 @@ pub(crate) async fn update(
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
-    authorize(&config.admin, find(&config, &name), Action::Update, &caller)?;
-    drop(config);
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
+    authorize(&policy.admin, find(&policy, &name), Action::Update, &caller)?;
+    drop(policy);
 
     let request = parse_request(&read_body(body, &headers, MAX_DOCUMENT_BYTES).await?)?;
     if request.proxy.name != *name {
@@ -288,10 +297,10 @@ pub(crate) async fn remove(
     Path(name): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
-    let config = load(&state).await?;
-    let caller = caller_from_headers(&config.admin, &headers);
-    authorize(&config.admin, find(&config, &name), Action::Delete, &caller)?;
-    drop(config);
+    let policy = policy(&state);
+    let caller = caller_from_headers(&policy.admin, &headers);
+    authorize(&policy.admin, find(&policy, &name), Action::Delete, &caller)?;
+    drop(policy);
 
     // Optional, unlike on update. A delete names its target completely and
     // carries no fields the client might be overwriting unread, so there is

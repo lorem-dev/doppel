@@ -234,7 +234,7 @@ impl Call {
         Self::new("DELETE", uri)
     }
 
-    fn new(method: &'static str, uri: impl Into<String>) -> Self {
+    pub fn new(method: &'static str, uri: impl Into<String>) -> Self {
         Self {
             method,
             uri: uri.into(),

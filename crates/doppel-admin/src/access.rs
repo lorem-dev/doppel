@@ -57,6 +57,24 @@ impl Action {
 /// A malformed header -- no `Bearer` prefix, non-ASCII bytes, an unknown token
 /// -- is anonymous rather than an error, so the access decision has exactly one
 /// place where it can refuse.
+/// The access policy in force.
+///
+/// The configuration the last reload put into effect, which is not the same
+/// thing as whatever is in the store right now. Every handler authenticates
+/// and authorizes against this and reads its *data* from the store.
+///
+/// The distinction is the whole of a security property. The proxies and
+/// templates handlers used to do both against a config loaded from the store
+/// per request, so someone who could write the configuration out of band --
+/// but held no token -- could add a token for themselves and use it on the
+/// very next request, with no reload and nobody's approval. The reload
+/// endpoint was already written this way and has a test saying why; the other
+/// eight handlers were not, and the test did not reach them.
+#[must_use]
+pub fn policy(state: &crate::AdminState) -> std::sync::Arc<doppel_core::Config> {
+    std::sync::Arc::clone(&state.holder().load().config)
+}
+
 #[must_use]
 pub fn caller_from_headers(admin: &AdminConfig, headers: &HeaderMap) -> Caller {
     let Some(value) = headers.get(admin.auth.header.as_str()) else {

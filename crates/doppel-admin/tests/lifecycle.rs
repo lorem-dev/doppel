@@ -210,6 +210,51 @@ async fn a_token_without_write_rights_may_not_reload() {
 }
 
 #[tokio::test]
+async fn a_stored_config_cannot_authorise_anything_at_all() {
+    // The same escalation as the test below, against the handlers it does not
+    // reach. Those authorized against a configuration loaded from the store
+    // per request, so a token written out of band worked on the very next
+    // call -- no reload, nobody's approval. `GET /api/v1/proxies` answered
+    // 200 with the whole proxy set, and the write verbs were open the same
+    // way.
+    let harness = Harness::new();
+    let tampered = BASE_CONFIG.replace(
+        "    - name: reader",
+        "    - name: intruder\n      group: admin\n      token: intruder-token-000000000000000000000\n    - name: reader",
+    );
+    assert!(
+        tampered.contains("intruder-token-000000000000000000000"),
+        "the tampered document must actually differ, or this test proves nothing"
+    );
+    harness.overwrite_config(&tampered);
+
+    // The write verbs. `list` and `read` are `public` in this fixture, so a
+    // 200 from those says nothing about who the caller is -- including them
+    // would be a test that passes for the wrong reason.
+    for (method, path) in [
+        ("DELETE", "/api/v1/proxies/alpha"),
+        ("PUT", "/api/v1/proxies/alpha"),
+        ("POST", "/api/v1/proxies"),
+        ("DELETE", "/api/v1/proxies/alpha/templates/x.j2"),
+    ] {
+        let reply = Call::new(method, path)
+            .token("intruder-token-000000000000000000000")
+            .send(harness.router())
+            .await;
+        assert_eq!(
+            reply.status, 401,
+            "{method} {path} answered {}: {}",
+            reply.status, reply.body
+        );
+    }
+
+    // And the proxy set is untouched, which is the outcome the status codes
+    // are standing in for.
+    let listed = Call::get("/api/v1/proxies").send(harness.router()).await;
+    assert!(listed.body.contains("alpha"), "{}", listed.body);
+}
+
+#[tokio::test]
 async fn a_stored_config_cannot_authorise_its_own_promotion() {
     // The escalation this guards against: someone who can write the
     // configuration file out of band, but holds no valid token, adds a token
