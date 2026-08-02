@@ -95,13 +95,9 @@ services:
       # reports the revision actually in force -- which is what "ready" means
       # here, rather than "the process started".
       #
-      # `wget` rather than `curl`: the image installs neither, and busybox --
-      # which Alpine's base image is -- provides wget. A healthcheck calling
-      # something absent reports the container unhealthy forever, and the
-      # reason is buried in `docker inspect`.
-      #
-      # Short flags for the same reason: busybox accepts `-q` and `-O`
-      # everywhere, while the long spellings depend on how it was compiled.
+      # `-f` is the flag that matters: without it curl exits 0 on a 500, and
+      # the healthcheck would report a container healthy for answering at all
+      # rather than for answering correctly.
       #
       # The port is the one inside the container, not the published one.
       #
@@ -110,7 +106,7 @@ services:
       # and would sit unhealthy while serving perfectly well; drop the
       # healthcheck in that case rather than pointing it at the proxy port,
       # where every path either reaches an upstream or is a mock.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/status"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
       interval: 5s
       timeout: 3s
       # Startup is well under a second; this is slack for a cold container on

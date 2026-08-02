@@ -139,11 +139,11 @@ services:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
     healthcheck:
       # `/status` needs no token by default and answers only once the runtime
-      # is compiled and both listeners are bound. `wget` because the image
-      # installs no curl and Alpine's busybox provides it; short flags because
-      # busybox's long ones depend on how it was compiled. The port is the one
-      # inside the container.
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/status"]
+      # is compiled and both listeners are bound. `-f` matters: without it
+      # curl exits 0 on a 500 and the check passes for answering at all rather
+      # than for answering correctly. The port is the one inside the
+      # container.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
       interval: 5s
       timeout: 3s
       start_period: 5s
@@ -172,13 +172,20 @@ an `https` upstream, and every request fails with `UPSTREAM_ERROR`.
 
 The binary is built outside the Dockerfile and copied in. Building Rust inside
 a multi-architecture `buildx` means QEMU for the non-native architecture, which
-turns a two-minute compile into most of an hour.
+turns a two-minute compile into most of an hour. Releases build each
+architecture on a runner of that architecture instead.
 
 ```bash
-cargo zigbuild --release --target x86_64-unknown-linux-musl -p doppel-cli
+# On Linux, with musl-tools installed:
+CC_x86_64_unknown_linux_musl=musl-gcc \
+CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
+  cargo build --release --target x86_64-unknown-linux-musl -p doppel-cli
 mkdir -p dist && cp target/x86_64-unknown-linux-musl/release/doppel dist/
 docker build --build-arg BIN=dist/doppel -t doppel:dev .
 ```
+
+On macOS there is no musl toolchain to install; `cargo zigbuild` or `cross`
+will produce the binary if you want to build the image locally from there.
 
 It has to be a musl build. A glibc binary does not run on Alpine, and the
 failure is a bare `not found` from the shell rather than anything that says

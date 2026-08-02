@@ -8,7 +8,7 @@
 #
 # Build locally against a binary you already have:
 #
-#   cargo zigbuild --release --target x86_64-unknown-linux-musl -p doppel-cli
+#   cargo build --release --target x86_64-unknown-linux-musl -p doppel-cli
 #   mkdir -p dist && cp target/x86_64-unknown-linux-musl/release/doppel dist/
 #   docker build --build-arg BIN=dist/doppel -t doppel:dev .
 #
@@ -37,7 +37,21 @@ ARG BIN=dist/${TARGETPLATFORM}/doppel
 # from `docker stop` are delivered to a process that has no default handler
 # installed for them, and the graceful drain never runs -- the container is
 # killed after the timeout instead.
-RUN apk add --no-cache ca-certificates tini
+#
+# `curl` for the healthcheck. Busybox's wget would do it for nothing, but its
+# flags depend on how busybox was compiled and a healthcheck that fails for
+# that reason reports the container unhealthy with the cause buried in
+# `docker inspect`. curl costs about a megabyte, behaves the same everywhere,
+# and is the thing you reach for anyway once you are inside the container
+# working out why an upstream is not answering.
+#
+# Versions are deliberately not pinned here, which is the one thing hadolint
+# objects to (DL3018). Alpine's repositories carry only the current build of a
+# package, so a pinned version stops resolving within weeks and the image
+# stops building for a reason that has nothing to do with this project. The
+# base image is pinned to a minor instead, which is what actually fixes the
+# package set.
+RUN apk add --no-cache ca-certificates curl tini
 
 # Runs as a non-root user. The listeners are configurable, so nothing here
 # needs a privileged port; a configuration that asks for one fails at bind,

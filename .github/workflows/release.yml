@@ -46,30 +46,19 @@ jobs:
             runner: macos-latest
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
-          # Cross-compiled from x86_64 rather than built on an arm64 runner.
-          # Linux arm runners are not available on every plan, and this
-          # workspace is pure Rust with rustls -- no OpenSSL, no system
-          # libraries to find for the other architecture -- so the only thing
-          # missing is a linker, installed below.
+          # Native, on GitHub's arm64 runners. Those are free for public
+          # repositories, which this now is; before that this target was
+          # cross-compiled with `gcc-aarch64-linux-gnu` and an explicit
+          # `CC_*` so `ring`'s C would not be built for the host by mistake.
+          # None of that is needed when the runner is already arm64.
           - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-latest
-            linker: aarch64-linux-gnu-gcc
-            packages: gcc-aarch64-linux-gnu
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Install the cross linker
-        if: matrix.packages != ''
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update -qq -o DPkg::Lock::Timeout=300
-          sudo apt-get install -y --no-install-recommends \
-            -o DPkg::Lock::Timeout=300 ${{ matrix.packages }}
 
       # `rust-toolchain.toml` pins the channel; only the target has to be added
       # on top of it, and `rustup target add` uses that same pinned toolchain.
@@ -85,19 +74,6 @@ jobs:
           cache-on-failure: true
 
       - name: Build
-        env:
-          # The linker cargo uses for this target, and the C compiler `cc-rs`
-          # uses for it. Both empty on the two native builds, where the
-          # defaults are correct.
-          #
-          # The C compiler is needed because `ring` -- reached through rustls,
-          # which this workspace uses everywhere in place of OpenSSL --
-          # compiles C in its build script. `cc-rs` would find
-          # `aarch64-linux-gnu-gcc` by naming convention anyway; setting it
-          # explicitly means a cross build cannot silently fall back to the
-          # host compiler and produce objects for the wrong architecture.
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
-          CC_aarch64_unknown_linux_gnu: ${{ matrix.linker }}
         run: cargo build --release --locked --target ${{ matrix.target }} -p doppel-cli
 
       - name: Stage the archive
@@ -122,19 +98,28 @@ jobs:
 
   musl:
     name: Build ${{ matrix.target }} (for the image)
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
 
     # Separate from `build` rather than two more matrix rows: these are not
     # release assets. They exist only to be copied into the Alpine image, and
     # keeping them out of the `doppel-*` artifact namespace is what stops the
     # publish job's glob from attaching them to the release.
+    # Each musl target on its own architecture, so `musl-gcc` is the native
+    # one and nothing is cross-compiled. Before arm64 runners became free for
+    # public repositories this went through cargo-zigbuild, because Ubuntu
+    # packages no `aarch64-linux-musl-gcc` and `ring` compiles C, so a linker
+    # alone would not have been enough. Native runners remove the whole
+    # problem, and with it a `cargo install` that compiled zigbuild from
+    # source on every run.
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-musl
-          - aarch64-unknown-linux-musl
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
 
     steps:
       - name: Checkout repository
@@ -142,19 +127,18 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
+      - name: Install musl
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq -o DPkg::Lock::Timeout=300
+          sudo apt-get install -y --no-install-recommends \
+            -o DPkg::Lock::Timeout=300 musl-tools
+
       - name: Install the toolchain pinned in rust-toolchain.toml
         run: |
           rustup show active-toolchain
           rustup target add ${{ matrix.target }}
-
-      # zig as the cross compiler and linker. Ubuntu packages `musl-tools` for
-      # x86_64 only -- there is no `aarch64-linux-musl-gcc` to install -- and
-      # `ring` compiles C, so a linker alone would not be enough anyway. The
-      # alternative is `cross`, which runs the build in Docker; this is faster
-      # and has one moving part instead of two.
-      - name: Install zig and cargo-zigbuild
-        uses: mlugg/setup-zig@v2
-      - run: cargo install cargo-zigbuild --locked
 
       - name: Cache cargo registry and target
         uses: Swatinem/rust-cache@v2
@@ -163,7 +147,16 @@ jobs:
           cache-on-failure: true
 
       - name: Build
-        run: cargo zigbuild --release --locked --target ${{ matrix.target }} -p doppel-cli
+        env:
+          # `cc-rs` defaults to plain `cc`, which is glibc's. `ring` compiles
+          # C through it, so without this the build links glibc objects into a
+          # musl binary and fails at the last step -- or worse, produces one
+          # that does not run on Alpine.
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo build --release --locked --target ${{ matrix.target }} -p doppel-cli
 
       - name: Upload the binary
         uses: actions/upload-artifact@v7

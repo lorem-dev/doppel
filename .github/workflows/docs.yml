@@ -3,11 +3,8 @@
 # One-time repository setup (Settings -> Pages):
 #   Source: "GitHub Actions".
 #
-# Pages on a private repository needs a plan that includes it. Until this
-# repository is public, the deploy step is expected to fail with a permissions
-# error -- which is why the build lives in `ci.yml` as well, on every pull
-# request. Documentation breakage is caught there whether or not anything can
-# be published.
+# The build also runs in `ci.yml`, on every pull request, so documentation
+# breakage is caught before it reaches main rather than at the deploy.
 #
 # Deployed through the Pages actions rather than by pushing a `gh-pages`
 # branch: no branch to maintain, and the artifact is what Pages serves.

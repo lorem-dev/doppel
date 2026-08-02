@@ -129,6 +129,12 @@ case ":${PATH}:" in
     for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.profile"; do
       if [ -f "$rc" ]; then
         if ! grep -qsF "$INSTALL_DIR" "$rc"; then
+          # shellcheck disable=SC2016  # `$PATH` must stay literal here
+          #
+          # The single quotes are the point: `%s` takes the install directory
+          # now, and `$PATH` is written into the profile unexpanded so it
+          # resolves when that profile is sourced. Expanding it here would
+          # freeze today's PATH into the file.
           printf '\n# Added by the Doppel CLI installer\nexport PATH="%s:$PATH"\n' "$INSTALL_DIR" >> "$rc"
           printf 'Added %s to PATH in %s -- restart your shell to pick it up.\n' "$INSTALL_DIR" "$rc"
         fi
