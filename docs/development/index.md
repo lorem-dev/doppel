@@ -50,6 +50,17 @@ export DOPPEL_TEST_DATABASE_URL=postgres://doppel:doppel@127.0.0.1:55432/doppel
 cargo test
 ```
 
+That starts the database and nothing else. `docker-compose.yml` also describes
+Doppel itself, behind a `doppel` profile, so a bare `up` does not start it --
+running the proxy during a test run would put a second process on the ports and
+the templates directory the integration tests bind and write themselves.
+
+To bring both up, for trying the two together rather than for testing:
+
+```bash
+docker compose --profile doppel up -d --wait
+```
+
 Each test creates its own schema and drops it afterwards, so the suites can run
 in parallel against one database.
 

@@ -61,6 +61,12 @@ RUN mkdir -p /etc/doppel /var/lib/doppel/templates \
 VOLUME ["/var/lib/doppel/templates"]
 
 USER doppel
+
+# Load bearing, not cosmetic. `main.example.yaml` writes
+# `templates.dir: ./templates`, a relative path, and this is what makes it
+# resolve to the volume mounted above. Moving this line silently sends
+# uploaded templates somewhere that is not a volume, and they then vanish with
+# the container with nothing reporting it.
 WORKDIR /var/lib/doppel
 
 # The proxy and the admin listener. Both are whatever the configuration says;

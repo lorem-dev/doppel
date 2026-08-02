@@ -35,8 +35,12 @@ start.
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
   -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:1.2.3-alpine
 ```
+
+Two mounts, and the second is not optional if you use templates at all --
+see [Templates](#templates) below.
 
 The configuration must bind `0.0.0.0` rather than `127.0.0.1`, or nothing
 outside the container can reach it:
@@ -52,10 +56,16 @@ admin:
 
 ## Templates
 
-Templates uploaded through the admin API are written to disk, so they need a
-volume or they vanish with the container:
+**A volume is required.** Templates uploaded through the admin API are written
+to disk at the moment of upload, and the render path reads them from disk per
+request. Without a volume they live in the container's writable layer and go
+with it -- `docker stop` and `docker run` again, and every uploaded template is
+gone. Nothing reports this: the mock that named the file answers with a render
+error on the next request, which reads like a broken template rather than a
+missing volume.
 
 ```bash
+docker volume create doppel-templates
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
   -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
@@ -63,12 +73,18 @@ docker run --rm \
   loremdev/doppel:1.2.3-alpine
 ```
 
-Point `templates.dir` at that path:
+`docker volume create` is optional -- `docker run` creates a named volume that
+does not exist -- but naming it deliberately is how you find it again.
+
+`templates.dir` has to point at the mount:
 
 ```yaml
 templates:
   dir: /var/lib/doppel/templates
 ```
+
+A relative `./templates`, as in `main.example.yaml`, also works: the image's
+working directory is `/var/lib/doppel`, so it resolves to the same place.
 
 ## Reloading
 
