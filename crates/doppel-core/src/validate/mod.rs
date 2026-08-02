@@ -177,15 +177,6 @@ proxies:
     }
 
     #[test]
-    fn v3_workers_must_be_at_least_one() {
-        assert_violation(
-            &good().replace("port: 8080", "port: 8080\n  workers: 0"),
-            "server.workers",
-            "at least 1",
-        );
-    }
-
-    #[test]
     fn v4_unknown_log_level_fails_at_parse_time() {
         let text = format!("{}\nlogging:\n  level: chatty\n", good());
         assert!(load_from_str(&text).is_err());

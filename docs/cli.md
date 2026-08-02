@@ -1,7 +1,7 @@
 # CLI reference
 
 ```
-doppel serve            [--config <path>] [--store file|postgres]
+doppel serve            [--workers <n>] [--config <path>] [--store file|postgres]
                         [--database-url <dsn>] [--config-name <name>]
 doppel config validate  [same store flags]
 doppel config reload    [--socket <path>] [same store flags]
@@ -43,12 +43,15 @@ replaced wholesale rather than echoed, since it may still hold a secret.
 
 ## `serve`
 
-Loads and validates the configuration, then binds the proxy port and the
-control socket. Validation runs before anything acts on a value, so a bad
-`workers` count is a validation error rather than a panic.
+Builds the runtime, then loads and validates the configuration, then binds the
+proxy port, the admin port and the control socket.
 
-`server.workers` sets the tokio runtime's worker threads; absent, the runtime
-sizes itself to the machine.
+`--workers` / `DOPPEL_WORKERS` sets the tokio runtime's worker threads;
+absent, the runtime sizes itself to the machine. It is an argument rather than
+a configuration field because the runtime has to exist before a
+database-backed store can be opened, and the store is where the configuration
+is. `--workers 0` is a usage error: the value is parsed as a non-zero integer,
+so zero cannot reach the runtime builder, which would panic on it.
 
 Shutdown on `SIGINT` or `SIGTERM` stops accepting, drains in-flight requests
 for up to 30 seconds, removes the control socket and exits `0`. A second signal

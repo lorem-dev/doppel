@@ -38,6 +38,15 @@ pub enum ConfigCommand {
 
 #[derive(Debug, Args)]
 pub struct ServeArgs {
+    /// Tokio worker threads. Defaults to the machine's available
+    /// parallelism.
+    ///
+    /// `NonZeroUsize` rather than a validated `usize`: `worker_threads`
+    /// panics on 0 instead of returning an error, so a 0 that got that far
+    /// would take the process down with exit code 101. Making it
+    /// unrepresentable turns that into a usage message.
+    #[arg(long, env = "DOPPEL_WORKERS")]
+    pub workers: Option<std::num::NonZeroUsize>,
     #[command(flatten)]
     pub store: StoreArgs,
 }
@@ -134,7 +143,7 @@ impl StoreArgs {
     /// that actually surfaced a bad config. Now there is exactly one parse,
     /// and its error -- a missing file, bad YAML, anything -- is reported
     /// directly rather than swallowed.
-    pub fn open(&self) -> Result<(Arc<dyn ConfigStore>, Config), CliError> {
+    pub async fn open(&self) -> Result<(Arc<dyn ConfigStore>, Config), CliError> {
         match self.store {
             StoreKind::Postgres => Err(CliError::StoreUnavailable {
                 dsn: self.database_url.as_deref().map(mask_dsn),
@@ -169,6 +178,34 @@ pub fn mask_dsn(dsn: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn workers_defaults_to_absent_meaning_available_parallelism() {
+        let cli = Cli::parse_from(["doppel", "serve"]);
+        let Command::Serve(args) = cli.command else {
+            panic!("expected serve")
+        };
+        assert_eq!(args.workers, None);
+    }
+
+    #[test]
+    fn workers_is_taken_from_the_command_line() {
+        let cli = Cli::parse_from(["doppel", "serve", "--workers", "4"]);
+        let Command::Serve(args) = cli.command else {
+            panic!("expected serve")
+        };
+        assert_eq!(args.workers.map(std::num::NonZeroUsize::get), Some(4));
+    }
+
+    #[test]
+    fn zero_workers_is_unrepresentable_rather_than_validated() {
+        // `Builder::worker_threads` panics on 0 rather than returning an
+        // error, so a 0 that reached it would take the process down with exit
+        // code 101. `NonZeroUsize` makes it a parse failure with a usage
+        // message instead of a rule someone has to remember to write.
+        let parsed = Cli::try_parse_from(["doppel", "serve", "--workers", "0"]);
+        assert!(parsed.is_err(), "0 workers must not parse");
+    }
 
     #[test]
     fn serve_defaults_to_the_file_store_and_main_yaml() {
@@ -243,8 +280,8 @@ mod tests {
         assert_eq!(mask_dsn("not a url"), "<unparseable dsn>");
     }
 
-    #[test]
-    fn opening_a_postgres_store_is_refused_with_exit_code_2() {
+    #[tokio::test]
+    async fn opening_a_postgres_store_is_refused_with_exit_code_2() {
         let args = StoreArgs {
             store: StoreKind::Postgres,
             config: "./main.yaml".into(),
@@ -253,7 +290,7 @@ mod tests {
         };
         // `Arc<dyn ConfigStore>` is not `Debug`, so `unwrap_err` (which
         // requires the `Ok` type to be `Debug`) does not apply here.
-        let err = match args.open() {
+        let err = match args.open().await {
             Ok(_) => panic!("expected the postgres store to be refused"),
             Err(err) => err,
         };

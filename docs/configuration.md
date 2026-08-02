@@ -24,14 +24,20 @@ asserted against by the test suite.
 server:
   host: "0.0.0.0"
   port: 8080
-  workers: 4
 ```
 
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `host` | IP address | required | Must parse as an IP, not a hostname |
 | `port` | 1..65535 | required | Must differ from `admin.port` |
-| `workers` | integer >= 1 | available parallelism | tokio runtime worker threads |
+
+Worker threads are **not** configured here. They size the tokio runtime, and a
+database-backed store cannot be opened before that runtime exists -- so the
+value has to be known before the configuration is read, which puts it on the
+same side of the boundary as the connection settings. Use `--workers` or
+`DOPPEL_WORKERS`; see the [CLI reference](cli.md#serve). A document still
+carrying `server.workers` is rejected as an unknown field rather than quietly
+ignored.
 
 ## `logging`
 

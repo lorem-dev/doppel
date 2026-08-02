@@ -32,7 +32,7 @@ pub async fn validate(args: &StoreArgs) -> Report {
     // `open()` does the one parse this command needs; what remains is purely
     // the semantic rule checks, so there is no second read of the file the
     // way a `store.load()` call would add.
-    let (_store, config) = match args.open() {
+    let (_store, config) = match args.open().await {
         Ok(opened) => opened,
         Err(err) => {
             return Report {

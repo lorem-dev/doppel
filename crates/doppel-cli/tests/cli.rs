@@ -209,14 +209,39 @@ fn config_validate_of_a_missing_file_reports_the_failure_on_stderr_not_stdout() 
 }
 
 #[test]
-fn serve_rejects_zero_workers_with_exit_code_one_not_a_panic() {
-    // `server.workers: 0` must be caught by validation rule V3 before
-    // anything acts on it. `build_runtime` calls
-    // `tokio::runtime::Builder::worker_threads`, which panics (exit code
-    // 101, not a catchable error) if the config is read before it is
-    // validated -- exactly the ordering bug this test guards against. A
-    // config typo must fail with exit code 1 and a message naming the
-    // rule, never take the process down with a panic.
+fn zero_workers_is_a_usage_error_not_a_panic() {
+    // `build_runtime` calls `tokio::runtime::Builder::worker_threads`, which
+    // panics on 0 -- exit code 101, not a catchable error. The guard used to
+    // be validation rule V3 over `server.workers`; now that the value is an
+    // argument parsed as a non-zero integer, zero cannot be represented at
+    // all and never reaches the builder. The protection moved; this test
+    // moved with it rather than being deleted.
+    let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
+        .args(["serve", "--workers", "0"])
+        .output()
+        .unwrap();
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a bad argument is a usage error: {stderr}"
+    );
+    assert!(
+        stderr.contains("workers"),
+        "the message must name the argument, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "must be a usage error, not a panic: {stderr}"
+    );
+}
+
+#[test]
+fn a_configuration_still_carrying_server_workers_is_rejected_by_name() {
+    // Silently ignoring it would leave an operator believing the runtime is
+    // sized when it is not -- the defect this project removed from
+    // `admin.workers` in phase 3.
     let up = upstream();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.yaml");
@@ -229,7 +254,7 @@ fn serve_rejects_zero_workers_with_exit_code_one_not_a_panic() {
         &dir.path().join("s.sock"),
         &dir.path().join("t"),
     )
-    .replace("\nlogging:", "\n  workers: 0\nlogging:");
+    .replace("\nlogging:", "\n  workers: 4\nlogging:");
     std::fs::write(&path, text).unwrap();
 
     let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
@@ -238,23 +263,10 @@ fn serve_rejects_zero_workers_with_exit_code_one_not_a_panic() {
         .output()
         .unwrap();
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(
-        output.status.code(),
-        Some(1),
-        "expected exit code 1, got {:?}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
-        output.status.code()
-    );
-    // The violations list is `serve`'s startup-check output, not a failure
-    // to reach or open anything, so it is on stdout -- same stream
-    // `config validate` reports violations on.
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
     assert!(
-        stdout.contains("server.workers"),
-        "expected the error to name the rule, got: {stdout}"
-    );
-    assert!(
-        !stderr.contains("panicked"),
-        "must fail validation, not panic: {stderr}"
+        stderr.contains("workers"),
+        "the error must name the removed field, got: {stderr}"
     );
 }

@@ -146,6 +146,21 @@ proxies:
     }
 
     #[test]
+    fn server_workers_is_no_longer_a_configuration_field() {
+        // It sizes the tokio runtime, and a database store cannot be opened
+        // before that runtime exists -- so the value has to be known before
+        // the configuration is read. It moved to `--workers`. A document
+        // still carrying it is an unknown field, which names it, rather than
+        // a field that is silently ignored.
+        let text = MINIMAL.replace("port: 8080", "port: 8080\n  workers: 4");
+        let err = load_from_str(&text).unwrap_err();
+        assert!(
+            err.to_string().contains("workers"),
+            "the error must name the removed field, got: {err}"
+        );
+    }
+
+    #[test]
     fn unknown_field_is_rejected() {
         let text = MINIMAL.replace("port: 8080", "port: 8080\n  wrokers: 4");
         let err = load_from_str(&text).unwrap_err();

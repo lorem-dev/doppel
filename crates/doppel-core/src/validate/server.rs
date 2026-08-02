@@ -1,4 +1,5 @@
-//! Rules V1 and V3. V2 and V4 are enforced by the config types themselves.
+//! Rule V1. V2 and V4 are enforced by the config types themselves. V3
+//! governed `server.workers`, which is no longer a configuration field.
 
 use super::Violations;
 use crate::config::Config;
@@ -12,9 +13,4 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
         "admin.port",
         "admin port must differ from the server port",
     );
-
-    // V3
-    if let Some(workers) = config.server.workers {
-        v.require(workers >= 1, "server.workers", "workers must be at least 1");
-    }
 }

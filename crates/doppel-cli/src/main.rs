@@ -10,11 +10,9 @@ use clap::Parser;
 
 use crate::cli::{Cli, Command, ConfigCommand, ServeArgs};
 
-/// No `#[tokio::main]` here: `serve` is the one subcommand whose runtime
-/// needs sizing from the configuration (`server.workers`), and that requires
-/// the config to exist before the runtime that will serve it does. So the
-/// config is opened synchronously, on the plain thread `main` starts on,
-/// before any tokio runtime is built -- see `run_serve` below.
+/// No `#[tokio::main]` here: `serve` sizes its runtime from `--workers`,
+/// which the other subcommands have no use for, so each one builds the
+/// runtime it needs -- see `run_serve` and `run_on_light_runtime` below.
 ///
 /// Stream convention, followed by every command in this crate (`serve`,
 /// `config validate`, `config reload`): a command's actual output -- a
@@ -69,25 +67,13 @@ fn run(command: Command) -> u8 {
 /// harmless (the config already passed) and keeps `serve` correct on its
 /// own if it is ever called from anywhere else.
 fn run_serve(args: ServeArgs) -> u8 {
-    let (store, config) = match args.store.open() {
-        Ok(opened) => opened,
-        Err(err) => {
-            eprintln!("{err}");
-            return err.exit_code();
-        }
-    };
-
-    if let Err(violations) = doppel_core::validate::validate(&config) {
-        // The violations list is the command's actual output, like
-        // `config validate`'s -- not a failure to open or reach anything --
-        // so it goes to stdout, per the stream convention on `main` above.
-        for violation in &violations {
-            println!("{violation}");
-        }
-        return 1;
-    }
-
-    let runtime = match build_runtime(config.server.workers) {
+    // The runtime is built first, before anything touches the store. That
+    // ordering is forced by the PostgreSQL store: an `sqlx` pool is bound to
+    // the runtime that created it, so the store cannot be opened on one
+    // runtime and used on another, and it cannot be opened with no runtime at
+    // all. `--workers` rather than a configuration field is what makes the
+    // ordering possible -- see `ServeArgs::workers`.
+    let runtime = match build_runtime(args.workers) {
         Ok(runtime) => runtime,
         Err(err) => {
             eprintln!("cannot build the tokio runtime: {err}");
@@ -96,6 +82,24 @@ fn run_serve(args: ServeArgs) -> u8 {
     };
 
     runtime.block_on(async move {
+        let (store, config) = match args.store.open().await {
+            Ok(opened) => opened,
+            Err(err) => {
+                eprintln!("{err}");
+                return err.exit_code();
+            }
+        };
+
+        if let Err(violations) = doppel_core::validate::validate(&config) {
+            // The violations list is the command's actual output, like
+            // `config validate`'s -- not a failure to open or reach anything
+            // -- so it goes to stdout, per the stream convention above.
+            for violation in &violations {
+                println!("{violation}");
+            }
+            return 1;
+        }
+
         match commands::serve::serve(store, config).await {
             Ok(()) => 0,
             Err(err) => {
@@ -124,13 +128,15 @@ fn run_on_light_runtime<F: std::future::Future<Output = u8>>(future: F) -> u8 {
 }
 
 /// Build the runtime `serve` runs its listener on. `worker_threads` mirrors
-/// `config.server.workers` when the operator set it; leaving the call out
-/// (the `None` branch) keeps tokio's own default, `available_parallelism`,
-/// exactly as the spec documents.
-fn build_runtime(workers: Option<usize>) -> std::io::Result<tokio::runtime::Runtime> {
+/// `--workers` when the operator set it; leaving the call out (the `None`
+/// branch) keeps tokio's own default, `available_parallelism`, exactly as the
+/// specification documents.
+fn build_runtime(
+    workers: Option<std::num::NonZeroUsize>,
+) -> std::io::Result<tokio::runtime::Runtime> {
     let mut builder = tokio::runtime::Builder::new_multi_thread();
     if let Some(workers) = workers {
-        builder.worker_threads(workers);
+        builder.worker_threads(workers.get());
     }
     builder.enable_all().build()
 }
@@ -144,10 +150,10 @@ mod tests {
     /// validated and then ignored while tokio picks its own default.
     #[test]
     fn an_explicit_worker_count_sizes_the_runtime() {
-        let runtime = build_runtime(Some(1)).unwrap();
+        let runtime = build_runtime(std::num::NonZeroUsize::new(1)).unwrap();
         assert_eq!(runtime.handle().metrics().num_workers(), 1);
 
-        let runtime = build_runtime(Some(3)).unwrap();
+        let runtime = build_runtime(std::num::NonZeroUsize::new(3)).unwrap();
         assert_eq!(runtime.handle().metrics().num_workers(), 3);
     }
 

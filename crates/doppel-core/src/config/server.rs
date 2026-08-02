@@ -7,11 +7,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// No `workers` here. It sizes the tokio runtime, and a database-backed
+/// store cannot be opened before that runtime exists -- so the value has to
+/// be known before the configuration is read, which puts it on the same side
+/// of the boundary as the connection settings. It is `--workers` /
+/// `DOPPEL_WORKERS`.
 pub struct ServerConfig {
     pub host: IpAddr,
     pub port: u16,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workers: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
