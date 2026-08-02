@@ -1,0 +1,181 @@
+# Release: build the CLI for every supported target, then publish a GitHub
+# release whose body is the CHANGES.md section for the tag plus a download
+# list.
+#
+# Triggered by a version tag. Branch rules for where a tag may be cut from are
+# in CONTRIBUTING.md and are not enforced here -- a tag is the decision, and
+# this workflow carries it out.
+#
+# A pre-release tag (`v1.2.3-rc.1`, anything with a `-` qualifier) builds and
+# publishes exactly like a final one, marked as a pre-release so it does not
+# become `releases/latest` -- which is the URL `scripts/install.sh` resolves.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    strategy:
+      # One target failing should not throw away the others: they take
+      # different amounts of time and rebuilding all three to retry one is
+      # most of an hour.
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          # Cross-compiled from x86_64 rather than built on an arm64 runner.
+          # Linux arm runners are not available on every plan, and this
+          # workspace is pure Rust with rustls -- no OpenSSL, no system
+          # libraries to find for the other architecture -- so the only thing
+          # missing is a linker, installed below.
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            linker: aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install the cross linker
+        if: matrix.packages != ''
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq -o DPkg::Lock::Timeout=300
+          sudo apt-get install -y --no-install-recommends \
+            -o DPkg::Lock::Timeout=300 ${{ matrix.packages }}
+
+      # `rust-toolchain.toml` pins the channel; only the target has to be added
+      # on top of it, and `rustup target add` uses that same pinned toolchain.
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: |
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Build
+        env:
+          # The linker cargo uses for this target, and the C compiler `cc-rs`
+          # uses for it. Both empty on the two native builds, where the
+          # defaults are correct.
+          #
+          # The C compiler is needed because `ring` -- reached through rustls,
+          # which this workspace uses everywhere in place of OpenSSL --
+          # compiles C in its build script. `cc-rs` would find
+          # `aarch64-linux-gnu-gcc` by naming convention anyway; setting it
+          # explicitly means a cross build cannot silently fall back to the
+          # host compiler and produce objects for the wrong architecture.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+          CC_aarch64_unknown_linux_gnu: ${{ matrix.linker }}
+        run: cargo build --release --locked --target ${{ matrix.target }} -p doppel-cli
+
+      - name: Stage the archive
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          asset="doppel-${{ matrix.target }}.tar.gz"
+          # Archived from inside the directory so the tarball holds a bare
+          # `doppel`, which is what install.sh expects to find after
+          # extracting.
+          tar -czf "dist/${asset}" -C "target/${{ matrix.target }}/release" doppel
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.stage.outputs.asset }}
+          path: dist/${{ steps.stage.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9
+
+      - name: Collect every built archive
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          # Every build job uploaded one file under its own artifact name;
+          # flatten them into one directory.
+          merge-multiple: true
+
+      - name: Write checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          # Relative names, so `shasum -c` works from whatever directory the
+          # verifier downloaded into.
+          sha256sum -- *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Compose the release notes
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          uv run scripts/release_notes.py "$TAG"
+          uv run scripts/release_downloads.py "$TAG" dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # A `-` qualifier marks a pre-release, which keeps it out of
+          # `releases/latest` -- the URL scripts/install.sh resolves when no
+          # version is given.
+          prerelease=""
+          case "$TAG" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file RELEASE_NOTES.md \
+            $prerelease \
+            dist/*

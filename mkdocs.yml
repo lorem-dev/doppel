@@ -37,6 +37,7 @@ nav:
       - What Doppel is: index.md
       - Concepts: overview/concepts.md
   - Usage:
+      - Installing: usage/installation.md
       - Getting started: usage/getting-started.md
       - Proxying to an upstream: usage/proxying.md
       - Injecting faults: usage/faults.md
@@ -48,6 +49,7 @@ nav:
       - Observability: usage/observability.md
       - Configuration reference: usage/configuration.md
       - CLI reference: usage/cli.md
+      - Troubleshooting: usage/troubleshooting.md
   - Development:
       - Working on Doppel: development/index.md
       - Architecture: development/architecture.md

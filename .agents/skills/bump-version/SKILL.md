@@ -8,25 +8,29 @@ description: Use to start a release. Sets the version across every manifest, pro
 This skill prepares a release commit. Tagging and pushing are deliberately not
 part of it -- see the end of this file.
 
-## Where the version lives
-
-One place, inherited by every crate:
-
-```toml
-# Cargo.toml
-[workspace.package]
-version = "0.1.0"
-```
-
-Each crate carries `version.workspace = true`, so a single edit moves them all.
-Confirm that is still true rather than assuming it:
+## Run the script
 
 ```bash
-grep -rn '^version' Cargo.toml crates/*/Cargo.toml
+uv run scripts/bump_version.py <version>
 ```
 
-`Cargo.lock` records the workspace crates' versions too, so run `cargo check`
-after the edit to let cargo update it rather than editing it by hand.
+It sets the version under `[workspace.package]` in `Cargo.toml`, renames
+`## Development` in CHANGES.md to `## <version> -- <date>`, and opens a fresh
+empty Development section above it. It prints what it changed and what to do
+next.
+
+It refuses rather than guessing, in four cases worth knowing:
+
+- a crate that no longer says `version.workspace = true`, because it would
+  keep its old number through the bump and be published under it;
+- a version that is not semver;
+- a version CHANGES.md already has a section for;
+- an empty Development section -- releasing with nothing written down produces
+  empty release notes, and `release_notes.py` refuses those, so it is refused
+  here where the fix is still cheap.
+
+Read the diff before committing. The script is deliberately the only thing
+that edits; it does not run `cargo check`, commit, tag or push.
 
 ## Choosing the number
 
@@ -42,17 +46,15 @@ from a feeling:
 Before 1.0 this project treats a breaking change as a minor bump, which is the
 common convention and the one `0.x` semantics allow.
 
-## Promote the Development section
+## Do not edit the entries while promoting them
 
-Rename `## Development` to `## <version> -- <date>` and open a fresh, empty
-Development section above it. Do not edit the entries while promoting them: if
-they are wrong, that is `check-changes`' job and should be a separate commit,
-so the release commit stays reviewable as a mechanical change.
+If an entry is wrong, that is `check-changes`' job and belongs in its own
+commit, so the release commit stays reviewable as a mechanical change.
 
 ## The release commit
 
 ```bash
-cargo check   # updates Cargo.lock
+cargo check   # updates Cargo.lock; the script does not
 git add Cargo.toml Cargo.lock CHANGES.md
 git commit -m "chore: release <version>"
 ```
@@ -67,3 +69,8 @@ in `CONTRIBUTING.md` decide where a tag may be cut from -- release candidates
 from `develop`, final tags from `main` only -- and that is a judgement about
 where the work currently sits, not something to infer from a version string.
 Print the tag command for the human to run rather than running it.
+
+Pushing the tag is what starts `.github/workflows/release.yml`, which builds
+the three targets, composes the release body from the CHANGES.md section this
+skill just wrote, and publishes. So a mistake here becomes a published release;
+that is the reason for the split.

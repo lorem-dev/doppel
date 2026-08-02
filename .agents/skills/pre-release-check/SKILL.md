@@ -33,6 +33,43 @@ The workspace version must be ahead of the newest release tag, and the
 CHANGES.md heading for it must exist with a date. If the version is unchanged
 since the last tag, the release has not been prepared -- stop and say so.
 
+## Then dry-run the release scripts
+
+The release workflow composes its body from these two. Running them here means
+a failure lands before the tag rather than after, when the only fix is a second
+tag.
+
+```bash
+uv run scripts/release_notes.py <version>
+uv run scripts/release_downloads.py <version> <a directory of fake assets>
+```
+
+`release_notes.py` fails when CHANGES.md has no section for the version, or has
+an empty one. `release_downloads.py` fails on an empty asset directory and puts
+anything it cannot classify under "Other" rather than dropping it -- so read its
+output rather than only its exit code, and check every platform you expect is
+listed.
+
+Read the composed `RELEASE_NOTES.md` before continuing, and delete it: it is a
+build artifact, not a file the repository keeps.
+
+## Then check that a release can actually be installed
+
+The asset names are a contract. `scripts/install.sh` builds
+`doppel-<target>.tar.gz` from a hardcoded pattern, and
+`.github/workflows/release.yml` stages the archives under exactly that name.
+Neither reads the other.
+
+```bash
+grep -n 'doppel-\${target}\|asset=' scripts/install.sh
+grep -n 'asset=' .github/workflows/release.yml
+```
+
+The three targets in the workflow matrix, the three in `install.sh`'s `case`,
+and the three in `release_downloads.py`'s `TARGETS` must be the same three. A
+target added to the build and not to the installer produces an archive nobody
+can install with one line, and nothing else notices.
+
 ## Then check commit hygiene
 
 Over the range since the last tag:
@@ -50,7 +87,7 @@ anywhere in any message, body or trailer.
 
 ## Report
 
-List each of the six checks with its result and the evidence you read. A pass
+List each check with its result and the evidence you read. A pass
 with no evidence behind it is the failure mode this project has seen most
 often: several reports over its history quoted counts and diagnostics that did
 not survive being checked. Name the command and the file for each figure.

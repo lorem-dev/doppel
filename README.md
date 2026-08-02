@@ -36,6 +36,16 @@
   `--store`, with `config push` and `config pull` to move a configuration
   between the two. See [the documentation](docs/usage/storage.md).
 
+## Installing
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/scripts/install.sh | sh
+```
+
+Prebuilt binaries are published for macOS on Apple Silicon and Linux on x86-64
+and arm64. Anywhere else, `cargo install --path crates/doppel-cli`. See
+[the documentation](docs/usage/installation.md).
+
 ## What it does not do yet
 
 - No TCP proxying. A `type: tcp` proxy is rejected at load with a message

@@ -27,3 +27,10 @@ __pycache__/
 
 # Local notes
 TODO*
+
+# Composed by scripts/release_notes.py during a release and consumed by
+# `gh release create`. A build artifact, not something the repository keeps.
+/RELEASE_NOTES.md
+
+# Where the release workflow stages archives before publishing them.
+/dist
