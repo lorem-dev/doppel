@@ -355,6 +355,19 @@ impl Server {
             .unwrap()
     }
 
+    /// Run `doppel token add` against this server's control socket.
+    pub fn token_add(&self, name: &str, group: Option<&str>) -> std::process::Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_doppel"));
+        command
+            .args(["token", "add", "--socket"])
+            .arg(&self.socket)
+            .args(["--name", name]);
+        if let Some(group) = group {
+            command.args(["--group", group]);
+        }
+        command.output().unwrap()
+    }
+
     pub fn pid(&self) -> u32 {
         self.child.as_ref().expect("child already taken").id()
     }

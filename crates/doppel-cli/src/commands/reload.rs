@@ -35,6 +35,14 @@ pub async fn reload(args: &ReloadArgs) -> u8 {
             }
             0
         }
+        // A reload cannot produce this, but the response type is shared
+        // with `token add`. Reported rather than ignored: a server answering
+        // a reload with a token means the two ends disagree about the
+        // protocol, which is worth saying out loud.
+        Ok(ControlResponse::TokenAdded { .. }) => {
+            eprintln!("the server answered a reload with a token response");
+            1
+        }
         Ok(ControlResponse::Error { code, errors }) => {
             println!("reload rejected: {}", code.as_str());
             for violation in errors {

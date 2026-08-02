@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use crate::cli::{Cli, Command, ConfigCommand, ServeArgs};
+use crate::cli::{Cli, Command, ConfigCommand, ServeArgs, TokenCommand};
 
 /// No `#[tokio::main]` here: `serve` sizes its runtime from `--workers`,
 /// which the other subcommands have no use for, so each one builds the
@@ -60,6 +60,9 @@ fn run(command: Command) -> u8 {
                 }
             }
         }),
+        Command::Token {
+            command: TokenCommand::Add(args),
+        } => run_on_light_runtime(async move { commands::token::add(&args).await }),
         Command::Serve(args) => run_serve(args),
     }
 }

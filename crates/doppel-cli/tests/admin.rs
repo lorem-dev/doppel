@@ -358,3 +358,99 @@ fn a_disabled_admin_listener_binds_nothing_while_the_proxy_keeps_serving() {
         String::from_utf8_lossy(&reload.stderr)
     );
 }
+
+/// The token the last line of `doppel token add`'s stdout carries.
+///
+/// The command prints it alone on its own line precisely so this is possible
+/// without a parser; asserting on that shape here is what keeps it true.
+fn issued_token(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "token add failed\n--- stdout ---\n{stdout}\n--- stderr ---\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    stdout
+        .lines()
+        .last()
+        .expect("stdout must carry the token")
+        .trim()
+        .to_owned()
+}
+
+#[test]
+fn an_issued_token_authenticates_immediately_without_a_restart() {
+    // The whole point of issuing over the control socket rather than editing
+    // `admin.tokens` by hand: the token is in force when the command returns.
+    // The admin listener authenticates against the runtime the holder is
+    // serving, and `token add` swaps a new one in before answering.
+    let (server, admin, _up) = start();
+
+    let token = issued_token(&server.token_add("ci", Some("admin")));
+    assert!(
+        token.len() >= 32,
+        "a generated token is at least 32 characters: {token}"
+    );
+
+    let (status, body) = admin.request("GET", "/api/v1/proxies", Some(&token), None);
+    assert_eq!(status, 200, "{body}");
+}
+
+#[test]
+fn an_issued_token_survives_into_the_stored_configuration() {
+    // Persisted, not only swapped into memory: a restart has to keep it, or
+    // the command hands out something that disappears on the next deploy.
+    let (server, _admin, _up) = start();
+
+    let token = issued_token(&server.token_add("ci", None));
+    let stored = std::fs::read_to_string(&server.config_path).unwrap();
+    assert!(
+        stored.contains(&token),
+        "the token is not in the stored config"
+    );
+    assert!(stored.contains("name: ci"), "{stored}");
+    // Defaulted, because `--group` was not given.
+    assert!(stored.contains("group: user"), "{stored}");
+}
+
+#[test]
+fn the_default_group_does_not_grant_administrative_rights() {
+    // `user` is not `admin`, and the reference access block in this fixture
+    // grants writes to `admin` only. A default that quietly granted them
+    // would make one forgotten flag an escalation.
+    let (server, admin, _up) = start();
+
+    let token = issued_token(&server.token_add("ci", None));
+    let (status, body) = admin.request("POST", "/api/v1/config/reload", Some(&token), None);
+    assert_eq!(status, 403, "{body}");
+}
+
+#[test]
+fn a_duplicate_token_name_is_refused_by_name_rather_than_by_position() {
+    let (server, _admin, _up) = start();
+
+    let first = server.token_add("ci", None);
+    assert!(first.status.success());
+
+    let second = server.token_add("ci", None);
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(!second.status.success(), "{stdout}");
+    assert!(stdout.contains("already exists"), "{stdout}");
+    // Named by the argument the caller gave, not by an index into a document
+    // they never saw.
+    assert!(stdout.contains("`ci`"), "{stdout}");
+    assert!(
+        !stdout.contains("admin.tokens["),
+        "the message should not locate the clash by position: {stdout}"
+    );
+}
+
+#[test]
+fn an_illegal_token_name_is_refused_before_anything_is_sent() {
+    // `Name` is a clap value parser here, so this fails during argument
+    // parsing -- exit code 2, clap's convention -- rather than reaching the
+    // server and being refused there.
+    let (server, _admin, _up) = start();
+    let output = server.token_add("a/b", None);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+}

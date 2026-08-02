@@ -294,6 +294,17 @@ async fn serve_connection(
             let response = reload(&holder, store.as_ref(), &startup_config).await;
             write_response(reader, &response).await
         }
+        Ok(ControlRequest::TokenAdd { name, group }) => {
+            // The same lock reload takes, for the same reason and one more:
+            // this reads the configuration, appends to it, writes it back and
+            // then reloads, and a reload landing inside that sequence would
+            // swap in a runtime built from the configuration as it was before
+            // the append.
+            let _guard = reload_lock.lock().await;
+            let response =
+                super::token::add(&holder, store.as_ref(), &startup_config, name, group).await;
+            write_response(reader, &response).await
+        }
         Err(_) => {
             let response = ControlResponse::Error {
                 code: ErrorCode::NotFound,

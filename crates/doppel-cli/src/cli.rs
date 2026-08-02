@@ -25,8 +25,41 @@ pub enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Manage admin tokens.
+    Token {
+        #[command(subcommand)]
+        command: TokenCommand,
+    },
     /// Print the version.
     Version,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TokenCommand {
+    /// Issue a new admin token on a running server.
+    ///
+    /// The value is generated, stored, and printed once. There is no command
+    /// to read it back, because nothing stores it in a form this could read:
+    /// it is in the configuration, and that is the copy to guard.
+    Add(TokenAddArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct TokenAddArgs {
+    /// What to call the token.
+    #[arg(long)]
+    pub name: doppel_core::config::Name,
+    /// The group it belongs to. Defaults to `user`.
+    ///
+    /// Not `admin`: a command that hands out administrative rights by default
+    /// is one mistyped invocation away from an incident.
+    #[arg(long)]
+    pub group: Option<doppel_core::config::Name>,
+    /// Control socket path. Defaults to the value in the configuration.
+    #[arg(long)]
+    pub socket: Option<PathBuf>,
+    #[command(flatten)]
+    pub store: StoreArgs,
 }
 
 #[derive(Debug, Subcommand)]
