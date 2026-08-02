@@ -85,6 +85,27 @@ grep -n 'images:\|tags:' -A6 .github/workflows/release.yml | sed -n '/metadata-a
 `latest=false` must still be there. A moving tag is one an unpinned deployment
 follows into a release nobody reviewed, and a pre-release would take it.
 
+## Then check the release key
+
+The signature is worth nothing if the published public key has expired or no
+longer matches what signs releases.
+
+```bash
+gpg --show-keys .github/release-key.asc
+```
+
+Read the expiry date, not just that the command succeeded. A key that expires
+between this release and the next produces signatures nobody can verify, and
+the failure appears on the *user's* machine rather than in this pipeline.
+
+Signing is gated on `DOPPEL_RELEASE_GPG_KEY` being set, so a release without it
+publishes unsigned and logs a warning rather than failing. Confirm the secret
+exists before a release that is meant to be signed:
+
+```bash
+gh secret list --repo lorem-dev/doppel
+```
+
 ## Then check commit hygiene
 
 Over the range since the last tag:

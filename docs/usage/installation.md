@@ -45,11 +45,50 @@ Each archive holds one file: the `doppel` binary.
     affected -- but a manual download from the releases page is. See
     [Troubleshooting](troubleshooting.md#macos-refuses-to-run-the-downloaded-binary).
 
-Verify a manual download against the release's `checksums.txt`:
+## Verifying a download
+
+Every release publishes `checksums.txt` covering all of its assets. Check the
+one you downloaded against it:
 
 ```bash
 shasum -a 256 -c checksums.txt --ignore-missing
 ```
+
+`--ignore-missing` because the file lists every asset in the release and you
+downloaded one of them.
+
+That proves the archive matches the sums -- but only if the sums themselves are
+trustworthy, and a file downloaded from the same page as the archive is not
+evidence of anything on its own. `checksums.txt.asc` is a detached signature
+over it, made with the Lorem Dev release key. Import the key once:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/.github/release-key.asc \
+  | gpg --import
+```
+
+and check the signature before the sums:
+
+```bash
+gpg --verify checksums.txt.asc checksums.txt
+```
+
+The key's fingerprint is `CFE6485E23519A25A475B900AD0F7A29E4398670`.
+Compare it against
+[`.github/release-key.asc`](https://github.com/lorem-dev/doppel/blob/main/.github/release-key.asc)
+in the repository -- fetching the key over the same channel as the signature
+only helps against a passive observer, not against whoever served you both.
+
+`gpg --verify` will say the key is not certified by a trusted signature. That
+is expected: nothing has told your keyring to trust this key, only that the
+signature matches it. What matters is `Good signature from "Lorem Dev
+Release"` and the fingerprint above.
+
+The [one-line installer](#one-line) checks the *checksum* itself and refuses
+to install on a mismatch. It does not check the signature: that would need gpg
+on the machine running it and a key imported inside a piped shell script, which
+is not a trade most people want made for them. Verify the signature by hand
+when it matters.
 
 ## From source
 

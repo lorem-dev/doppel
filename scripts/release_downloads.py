@@ -113,13 +113,28 @@ def main() -> None:
         sections.append(f"### Other\n\n{bullets(other)}")
 
     if verification:
-        sections.append(
+        signed = any(name == "checksums.txt.asc" for _, _, name in verification)
+        body = (
             f"### Verification\n\n{bullets(verification)}\n\n"
             "SHA-256 sums for every asset above:\n\n"
             "```bash\n"
             "shasum -a 256 -c checksums.txt --ignore-missing\n"
             "```"
         )
+        if signed:
+            # The sums are only worth anything if the file carrying them is
+            # itself trustworthy, so the signature check comes with them
+            # rather than being left for the reader to look up.
+            body += (
+                "\n\n`checksums.txt.asc` is a detached signature over "
+                "`checksums.txt`, made with the "
+                f"[Lorem Dev release key](https://github.com/{repo}/blob/main/.github/release-key.asc):\n\n"
+                "```bash\n"
+                f"curl -fsSL https://raw.githubusercontent.com/{repo}/main/.github/release-key.asc | gpg --import\n"
+                "gpg --verify checksums.txt.asc checksums.txt\n"
+                "```"
+            )
+        sections.append(body)
 
     notes_path = ROOT / "RELEASE_NOTES.md"
     existing = (

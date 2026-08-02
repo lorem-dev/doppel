@@ -251,6 +251,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # Sign only when the release key is configured. GitHub passes an empty
+    # string for a secret that does not exist, so this gate is what keeps a
+    # release publishable -- unsigned, and saying so -- before the key is set
+    # up. Failing instead would make the first release of a new checkout
+    # depend on a secret nobody has created yet.
+    env:
+      HAS_GPG: ${{ secrets.DOPPEL_RELEASE_GPG_KEY != '' }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -276,6 +284,41 @@ jobs:
           # verifier downloaded into.
           sha256sum -- *.tar.gz > checksums.txt
           cat checksums.txt
+
+      - name: Import the release key
+        if: env.HAS_GPG == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.DOPPEL_RELEASE_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          # Loopback pinentry: there is no terminal to prompt on, and without
+          # this gpg fails asking for one rather than reading the passphrase
+          # from the flag below.
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign the checksums
+        if: env.HAS_GPG == 'true'
+        env:
+          GPG_PASSPHRASE: ${{ secrets.DOPPEL_RELEASE_GPG_PASSPHRASE }}
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
+              --detach-sign --armor \
+              --output checksums.txt.asc \
+              checksums.txt
+          # Verify what was just produced rather than trusting that the
+          # signing command exiting zero means a usable signature.
+          gpg --verify checksums.txt.asc checksums.txt
+
+      - name: Say so when the release is unsigned
+        if: env.HAS_GPG != 'true'
+        run: |
+          echo "::warning::DOPPEL_RELEASE_GPG_KEY is not set; publishing checksums.txt without a signature."
 
       - name: Compose the release notes
         env:
