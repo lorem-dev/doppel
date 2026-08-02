@@ -29,10 +29,10 @@ admin:
   tokens:
     - name: root
       group: admin
-      token: root-token
+      token: root-token-0000000000000000000000000
     - name: reader
       group: user
-      token: reader-token
+      token: reader-token-00000000000000000000000
   access:
     list: ["admin"]
     read: public
@@ -138,7 +138,14 @@ async fn insert(schema: &TestSchema, name: &str, config: &doppel_core::Config, r
             .execute(&format!(
                 "INSERT INTO admin_tokens (config, name, \"group\", token, ordinal) \
                  VALUES ('{name}', '{}', '{}', '{}', {ordinal})",
-                token.name, token.group, token.token
+                // `as_str`, not `{}`: `Token`'s `Display` is redacted, so
+                // interpolating it would write the literal `<redacted>` into
+                // every row. This is a test writing raw SQL on purpose -- the
+                // point is to plant rows the store did not produce -- so the
+                // deliberate escape hatch has to be spelled out.
+                token.name,
+                token.group,
+                token.token.as_str()
             ))
             .await;
     }

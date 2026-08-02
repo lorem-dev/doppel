@@ -5,7 +5,7 @@ mod common;
 use common::{Call, Harness, TEMPLATE_CONFIG, assert_absent};
 use serde_json::json;
 
-const ROOT: &str = "root-token";
+const ROOT: &str = "root-token-0000000000000000000000000";
 
 fn harness() -> Harness {
     Harness::with_config(TEMPLATE_CONFIG)
@@ -318,12 +318,12 @@ async fn an_upload_without_a_token_is_unauthorized() {
 async fn upload_authorization_is_decided_before_existence() {
     let harness = harness();
     let existing = Call::post("/api/v1/proxies/alpha/templates/one.json.j2")
-        .token("reader-token")
+        .token("reader-token-00000000000000000000000")
         .raw("{}")
         .send(harness.router())
         .await;
     let missing = Call::post("/api/v1/proxies/nope/templates/one.json.j2")
-        .token("reader-token")
+        .token("reader-token-00000000000000000000000")
         .raw("{}")
         .send(harness.router())
         .await;

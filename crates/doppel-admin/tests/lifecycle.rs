@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use common::{BASE_CONFIG, Call, Harness, proxy_json};
 
-const ROOT: &str = "root-token";
+const ROOT: &str = "root-token-0000000000000000000000000";
 
 #[tokio::test]
 async fn status_reports_the_running_revision_and_every_proxy() {
@@ -201,7 +201,7 @@ async fn reload_without_a_token_is_unauthorized() {
 async fn a_token_without_write_rights_may_not_reload() {
     let harness = Harness::new();
     let reply = Call::post("/api/v1/config/reload")
-        .token("reader-token")
+        .token("reader-token-00000000000000000000000")
         .send(harness.router())
         .await;
 
@@ -223,16 +223,16 @@ async fn a_stored_config_cannot_authorise_its_own_promotion() {
     let harness = Harness::new();
     let tampered = BASE_CONFIG.replace(
         "    - name: reader",
-        "    - name: intruder\n      group: admin\n      token: intruder-token\n    - name: reader",
+        "    - name: intruder\n      group: admin\n      token: intruder-token-000000000000000000000\n    - name: reader",
     );
     assert!(
-        tampered.contains("intruder-token"),
+        tampered.contains("intruder-token-000000000000000000000"),
         "the tampered document must actually differ, or this test proves nothing"
     );
     harness.overwrite_config(&tampered);
 
     let reply = Call::post("/api/v1/config/reload")
-        .token("intruder-token")
+        .token("intruder-token-000000000000000000000")
         .send(harness.router())
         .await;
 
@@ -243,7 +243,7 @@ async fn a_stored_config_cannot_authorise_its_own_promotion() {
     // And it never took effect, so a second attempt fails the same way
     // rather than succeeding on the strength of the first.
     let again = Call::post("/api/v1/config/reload")
-        .token("intruder-token")
+        .token("intruder-token-000000000000000000000")
         .send(harness.router())
         .await;
     assert_eq!(again.status, 401);

@@ -5,7 +5,7 @@ mod common;
 use common::{Call, Harness, RacingStore, assert_absent, proxy_json};
 use serde_json::json;
 
-const ROOT: &str = "root-token";
+const ROOT: &str = "root-token-0000000000000000000000000";
 
 #[tokio::test]
 async fn list_returns_every_proxy_with_its_revision() {
@@ -585,7 +585,7 @@ async fn a_write_without_a_token_is_unauthorized() {
 async fn a_token_without_the_right_is_forbidden() {
     let harness = Harness::new();
     let reply = Call::post("/api/v1/proxies")
-        .token("reader-token")
+        .token("reader-token-00000000000000000000000")
         .json(proxy_json("gamma", "https://gamma.example.com/api/"))
         .send(harness.router())
         .await;
@@ -602,11 +602,11 @@ async fn authorization_is_decided_before_existence() {
     // membership oracle over the proxy names.
     let harness = Harness::new();
     let existing = Call::delete("/api/v1/proxies/alpha")
-        .token("reader-token")
+        .token("reader-token-00000000000000000000000")
         .send(harness.router())
         .await;
     let missing = Call::delete("/api/v1/proxies/nope")
-        .token("reader-token")
+        .token("reader-token-00000000000000000000000")
         .send(harness.router())
         .await;
 

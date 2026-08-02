@@ -33,10 +33,10 @@ admin:
   tokens:
     - name: root
       group: admin
-      token: root-token
+      token: root-token-0000000000000000000000000
     - name: reader
       group: user
-      token: reader-token
+      token: reader-token-00000000000000000000000
   access:
     list: public
     read: public
@@ -74,10 +74,10 @@ admin:
   tokens:
     - name: root
       group: admin
-      token: root-token
+      token: root-token-0000000000000000000000000
     - name: reader
       group: user
-      token: reader-token
+      token: reader-token-00000000000000000000000
   access:
     list: public
     read: public

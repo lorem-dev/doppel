@@ -27,7 +27,7 @@ admin:
   tokens:
     - name: root
       group: admin
-      token: root-token
+      token: root-token-0000000000000000000000000
   access: {}
   upload:
     limit: 1Mi

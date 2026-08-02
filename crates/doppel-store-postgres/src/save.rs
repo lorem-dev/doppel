@@ -59,7 +59,7 @@ impl PostgresStore {
             .bind(&self.config_name)
             .bind(token.name.as_str())
             .bind(token.group.as_str())
-            .bind(&token.token)
+            .bind(token.token.as_str())
             .bind(ordinal_of(ordinal)?)
             .execute(&mut *tx)
             .await

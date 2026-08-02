@@ -5,6 +5,7 @@ pub mod mock;
 pub mod name;
 pub mod proxy;
 pub mod server;
+pub mod token;
 
 use std::path::{Path, PathBuf};
 
@@ -20,6 +21,7 @@ pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig
 pub use server::{
     ControlConfig, LogFormat, LogLevel, LoggingConfig, SentryConfig, ServerConfig, TemplatesConfig,
 };
+pub use token::{Token, TokenError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -27,6 +27,12 @@ An absent token and an unrecognised one are both anonymous. They are not
 distinguished on purpose: telling them apart would confirm which tokens
 exist, and both answer `401`.
 
+The comparison against a configured token does not stop at the first differing
+byte, so how long a rejection takes does not depend on how much of a guess was
+right. Token length is not hidden -- which is why the accepted range is
+published (see [Tokens](configuration.md#tokens)) rather than treated as a
+secret.
+
 `401` and `403` *are* distinguished, because a caller fixes them differently:
 `401` means "send a token", `403` means "that token is not enough".
 

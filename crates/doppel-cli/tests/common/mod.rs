@@ -175,7 +175,7 @@ proxies:
 }
 
 /// A recognizable token value, so a test can assert it never reaches stdout.
-pub const SECRET_TOKEN: &str = "b6e1f0c2-secret-do-not-log";
+pub const SECRET_TOKEN: &str = "b6e1f0c2-secret-do-not-log-000000000";
 
 /// `sockaddr_un.sun_path` has a small, fixed capacity: 104 bytes including
 /// the terminating NUL on macOS/BSD, 108 on Linux. `ControlServer::bind`

@@ -134,7 +134,7 @@ admin:
   tokens:
     - name: user1
       group: admin
-      token: t1
+      token: t1-00000000000000000000000000000000
   access:
     read: public
     update: user1
@@ -185,14 +185,14 @@ proxies:
     #[test]
     fn v26_token_names_and_values_must_be_unique() {
         let dup_name = good().replace(
-            "      token: t1\n",
-            "      token: t1\n    - name: user1\n      group: user\n      token: t2\n",
+            "      token: t1-00000000000000000000000000000000\n",
+            "      token: t1-00000000000000000000000000000000\n    - name: user1\n      group: user\n      token: t2-00000000000000000000000000000000\n",
         );
         assert_violation(&dup_name, "admin.tokens[1].name", "duplicate");
 
         let dup_token = good().replace(
-            "      token: t1\n",
-            "      token: t1\n    - name: user2\n      group: user\n      token: t1\n",
+            "      token: t1-00000000000000000000000000000000\n",
+            "      token: t1-00000000000000000000000000000000\n    - name: user2\n      group: user\n      token: t1-00000000000000000000000000000000\n",
         );
         assert_violation(&dup_token, "admin.tokens[1].token", "duplicate");
     }

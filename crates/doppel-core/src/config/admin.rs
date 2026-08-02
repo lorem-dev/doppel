@@ -55,7 +55,7 @@ impl Default for AuthConfig {
 pub struct TokenConfig {
     pub name: super::Name,
     pub group: super::Name,
-    pub token: String,
+    pub token: super::Token,
 }
 
 /// Who may perform an action. `public` means no token is required.

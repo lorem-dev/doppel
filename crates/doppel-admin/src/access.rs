@@ -73,7 +73,10 @@ pub fn caller_from_headers(admin: &AdminConfig, headers: &HeaderMap) -> Caller {
     admin
         .tokens
         .iter()
-        .find(|t| t.token == token)
+        // `Token::matches` rather than `==`: the comparison against a
+        // presented secret is the one place where stopping at the first
+        // differing byte is measurable from outside.
+        .find(|t| t.token.matches(token))
         .map_or(Caller::Anonymous, |t| Caller::Token {
             name: t.name.to_string(),
             group: t.group.to_string(),
@@ -160,6 +163,14 @@ mod tests {
     use super::*;
     use doppel_core::config::{Config, load_from_str};
 
+    /// The two token values `CONFIG` below carries.
+    ///
+    /// Named because the value is 36 characters -- long enough to satisfy the
+    /// `Token` bound -- and repeating that inline made every assertion about
+    /// authentication wider than the assertion itself.
+    const ALICE: &str = "alice-token-000000000000000000000000";
+    const BOB: &str = "bob-token-00000000000000000000000000";
+
     const CONFIG: &str = r#"
 server:
   host: "127.0.0.1"
@@ -170,10 +181,10 @@ admin:
   tokens:
     - name: alice
       group: admin
-      token: alice-token
+      token: alice-token-000000000000000000000000
     - name: bob
       group: readers
-      token: bob-token
+      token: bob-token-00000000000000000000000000
   access:
     list: public
     read: readers
@@ -310,10 +321,20 @@ proxies:
     }
 
     #[test]
+    fn the_named_tokens_are_the_ones_the_fixture_configures() {
+        // `CONFIG` is a raw literal and cannot interpolate the constants, so
+        // this is what stops the two copies drifting apart -- without it, a
+        // renamed token would quietly make every authentication test assert
+        // that an unknown token is anonymous.
+        assert!(CONFIG.contains(ALICE), "alice's token is not in CONFIG");
+        assert!(CONFIG.contains(BOB), "bob's token is not in CONFIG");
+    }
+
+    #[test]
     fn a_known_token_resolves_to_its_name_and_group() {
         let c = config();
         assert_eq!(
-            caller_from_headers(&c.admin, &headers(Some("Bearer alice-token"))),
+            caller_from_headers(&c.admin, &headers(Some(&format!("Bearer {ALICE}")))),
             alice()
         );
     }
@@ -332,7 +353,7 @@ proxies:
     #[test]
     fn a_malformed_header_is_anonymous_rather_than_a_panic() {
         let c = config();
-        for value in ["alice-token", "Basic alice-token", "Bearer", ""] {
+        for value in [ALICE, &format!("Basic {ALICE}"), "Bearer", ""] {
             assert_eq!(
                 caller_from_headers(&c.admin, &headers(Some(value))),
                 Caller::Anonymous,
@@ -349,7 +370,7 @@ proxies:
     fn the_configured_header_name_is_the_one_read() {
         let c = config();
         let mut map = HeaderMap::new();
-        map.insert("authorization", "Bearer alice-token".parse().unwrap());
+        map.insert("authorization", format!("Bearer {ALICE}").parse().unwrap());
         assert_eq!(
             caller_from_headers(&c.admin, &map),
             Caller::Anonymous,

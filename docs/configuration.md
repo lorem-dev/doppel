@@ -276,5 +276,24 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Tokens
+
+An admin token is printable ASCII with no spaces, 32 to 255 characters. The
+character set is the one an HTTP header value admits, because that is where
+the token is read from -- a token containing a space could be written into a
+configuration and would then never match anything a client could send.
+
+There is no required form. A version 4 UUID is the recommended shape and what
+Doppel generates, but a token pasted out of a secret manager does not have to
+be reformatted to be accepted.
+
+Rule **V26** still applies on top of the type: token names must be unique, and
+so must token values. Uniqueness is a property of the set rather than of one
+token, which is why it stays a rule.
+
+A token is redacted in log lines and in debug output. It is written out in
+full by `config pull` and stored in full, since those are the places whose
+whole purpose is to reproduce the configuration.
+
 For the full list of rules and their identifiers, see the design
 specifications in the repository.

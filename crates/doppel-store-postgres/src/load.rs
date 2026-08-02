@@ -75,7 +75,7 @@ impl PostgresStore {
             Ok(TokenConfig {
                 name: name(&token, "name")?,
                 group: name(&token, "group")?,
-                token: text(&token, "token")?,
+                token: stored_token(&token, "token")?,
             })
         })
         .collect::<Result<Vec<_>, StoreError>>()?;
@@ -270,6 +270,15 @@ fn text(row: &PgRow, column: &str) -> Result<String, StoreError> {
 fn name(row: &PgRow, column: &str) -> Result<doppel_core::config::Name, StoreError> {
     let raw: String = row.try_get(column).map_err(query_failed)?;
     doppel_core::config::Name::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored token, checked on the way in, for the same reason as `name`.
+///
+/// The error names the column and not the value: a corruption message about a
+/// token is still somewhere a token would end up.
+fn stored_token(row: &PgRow, column: &str) -> Result<doppel_core::config::Token, StoreError> {
+    let raw: String = row.try_get(column).map_err(query_failed)?;
+    doppel_core::config::Token::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
 }
 
 fn port(row: &PgRow, column: &str) -> Result<u16, StoreError> {
