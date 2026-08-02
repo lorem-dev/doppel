@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use doppel_core::store::ConfigStore;
-use doppel_core::{Config, ErrorCode, Runtime, RuntimeHolder, StoreError};
+use doppel_core::{Config, ErrorCode, RuntimeHolder};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Take};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::Mutex;
@@ -314,99 +314,26 @@ async fn write_response(
         .await
 }
 
-/// Load, validate, compile, then swap. Every step before the swap can fail
-/// harmlessly; the swap itself cannot fail. Callers reload concurrently only
-/// while holding `reload_lock` (see `run`), so this function does not need
-/// one of its own.
+/// Render a reload as a control-socket response.
+///
+/// The sequence itself lives in `doppel_core::reload`, shared with the admin
+/// API's reload endpoint; this is only the projection onto this protocol.
 async fn reload(
     holder: &RuntimeHolder,
     store: &dyn ConfigStore,
     startup_config: &Config,
 ) -> ControlResponse {
-    let (config, revision) = match store.load().await {
-        Ok(loaded) => loaded,
-        Err(StoreError::Invalid(errors)) => {
-            return ControlResponse::Error {
-                code: ErrorCode::ConfigInvalid,
-                errors,
-            };
-        }
-        Err(err) => {
-            return ControlResponse::Error {
-                code: ErrorCode::StoreError,
-                errors: vec![doppel_core::Violation::new("", err.to_string())],
-            };
-        }
-    };
-
-    // `Runtime::compile` reads only `config.proxies` (see `runtime.rs`), so
-    // every other top-level section is validated and counted into the new
-    // revision but has no effect on the running process until it is
-    // restarted. Compare against `startup_config` -- the configuration the
-    // process actually started under -- not `holder.load().config` (the last
-    // *compiled* config): `Runtime::compile` never reads those sections, so
-    // once one of them has drifted from what the process is running under,
-    // it stays drifted through every subsequent reload regardless of what
-    // else that reload touches. Comparing against the last compiled config
-    // would find it unchanged from itself on a later reload and wrongly go
-    // silent, even though the running process still does not match the
-    // file. Comparing against the fixed startup value instead makes the
-    // warning level-triggered (it fires for as long as the drift exists)
-    // rather than edge-triggered (only on the reload that introduced it).
-    let unapplied = unapplied_sections(startup_config, &config);
-    if !unapplied.is_empty() {
-        tracing::warn!(
-            sections = ?unapplied,
-            "reload accepted changes to sections that only take effect on restart"
-        );
-    }
-
-    // The revision comes from the stored config's content, so a reload that
-    // changes nothing reports the same number it did before.
-    match Runtime::compile(Arc::new(config), revision) {
-        Ok(runtime) => {
-            let proxies = runtime.proxies.len();
-            holder.store(runtime);
-            tracing::info!(revision = revision.0, proxies, "config reloaded");
-            ControlResponse::Ok {
-                revision: revision.0,
-                proxies,
-                unapplied: unapplied.into_iter().map(str::to_owned).collect(),
-            }
-        }
-        Err(err) => ControlResponse::Error {
-            code: err.code,
-            errors: vec![doppel_core::Violation::new("", err.message)],
+    match doppel_core::reload(holder, store, startup_config).await {
+        Ok(outcome) => ControlResponse::Ok {
+            revision: outcome.revision.0,
+            proxies: outcome.proxies,
+            unapplied: outcome.unapplied.into_iter().map(str::to_owned).collect(),
+        },
+        Err(failure) => ControlResponse::Error {
+            code: failure.code,
+            errors: failure.violations,
         },
     }
-}
-
-/// Top-level sections `Runtime::compile` never reads, named for the section
-/// that changed between `old` and `new`. Each section type already derives
-/// `PartialEq`, so a direct field comparison is all this needs -- no
-/// generic config-diffing machinery, just naming the handful of places a
-/// reload cannot actually reach.
-fn unapplied_sections(old: &Config, new: &Config) -> Vec<&'static str> {
-    let mut sections = Vec::new();
-    if old.server != new.server {
-        sections.push("server");
-    }
-    if old.logging != new.logging {
-        sections.push("logging");
-    }
-    if old.control != new.control {
-        sections.push("control");
-    }
-    if old.templates != new.templates {
-        sections.push("templates");
-    }
-    if old.sentry != new.sentry {
-        sections.push("sentry");
-    }
-    if old.admin != new.admin {
-        sections.push("admin");
-    }
-    sections
 }
 
 #[cfg(test)]

@@ -8,13 +8,16 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
 use doppel_admin::AdminState;
 use doppel_core::store::{ConfigStore, FileStore, Revision, StoreError, TemplateFile};
+use doppel_core::{Config, Runtime, RuntimeHolder};
 use tempfile::TempDir;
+use tokio::sync::Mutex;
 use tower::ServiceExt;
 
 /// A configuration with two proxies, one admin token and one token that
@@ -120,6 +123,12 @@ pub struct Harness {
     pub config_path: PathBuf,
     pub templates_dir: PathBuf,
     pub store: Arc<dyn ConfigStore>,
+    /// The runtime the process would be serving from. Built from the same
+    /// document the store starts with, so `/status` and the store agree
+    /// until a test makes them disagree on purpose.
+    pub holder: Arc<RuntimeHolder>,
+    pub startup: Arc<Config>,
+    pub reload_lock: Arc<Mutex<()>>,
 }
 
 impl Harness {
@@ -134,12 +143,30 @@ impl Harness {
         std::fs::write(&config_path, yaml).expect("write config");
         std::fs::create_dir_all(&templates_dir).expect("create templates dir");
         let store: Arc<dyn ConfigStore> = Arc::new(FileStore::new(&config_path, &templates_dir));
+
+        let startup = Arc::new(
+            doppel_core::config::load_from_path(&config_path).expect("harness config parses"),
+        );
+        let revision = Revision::of_config(&startup);
+        let holder = Arc::new(RuntimeHolder::new(
+            Runtime::compile(Arc::clone(&startup), revision).expect("harness config compiles"),
+        ));
+
         Self {
             _dir: dir,
             config_path,
             templates_dir,
             store,
+            holder,
+            startup,
+            reload_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    /// Replace the stored document without touching the running runtime, so
+    /// a test can make the two disagree and then reload.
+    pub fn overwrite_config(&self, yaml: &str) {
+        std::fs::write(&self.config_path, yaml).expect("overwrite config");
     }
 
     /// Replace the store with one wrapping it, for the concurrency tests.
@@ -149,7 +176,13 @@ impl Harness {
     }
 
     pub fn router(&self) -> Router {
-        doppel_admin::router(AdminState::new(Arc::clone(&self.store)))
+        doppel_admin::router(AdminState::new(
+            Arc::clone(&self.store),
+            Arc::clone(&self.holder),
+            Arc::clone(&self.startup),
+            Arc::clone(&self.reload_lock),
+            Instant::now(),
+        ))
     }
 
     pub fn template_path(&self, proxy: &str, file: &str) -> PathBuf {
@@ -164,7 +197,7 @@ impl Harness {
 
     /// The configuration currently on disk, parsed. Tests assert against this
     /// rather than against a response body when they mean "the write landed".
-    pub fn stored(&self) -> doppel_core::Config {
+    pub fn stored(&self) -> Config {
         doppel_core::config::load_from_path(&self.config_path).expect("stored config parses")
     }
 }
