@@ -1,4 +1,5 @@
-//! Semantic validation. Rules are identified V1..V32 to match the phase 1 spec.
+//! Semantic validation. Rules are identified V1..V35; V1..V33 come from the
+//! phase 1 spec, V34 and V35 were added in phase 3.
 //!
 //! Validation is pure: it inspects the config and nothing else. Checks that
 //! depend on the machine (does the templates directory exist, is the socket
