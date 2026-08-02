@@ -5,12 +5,17 @@ description: Use before a release, or after changing a command, a flag, a config
 
 # Check the documentation
 
-Documentation in this repository has four homes, and they go stale in
+Documentation in this repository has five homes, and they go stale in
 different ways:
 
 - `README.md` -- the entry point. What Doppel is, what it does and does not do
   yet, how to run it.
 - `docs/` -- the mkdocs site, in three sections (below).
+- `DOCKERHUB.md` -- the Docker Hub overview, pushed by the release workflow.
+  Written for someone who has already chosen the image, so it opens with
+  `docker run` and never mentions building from source. Check it against
+  `docs/usage/docker.md`, which covers the same ground at length: a fact that
+  changed in one and not the other is the failure mode here.
 - `AGENTS.md` -- addressed to agents. Holds rules and pointers, never a second
   copy of anything in `docs/`.
 - Doc comments in the code -- where the reasoning lives.
