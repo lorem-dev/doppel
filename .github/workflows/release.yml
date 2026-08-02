@@ -103,8 +103,8 @@ jobs:
 
     # Separate from `build` rather than two more matrix rows: these are not
     # release assets. They exist only to be copied into the Alpine image, and
-    # keeping them out of the `doppel-*` artifact namespace is what stops the
-    # publish job's glob from attaching them to the release.
+    # they live outside the `doppel-*` artifact namespace so the publish job's
+    # `pattern: doppel-*` leaves them where they are.
     # Each musl target on its own architecture, so `musl-gcc` is the native
     # one and nothing is cross-compiled. Before arm64 runners became free for
     # public repositories this went through cargo-zigbuild, because Ubuntu
@@ -275,6 +275,13 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: dist
+          # Only the release archives. Without this pattern the step downloads
+          # every artifact in the run, which includes the two `docker-*` musl
+          # binaries -- both named plain `doppel`, so `merge-multiple` collapses
+          # them onto each other and `gh release create dist/*` attaches the
+          # survivor to the release as a bare `doppel` of unstated
+          # architecture. v0.1.0 shipped with exactly that asset.
+          pattern: doppel-*
           # Every build job uploaded one file under its own artifact name;
           # flatten them into one directory.
           merge-multiple: true

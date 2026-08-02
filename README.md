@@ -5,10 +5,11 @@
 <h1 align="center">$$Doppel{\color{lightblue}ganger}$$</h1>
 
 <p align="center">
+    <a href="https://github.com/lorem-dev/doppel/releases/latest"><img src="https://img.shields.io/github/v/release/lorem-dev/doppel?label=download" alt="Download"></a>
     <a href="https://lorem-dev.github.io/doppel/"><img src="https://img.shields.io/badge/docs-online-blue" alt="Documentation"></a>
-    <a href="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-    <a href="https://github.com/lorem-dev/doppel/actions/workflows/docs.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
     <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/doppel" alt="License"></a>
+    <a href="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/coverage-92%25-brightgreen" alt="Coverage"></a>
+    <a href="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
 <p align="center">

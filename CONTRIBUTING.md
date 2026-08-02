@@ -131,6 +131,28 @@ rule that made the repository unmergeable would be turned off rather than
 obeyed. It is the deletion ruleset, which no one can bypass, that carries the
 guarantee.
 
+### Back-merging `main` into `develop`
+
+Every push to `main` runs `.github/workflows/backmerge.yml`, which opens (or
+refreshes) a pull request from `main` into `develop` whenever `develop` no
+longer contains `main`. Merge it with a merge commit, not a squash: the
+workflow's check is `git merge-base --is-ancestor origin/main origin/develop`,
+and a squash leaves `develop` with equivalent content but no ancestry, so the
+pull request would be reopened on every subsequent push.
+
+The workflow needs one repository setting that is off by default, under
+Settings -> Actions -> General -> Workflow permissions:
+
+```bash
+gh api -X PUT repos/lorem-dev/doppel/actions/permissions/workflow \
+  -f default_workflow_permissions=read \
+  -F can_approve_pull_request_reviews=true
+```
+
+Without it `gh pr create` fails with "GitHub Actions is not permitted to
+create or approve pull requests", which the workflow's own
+`permissions: pull-requests: write` block cannot grant.
+
 Tags:
 
 - `v<version>-rc.<n>` -- a release candidate, tagged on `develop`. It builds and

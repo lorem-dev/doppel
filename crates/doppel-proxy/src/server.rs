@@ -734,11 +734,32 @@ proxies:
 
     // -- Log level distinction and log schema -----------------------------
     //
-    // A minimal `tracing::Subscriber`, set as the *thread-local* default via
-    // `set_default` (not `set_global_default`). `#[tokio::test]` runs on a
-    // single-threaded current-thread runtime, so the subscriber stays active
-    // across every await point in the request under test without ever
-    // touching global state another test could observe.
+    // One `tracing::Subscriber` for the whole test binary, installed once with
+    // `set_global_default`, forwarding each event to whatever sink the current
+    // thread has installed. `#[tokio::test]` runs on a single-threaded
+    // current-thread runtime, so a thread-local sink stays active across every
+    // await point in the request under test, and a thread with no sink drops
+    // the event.
+    //
+    // The obvious implementation is a per-test `set_default`, which is what
+    // this was until it failed on CI with "expected exactly one log line, got
+    // []". `tracing` caches each callsite's `Interest` in a process-wide
+    // table, and a callsite is registered the first time it is hit. When only
+    // one dispatcher is alive, `tracing-core` computes that interest by asking
+    // *the registering thread's* current default subscriber
+    // (`callsite::rebuild_callsite_interest` reached through
+    // `dispatchers::Rebuilder::JustOne`). Tests run on parallel threads, so
+    // the thread that first reaches the `warn!` in `handle` is usually one
+    // running an ordinary `send`, whose default is `NoSubscriber` -- which
+    // answers `Interest::never()`. The callsite is then disabled for every
+    // thread, capturing ones included, and the interest is not recomputed
+    // until some dispatcher is registered. Thread-local state was never the
+    // problem; the global interest cache is.
+    //
+    // A single global subscriber whose `enabled` is unconditionally true
+    // removes the race: whichever thread registers a callsite, and whatever it
+    // is running, the answer is the same. Filtering by target moves into
+    // `event`, which is not cached.
     //
     // It records, per event: the level, the message, every field name
     // *declared* at that callsite (`Metadata::fields()`, fixed at compile
@@ -779,16 +800,23 @@ proxies:
         }
     }
 
-    struct Capture {
-        events: Arc<std::sync::Mutex<Vec<CapturedEvent>>>,
+    type Sink = Arc<std::sync::Mutex<Vec<CapturedEvent>>>;
+
+    thread_local! {
+        static SINK: std::cell::RefCell<Option<Sink>> = const {
+            std::cell::RefCell::new(None)
+        };
     }
 
+    struct Capture;
+
     impl tracing::Subscriber for Capture {
-        fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
-            // Limit to this crate's own events; reqwest/hyper emit their own
-            // trace/debug noise while reaching the dead upstream, which is
-            // not what this test is about.
-            metadata.target().starts_with("doppel_proxy")
+        fn enabled(&self, _metadata: &tracing::Metadata<'_>) -> bool {
+            // Unconditionally true, and deliberately so: the answer is cached
+            // per callsite for the whole process, so it must not depend on
+            // which thread asked or on what that thread was doing. Target
+            // filtering happens in `event`.
+            true
         }
 
         fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
@@ -800,6 +828,18 @@ proxies:
         fn record_follows_from(&self, _span: &tracing::span::Id, _follows: &tracing::span::Id) {}
 
         fn event(&self, event: &tracing::Event<'_>) {
+            // Limit to this crate's own events; reqwest/hyper emit their own
+            // trace/debug noise while reaching the dead upstream, which is
+            // not what this test is about.
+            if !event.metadata().target().starts_with("doppel_proxy") {
+                return;
+            }
+            // Cloned out of the thread-local before recording, so the borrow
+            // is released before anything below can re-enter this subscriber.
+            let Some(sink) = SINK.with(|sink| sink.borrow().clone()) else {
+                return;
+            };
+
             let mut visitor = RecordFields {
                 message: String::new(),
                 recorded_fields: std::collections::BTreeMap::new(),
@@ -811,7 +851,7 @@ proxies:
                 .iter()
                 .map(|field| field.name().to_owned())
                 .collect();
-            self.events.lock().unwrap().push(CapturedEvent {
+            sink.lock().unwrap().push(CapturedEvent {
                 level: *event.metadata().level(),
                 message: visitor.message,
                 declared_fields,
@@ -824,15 +864,36 @@ proxies:
         fn exit(&self, _span: &tracing::span::Id) {}
     }
 
+    /// Clears the thread's sink however the test leaves -- including by panic,
+    /// where a leaked sink would have this thread's later tests appending to a
+    /// vector nobody reads.
+    struct SinkGuard;
+
+    impl Drop for SinkGuard {
+        fn drop(&mut self) {
+            SINK.with(|sink| *sink.borrow_mut() = None);
+        }
+    }
+
+    fn install_sink(events: &Sink) -> SinkGuard {
+        static INSTALLED: std::sync::Once = std::sync::Once::new();
+        INSTALLED.call_once(|| {
+            // Constructing the `Dispatch` is itself what rebuilds the interest
+            // of every callsite already registered, so a callsite an earlier
+            // test disabled is re-enabled here rather than staying dark.
+            tracing::subscriber::set_global_default(Capture)
+                .expect("no other global subscriber in this test binary");
+        });
+        SINK.with(|sink| *sink.borrow_mut() = Some(Arc::clone(events)));
+        SinkGuard
+    }
+
     async fn run_captured(
         state: ProxyState,
         request: Request<Body>,
     ) -> (axum::response::Response, Vec<CapturedEvent>) {
-        let events = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let capture = Capture {
-            events: events.clone(),
-        };
-        let guard = tracing::subscriber::set_default(capture);
+        let events: Sink = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let guard = install_sink(&events);
         let response = send(state, request).await;
         drop(guard);
         let events = events.lock().unwrap().clone();
