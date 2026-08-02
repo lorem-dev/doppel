@@ -113,7 +113,10 @@ pub fn authorize(
             ),
         )),
         Caller::Token { name, group } => {
-            if names.iter().any(|s| s == name || s == group) {
+            if names
+                .iter()
+                .any(|s| s.as_str() == name || s.as_str() == group)
+            {
                 Ok(())
             } else {
                 Err(Error::new(

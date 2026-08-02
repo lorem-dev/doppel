@@ -57,7 +57,8 @@ pub fn declared(proxy: &ProxyConfig) -> Vec<String> {
     let mut names: Vec<String> = proxy
         .mocks
         .iter()
-        .filter_map(|mock| mock.response.template.clone())
+        .filter_map(|mock| mock.response.template.as_ref())
+        .map(|name| name.as_str().to_owned())
         .collect();
     names.sort();
     names.dedup();

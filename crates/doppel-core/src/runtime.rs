@@ -235,7 +235,7 @@ fn compile_mock(mock: &MockConfig, proxy_name: &str) -> Result<CompiledMock, Err
     } else if let Some(json) = &mock.response.json {
         MockBody::Json(json.clone())
     } else if let Some(template) = &mock.response.template {
-        MockBody::Template(template.clone())
+        MockBody::Template(template.as_str().to_owned())
     } else {
         MockBody::None
     };

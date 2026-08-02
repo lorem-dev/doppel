@@ -1,49 +1,34 @@
-//! Template file name checking.
+//! Template file name checking, for names that arrive at runtime.
 //!
-//! Names are rejected rather than normalized. Silently rewriting a path an
-//! operator asked for is worse than refusing it: the operator then believes a
-//! file landed somewhere it did not.
+//! The rule itself is `config::TemplateName`. This is the store's door onto
+//! it: an upload's file name comes off an HTTP request rather than out of a
+//! configuration, so it needs the same question asked with a `StoreError`
+//! for an answer. The rule is not restated here -- it was, once, and a
+//! configuration and an upload could then have disagreed about what a name is.
+
+use doppel_core_self::config::TemplateName;
 
 use super::StoreError;
 
-/// Longest accepted template file name. Comfortably under the 255 byte limit
-/// that both target platforms impose on a single path component.
-const MAX_LEN: usize = 200;
+use crate as doppel_core_self;
 
-/// Check a template file name and return it unchanged if it is safe to join to a
-/// directory.
+/// Check a template file name and return it unchanged if it is safe to join
+/// to a directory.
 pub fn sanitize(name: &str) -> Result<&str, StoreError> {
-    let reject = |reason: &str| {
-        Err(StoreError::BadTemplateName {
-            name: name.to_owned(),
-            reason: reason.to_owned(),
-        })
-    };
-
-    if name.is_empty() || name.trim().is_empty() {
-        return reject("name is empty");
-    }
-    if name.len() > MAX_LEN {
-        return reject("name is longer than 200 bytes");
-    }
-    if name.starts_with('.') {
-        return reject("name must not start with a dot");
-    }
-    if name.contains('/') || name.contains('\\') {
-        return reject("name must not contain a path separator");
-    }
-    if name.contains("..") {
-        return reject("name must not contain `..`");
-    }
-    if name.bytes().any(|b| b.is_ascii_control()) {
-        return reject("name must not contain control characters");
-    }
+    TemplateName::check(name).map_err(|reason| StoreError::BadTemplateName {
+        name: name.to_owned(),
+        reason: reason.to_string(),
+    })?;
     Ok(name)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The bound lives on the type; repeated here only so the boundary
+    /// tests below can name it.
+    const MAX_LEN: usize = 200;
 
     /// Assert `result` is specifically `StoreError::BadTemplateName`, with
     /// both fields populated as documented, rather than merely `is_err()`.

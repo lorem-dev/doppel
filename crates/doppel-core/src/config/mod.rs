@@ -13,6 +13,7 @@ pub mod selector;
 pub mod server;
 pub mod size;
 pub mod status;
+pub mod template;
 pub mod token;
 pub mod url;
 
@@ -38,6 +39,7 @@ pub use server::{
 };
 pub use size::{ByteSize, ByteSizeError};
 pub use status::{HttpStatus, StatusError};
+pub use template::{TemplateName, TemplateNameError};
 pub use token::{Token, TokenError};
 pub use url::{UpstreamUrl, UrlError};
 
@@ -211,11 +213,14 @@ proxies:
         assert_eq!(parse_subjects("public"), Subjects::Public);
         assert_eq!(
             parse_subjects("user1"),
-            Subjects::Names(vec!["user1".into()])
+            Subjects::Names(vec![Name::parse("user1").unwrap()])
         );
         assert_eq!(
             parse_subjects(r#"["admin", "user1"]"#),
-            Subjects::Names(vec!["admin".into(), "user1".into()])
+            Subjects::Names(vec![
+                Name::parse("admin").unwrap(),
+                Name::parse("user1").unwrap()
+            ])
         );
         assert_eq!(parse_subjects("[]"), Subjects::Public);
     }
@@ -281,7 +286,7 @@ proxies:
         // so serializing either of those two shapes must also produce
         // `"public"` -- otherwise a round trip through YAML would silently
         // change what a config means.
-        for names in [Vec::new(), vec!["public".to_owned()]] {
+        for names in [Vec::new(), vec![Name::parse("public").unwrap()]] {
             let yaml = serde_norway::to_string(&Subjects::Names(names.clone())).unwrap();
             assert_eq!(
                 yaml.trim(),

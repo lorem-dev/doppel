@@ -1,18 +1,18 @@
-//! Rules V16, V19..V21, V25, V30 and V31.
+//! Rules V16, V19..V21, V25 and V30.
 //!
 //! V17 (a known, upper-case method), V18 (a compilable url pattern), V22 (a
 //! status in 100..=599), V23 (a well-formed selector) and V24 (a header name)
 //! are gone: `HttpMethod`, `Pattern`, `HttpStatus`, `Selector` and
 //! `HeaderName` refuse the same values while the document is being parsed,
-//! with the same messages. What is left here needs more than one field to
-//! decide.
+//! with the same messages. So does V31: `TemplateName` is the rule the store
+//! applies to an uploaded file name, and a mock naming a template is held to
+//! it at parse time rather than by a copy of it here. What is left needs more
+//! than one field to decide.
 
 use std::collections::BTreeSet;
 
 use super::Violations;
 use crate::config::{MockRequest, MockResponse, ProxyConfig};
-use crate::store::StoreError;
-use crate::store::name::sanitize;
 
 pub(super) fn check(proxy: &ProxyConfig, proxy_path: &str, v: &mut Violations) {
     let mut seen = BTreeSet::new();
@@ -78,21 +78,6 @@ fn check_response(response: &MockResponse, path: &str, v: &mut Violations) {
             response.body_sources() == 0,
             format!("{path}.response"),
             format!("status {} forbids a body", response.status),
-        );
-    }
-
-    // V31: `response.template` becomes a file name joined to
-    // `templates_dir/<proxy>/` in phase 2 (see `store::name::sanitize`'s doc
-    // comment), so it gets the same name check every operator-supplied
-    // template name gets from `FileStore` -- this only checks the name's
-    // shape, not whether the file exists (the spec is explicit that
-    // existence is a phase 2 concern).
-    if let Some(template) = &response.template
-        && let Err(StoreError::BadTemplateName { reason, .. }) = sanitize(template)
-    {
-        v.push(
-            format!("{path}.response.template"),
-            format!("`{template}` is not a valid template file name: {reason}"),
         );
     }
 
@@ -401,18 +386,26 @@ proxies:
     }
 
     #[test]
-    fn v31_a_traversal_template_name_is_rejected() {
-        let text = good()
-            .replace(r#"          json: '{"id": "{{ id }}"}'"#, "")
-            .replace(
-                "          status: 200",
-                "          status: 200\n          template: ../../etc/passwd",
-            );
-        assert_violation(
-            &text,
-            "proxies[0].mocks[0].response.template",
-            "not a valid template file name",
-        );
+    fn a_traversal_template_name_fails_at_load() {
+        // This was V31. `config::TemplateName` is the rule, and the store's
+        // upload path asks the same type -- so a name a mock may declare and
+        // a name a client may upload can no longer disagree.
+        for (bad, expected) in [
+            ("../../etc/passwd", "must not start with a dot"),
+            ("sub/dir.j2", "path separator"),
+            (".hidden.j2", "must not start with a dot"),
+        ] {
+            let text = good()
+                .replace(r#"          json: '{"id": "{{ id }}"}'"#, "")
+                .replace(
+                    "          status: 200",
+                    &format!("          status: 200\n          template: \"{bad}\""),
+                );
+            let err = load_from_str(&text)
+                .expect_err(&format!("`{bad}` must not parse"))
+                .to_string();
+            assert!(err.contains(expected), "{bad}: {err}");
+        }
     }
 
     #[test]

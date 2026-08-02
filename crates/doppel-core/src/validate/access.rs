@@ -102,7 +102,7 @@ fn check_subjects(subjects: &Subjects, known: &BTreeSet<String>, path: &str, v: 
     };
     for name in names {
         v.require(
-            known.contains(name),
+            known.contains(name.as_str()),
             path,
             format!("unknown token or group `{name}`"),
         );

@@ -41,7 +41,7 @@ pub struct MockResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub json: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub template: Option<String>,
+    pub template: Option<crate::config::TemplateName>,
     /// Header name -> template producing the value.
     ///
     /// The value is a template, not a header value: what it renders to is

@@ -282,7 +282,7 @@ proxies:
         );
         let config = load_from_str(&text).expect("an empty access block must parse");
 
-        let admin = Subjects::Names(vec!["admin".to_owned()]);
+        let admin = Subjects::Names(vec![crate::config::Name::parse("admin").unwrap()]);
         for (action, subjects) in [
             ("list", &config.admin.access.list),
             ("read", &config.admin.access.read),

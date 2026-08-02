@@ -276,6 +276,21 @@ moment at which an unchecked name exists. There used to be a rule V35 doing
 this; it is gone, because a type that admits a bad value and a rule that
 catches it later are two things to keep in step.
 
+## Template file names
+
+A mock's `response.template` names one file under
+`<templates.dir>/<proxy>/`: one path component, no separators, no leading dot,
+no `..`, no control characters, at most 200 bytes.
+
+That is the same rule the admin API applies to an uploaded file name, and it
+is now literally the same code. Rule **V31** used to restate it for the
+configuration side; a configuration and an upload could have drifted apart
+about what a file name is, and only one of them would have been checked.
+
+Names are refused rather than normalised. Rewriting a path an operator asked
+for is worse than refusing it: they then believe a file landed somewhere it
+did not.
+
 ## Mock patterns and selectors
 
 A mock's `request.url` is a regular expression, matched unanchored against the
@@ -409,6 +424,19 @@ usually needs elevated privilege. It is not an error -- running on port 80
 behind a capability or a redirect is a real deployment -- but the far more
 common cause is a typo, and the failure that produces otherwise is a bare
 `Permission denied` from `bind`.
+
+## Access lists
+
+`admin.access` and a proxy's `access` name subjects: `public`, one token or
+group name, or a list of them. An empty list means public.
+
+The names are names, checked by the same type that checks a token's own name.
+An access list can no longer reference something no token could ever be called
+-- rule V27 would have reported that as an unknown subject, which is true and
+unhelpful.
+
+`public` is a keyword in this position and is never parsed as a name, even
+though it happens to be spelled like a legal one.
 
 ## Tokens
 

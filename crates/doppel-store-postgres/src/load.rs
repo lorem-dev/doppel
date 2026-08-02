@@ -156,7 +156,7 @@ impl PostgresStore {
                         status: status(row, "status")?,
                         body: row.try_get("body").map_err(query_failed)?,
                         json: row.try_get("json").map_err(query_failed)?,
-                        template: row.try_get("template").map_err(query_failed)?,
+                        template: optional_template_name(row, "template")?,
                         headers: json_column(row, "response_headers")?,
                     },
                     proxy: optional_json::<MockProxyOverride>(row, "proxy_override")?,
@@ -338,6 +338,19 @@ fn optional_ratio(
 /// A stored latency, checked on the way in.
 fn seconds(value: f64, column: &str) -> Result<doppel_core::config::Seconds, StoreError> {
     doppel_core::config::Seconds::parse(value).map_err(|err| corrupt(column, &err.to_string()))
+}
+
+/// A stored template file name, checked on the way in.
+fn optional_template_name(
+    row: &PgRow,
+    column: &str,
+) -> Result<Option<doppel_core::config::TemplateName>, StoreError> {
+    let raw: Option<String> = row.try_get(column).map_err(query_failed)?;
+    raw.map(|raw| {
+        doppel_core::config::TemplateName::parse(raw)
+            .map_err(|err| corrupt(column, &err.to_string()))
+    })
+    .transpose()
 }
 
 /// A stored url pattern, checked on the way in.

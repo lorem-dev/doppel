@@ -248,7 +248,10 @@ proxies:
         // after parsing that same config back out of YAML (as `load`
         // does) -- two representations of one configuration that could
         // never compare-and-swap against each other.
-        for names in [Vec::new(), vec!["public".to_owned()]] {
+        for names in [
+            Vec::new(),
+            vec![crate::config::Name::parse("public").unwrap()],
+        ] {
             let mut config = crate::config::load_from_str(GOOD).unwrap();
             config.admin.access.read = crate::config::Subjects::Names(names.clone());
 

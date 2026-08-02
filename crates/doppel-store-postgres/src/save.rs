@@ -232,7 +232,12 @@ impl PostgresStore {
         .bind(i32::from(mock.response.status.get()))
         .bind(mock.response.body.as_deref())
         .bind(mock.response.json.as_deref())
-        .bind(mock.response.template.as_deref())
+        .bind(
+            mock.response
+                .template
+                .as_ref()
+                .map(doppel_core::config::TemplateName::as_str),
+        )
         .bind(as_json(&mock.request.headers)?)
         .bind(as_json(&mock.request.query)?)
         .bind(as_json(&mock.request.body)?)

@@ -58,11 +58,17 @@ pub struct TokenConfig {
 }
 
 /// Who may perform an action. `public` means no token is required.
+///
+/// The names are `Name`s: every entry has to be a token name or a group name,
+/// and those are `Name`s wherever they are defined. Holding them as `String`
+/// here would have let an access list reference something no token could ever
+/// be called, and rule V27 would report it as unknown rather than as
+/// unwritable.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Subjects {
     #[default]
     Public,
-    Names(Vec<String>),
+    Names(Vec<super::Name>),
 }
 
 impl Serialize for Subjects {
@@ -97,19 +103,22 @@ impl<'de> Deserialize<'de> for Subjects {
 
             fn visit_str<E: de::Error>(self, value: &str) -> Result<Subjects, E> {
                 if value == "public" {
-                    Ok(Subjects::Public)
-                } else {
-                    Ok(Subjects::Names(vec![value.to_owned()]))
+                    return Ok(Subjects::Public);
                 }
+                // `public` is checked first and never parsed: it is a keyword
+                // in this position, not a name, even though it happens to be
+                // spelled like a legal one.
+                let name = super::Name::parse(value).map_err(E::custom)?;
+                Ok(Subjects::Names(vec![name]))
             }
 
             fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Subjects, A::Error> {
                 let mut names = Vec::new();
-                while let Some(name) = seq.next_element::<String>()? {
-                    if name == "public" {
+                while let Some(raw) = seq.next_element::<String>()? {
+                    if raw == "public" {
                         return Ok(Subjects::Public);
                     }
-                    names.push(name);
+                    names.push(super::Name::parse(raw).map_err(de::Error::custom)?);
                 }
                 // An empty list means public, per the config comments.
                 if names.is_empty() {
@@ -159,7 +168,7 @@ fn enabled() -> bool {
 /// `read: public` deliberately. What must not happen is that leaving the
 /// section out does it for them.
 fn admin_only() -> Subjects {
-    Subjects::Names(vec!["admin".to_owned()])
+    Subjects::Names(vec![super::Name::parse("admin").expect("a literal name")])
 }
 
 impl Default for AccessConfig {
