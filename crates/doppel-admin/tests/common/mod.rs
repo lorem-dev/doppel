@@ -58,6 +58,62 @@ proxies:
       header: X-Proxy-Name
 "#;
 
+/// A configuration whose `alpha` proxy declares two template files, and whose
+/// upload limit is small enough to exceed in a test without allocating
+/// anything large.
+pub const TEMPLATE_CONFIG: &str = r#"
+server:
+  host: "127.0.0.1"
+  port: 18080
+admin:
+  host: "127.0.0.1"
+  port: 18081
+  tokens:
+    - name: root
+      group: admin
+      token: root-token
+    - name: reader
+      group: user
+      token: reader-token
+  access:
+    list: public
+    read: public
+    create: ["admin"]
+    update: ["admin"]
+    delete: ["admin"]
+    upload: ["admin"]
+  upload:
+    limit: 64
+proxies:
+  - name: alpha
+    type: http
+    url: "https://alpha.example.com/api/"
+    resolve:
+      type: header
+      header: X-Proxy-Name
+    mocks:
+      - name: one
+        request:
+          method: GET
+          url: /one/
+        response:
+          status: 200
+          template: one.json.j2
+      - name: two
+        request:
+          method: GET
+          url: /two/
+        response:
+          status: 200
+          template: two.json.j2
+  - name: beta
+    type: http
+    url: "https://beta.example.com/api/"
+    resolve:
+      type: header
+      header: X-Proxy-Name
+"#;
+
 pub struct Harness {
     /// Held for its Drop: the temporary directory disappears with it.
     _dir: TempDir,
@@ -184,7 +240,13 @@ impl Call {
         }
         let body = match self.body {
             Some(body) => {
-                builder = builder.header("Content-Type", "application/json");
+                // Set explicitly: `Request::builder` does not derive it, and
+                // without it the server's announced-length check is never
+                // reached, so a bug in it would go unseen by every test here
+                // while every real client sends the header.
+                builder = builder
+                    .header("Content-Type", "application/json")
+                    .header("Content-Length", body.len().to_string());
                 Body::from(body)
             }
             None => Body::empty(),

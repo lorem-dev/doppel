@@ -187,6 +187,15 @@ async fn update(
     })
     .await?;
 
+    // The update landed, so the mocks it removed are gone and the files only
+    // they named can no longer be rendered. Same order as delete, for the
+    // same reason: the configuration write is what authorises dropping them.
+    state
+        .store()
+        .retain_templates(&name, &crate::templates::declared(&updated.proxy))
+        .await
+        .map_err(|err| store_error(&err))?;
+
     Ok(with_etag(StatusCode::OK, updated, None))
 }
 
@@ -271,7 +280,7 @@ async fn commit<T>(
     ))
 }
 
-async fn load(state: &AdminState) -> Result<Config, Error> {
+pub(crate) async fn load(state: &AdminState) -> Result<Config, Error> {
     state
         .store()
         .load()
@@ -280,7 +289,7 @@ async fn load(state: &AdminState) -> Result<Config, Error> {
         .map_err(|err| store_error(&err))
 }
 
-fn find<'a>(config: &'a Config, name: &str) -> Option<&'a ProxyConfig> {
+pub(crate) fn find<'a>(config: &'a Config, name: &str) -> Option<&'a ProxyConfig> {
     config.proxies.iter().find(|proxy| proxy.name == name)
 }
 
@@ -295,7 +304,7 @@ fn view(proxy: &ProxyConfig) -> ProxyView {
     }
 }
 
-fn not_found(name: &str) -> Error {
+pub(crate) fn not_found(name: &str) -> Error {
     Error::new(ErrorCode::NotFound, format!("no proxy named `{name}`"))
 }
 

@@ -4,6 +4,7 @@ pub mod access;
 pub mod proxies;
 pub mod response;
 pub mod state;
+pub mod templates;
 
 pub use access::{Action, Caller, authorize, caller_from_headers};
 pub use response::ApiError;
@@ -16,5 +17,6 @@ pub use state::AdminState;
 pub fn router(state: AdminState) -> axum::Router {
     axum::Router::new()
         .merge(proxies::routes())
+        .merge(templates::routes())
         .with_state(state)
 }
