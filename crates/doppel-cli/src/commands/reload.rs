@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::cli::{CliError, ReloadArgs, StoreKind, mask_dsn};
+use crate::cli::{CliError, ReloadArgs};
 use crate::control::{ControlRequest, ControlResponse, client};
 
 /// Send a reload command and return the process exit code.
@@ -12,7 +12,7 @@ use crate::control::{ControlRequest, ControlResponse, client};
 /// goes to stdout. Failing to even reach the control socket is not that
 /// output, so it goes to stderr.
 pub async fn reload(args: &ReloadArgs) -> u8 {
-    let socket = match resolve_socket(args) {
+    let socket = match resolve_socket(args).await {
         Ok(socket) => socket,
         Err(err) => {
             eprintln!("{err}");
@@ -50,30 +50,28 @@ pub async fn reload(args: &ReloadArgs) -> u8 {
 }
 
 /// An explicit `--socket` wins and needs no store at all: nothing about
-/// finding it depends on how the configuration is stored. Otherwise the
-/// socket path has to come from the configuration, which is where the
-/// running server got it from, and reading that configuration needs a
-/// working store -- so with no `--socket` and `--store postgres`, this is
-/// refused the same way `StoreArgs::open()` refuses it everywhere else,
-/// rather than only when a command actually calls `open()`.
-fn resolve_socket(args: &ReloadArgs) -> Result<PathBuf, CliError> {
+/// finding it depends on how the configuration is stored.
+///
+/// Otherwise the socket path comes from the configuration, which is where the
+/// running server got it from -- so it is read through the store, whichever
+/// store that is. One path for both, rather than a file-shaped shortcut beside
+/// a database-shaped one, which is how the two would come to disagree about
+/// which configuration they mean.
+async fn resolve_socket(args: &ReloadArgs) -> Result<PathBuf, CliError> {
     if let Some(socket) = &args.socket {
         return Ok(socket.clone());
     }
-    match args.store.store {
-        StoreKind::Postgres => Err(CliError::StoreUnavailable {
-            dsn: args.store.database_url.as_deref().map(mask_dsn),
-        }),
-        StoreKind::File => doppel_core::config::load_from_path(&args.store.config)
-            .map(|config| config.control.socket)
-            .map_err(|err| CliError::Failed(format!("cannot determine the control socket: {err}"))),
-    }
+    args.store
+        .open()
+        .await
+        .map(|(_, config)| config.control.socket)
+        .map_err(|err| CliError::Failed(format!("cannot determine the control socket: {err}")))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::StoreArgs;
+    use crate::cli::{StoreArgs, StoreKind};
 
     fn store_args(store: StoreKind) -> StoreArgs {
         StoreArgs {
@@ -99,11 +97,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn no_socket_and_a_postgres_store_is_refused_with_exit_code_2() {
+    async fn no_socket_and_a_postgres_store_with_no_url_is_refused() {
+        // Without `--socket` the path has to come from the configuration, and
+        // reading that needs a store that can be opened. A postgres store with
+        // nothing to connect to cannot be, and the refusal has to name why
+        // rather than time out looking for a socket that was never resolved.
         let args = ReloadArgs {
             socket: None,
             store: store_args(StoreKind::Postgres),
         };
-        assert_eq!(reload(&args).await, 2);
+        assert_eq!(reload(&args).await, 1);
     }
 }

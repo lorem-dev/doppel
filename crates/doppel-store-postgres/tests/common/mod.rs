@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use sqlx::{AssertSqlSafe, Connection, PgConnection, PgPool, Row};
+use tempfile::TempDir;
 
 /// The database these tests run against, or `None`.
 ///
@@ -48,6 +49,9 @@ pub struct TestSchema {
     /// recycle it, releasing the lock while the test is still running.
     guard: PgConnection,
     lock_key: i64,
+    /// A template mirror of this test's own. Held for its Drop, so nothing
+    /// survives the test and no test writes into the repository.
+    templates: TempDir,
 }
 
 impl TestSchema {
@@ -94,6 +98,7 @@ impl TestSchema {
             base_url: base_url.to_owned(),
             guard,
             lock_key,
+            templates: tempfile::tempdir().expect("a templates directory"),
         }
     }
 
@@ -141,6 +146,19 @@ impl TestSchema {
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// The mirror directory a `PostgresStore` opened against this schema
+    /// should use.
+    pub fn templates_dir(&self) -> &std::path::Path {
+        self.templates.path()
+    }
+
+    /// Open a store against this schema, with this schema's mirror directory.
+    pub async fn store(&self) -> doppel_store_postgres::PostgresStore {
+        doppel_store_postgres::PostgresStore::connect(&self.url(), "default", self.templates_dir())
+            .await
+            .expect("connect")
     }
 
     /// A URL that puts this schema first on the search path, so the migrations

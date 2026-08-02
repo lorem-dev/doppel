@@ -1,6 +1,8 @@
-<h1 align="center">
-  <img src="/docs/assets/logo.svg" width="24" alt="Doppel Logo"> Doppel
-</h1>
+<p align="center">
+    <img src="/docs/assets/logo.svg" width="64" alt="Doppel Logo">
+</p>
+
+<h1 align="center">Doppel<span style="opacity: 0.5">ganger</span></h1>
 
 <p align="center">
     Doppel is a CLI-driven HTTP reverse proxy. The name is from "doppelganger": it

@@ -143,44 +143,60 @@ fn a_cli_flag_beats_the_environment_variable() {
 
 #[test]
 fn the_store_can_be_selected_by_environment_variable() {
+    // Selected, and then refused for want of a URL -- which is the observable
+    // proof that the variable was read at all. Before the PostgreSQL store
+    // existed this asserted a blanket refusal; the selection is the part that
+    // was ever being tested.
     let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
         .args(["serve"])
         .env("DOPPEL_CONFIG_STORE", "postgres")
+        .env_remove("DOPPEL_DATABASE_URL")
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("--database-url"),
+        "the refusal must name what is missing, got: {stderr}"
+    );
 }
 
 #[test]
-fn postgres_store_exits_two() {
+fn a_postgres_store_with_no_database_url_is_refused_by_name() {
+    // Guessing a local default would let a mistyped environment talk to the
+    // wrong database, which is not a mistake anyone notices in time.
     let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
         .args(["serve", "--store", "postgres"])
+        .env_remove("DOPPEL_DATABASE_URL")
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("not available in this build"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("--database-url"), "{stderr}");
 }
 
 #[test]
 fn config_reload_without_a_socket_reports_the_refusal_on_stderr_not_stdout() {
-    // No `--socket` and a postgres store: `resolve_socket` fails before ever
-    // reaching a control socket, which is a failure to reach something, not
-    // this command's output -- so it belongs on stderr, per the stream
+    // No `--socket`, so the path has to come from the configuration, which is
+    // read through the store -- and a postgres store with nothing to connect
+    // to cannot be opened. That is a failure to reach something rather than
+    // this command's output, so it belongs on stderr, per the stream
     // convention in `main.rs`.
     let output = Command::new(env!("CARGO_BIN_EXE_doppel"))
         .args(["config", "reload", "--store", "postgres"])
+        .env_remove("DOPPEL_DATABASE_URL")
         .output()
         .unwrap();
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("not available in this build"),
+        stderr.contains("--database-url"),
         "got stdout: {stdout}\nstderr: {stderr}"
     );
     assert!(
-        !stdout.contains("not available in this build"),
-        "got stdout: {stdout}\nstderr: {stderr}"
+        stdout.is_empty(),
+        "a failure to reach the store is not this command's output: {stdout}"
     );
 }
 

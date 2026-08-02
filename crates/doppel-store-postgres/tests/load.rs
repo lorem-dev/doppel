@@ -239,7 +239,7 @@ async fn a_configuration_loads_with_every_field_intact() {
     )
     .await;
 
-    let store = PostgresStore::connect(&schema.url(), "default")
+    let store = PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect");
     let (loaded, loaded_revision) = store.load_config().await.expect("load");
@@ -273,7 +273,7 @@ async fn document_order_survives_a_round_trip() {
     )
     .await;
 
-    let store = PostgresStore::connect(&schema.url(), "default")
+    let store = PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect");
     let (loaded, _) = store.load_config().await.expect("load");
@@ -303,7 +303,7 @@ async fn a_revision_that_disagrees_with_its_rows_is_refused() {
     let config = parse(FIXTURE);
     insert(&schema, "default", &config, 12345).await;
 
-    let store = PostgresStore::connect(&schema.url(), "default")
+    let store = PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect");
     let err = store
@@ -324,7 +324,7 @@ async fn an_unknown_configuration_name_is_not_found() {
     let schema = TestSchema::create(&url).await;
     schema.migrate().await;
 
-    let store = PostgresStore::connect(&schema.url(), "no-such-config")
+    let store = PostgresStore::connect(&schema.url(), "no-such-config", schema.templates_dir())
         .await
         .expect("connect");
     let err = store.load_config().await.expect_err("must be NotFound");
@@ -360,7 +360,7 @@ async fn a_half_written_latency_is_reported_rather_than_read_as_absent() {
         .execute("UPDATE proxies SET latency_max = NULL WHERE name = 'alpha'")
         .await;
 
-    let store = PostgresStore::connect(&schema.url(), "default")
+    let store = PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect");
     let err = store.load_config().await.expect_err("must be refused");

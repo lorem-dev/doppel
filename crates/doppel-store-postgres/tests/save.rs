@@ -39,7 +39,7 @@ fn parse(yaml: &str) -> doppel_core::Config {
 }
 
 async fn store(schema: &TestSchema) -> PostgresStore {
-    PostgresStore::connect(&schema.url(), "default")
+    PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect")
 }

@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use doppel_core::Config;
-use doppel_core::store::{ConfigStore, FileStore};
+use doppel_core::store::{ConfigStore, FileStore, StoreError};
+use doppel_store_postgres::PostgresStore;
 
 #[derive(Debug, Parser)]
 #[command(name = "doppel", version, about = "A doppelganger for your backend")]
@@ -126,30 +127,22 @@ impl std::fmt::Debug for StoreArgs {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CliError {
-    /// `dsn` is `None` when no `--database-url` was given, and already masked
-    /// otherwise. This text reaches stderr on every path that prints a
-    /// `CliError` -- `serve`'s error path, and `config validate`'s and
-    /// `config reload`'s printed messages -- none of which can be relied on
-    /// to have logging initialised, so the DSN is masked here rather than at
-    /// a call site that might not run.
-    #[error("the postgres store is not available in this build{}", dsn_suffix(dsn))]
-    StoreUnavailable { dsn: Option<String> },
     #[error("{0}")]
     Failed(String),
 }
 
-fn dsn_suffix(dsn: &Option<String>) -> String {
-    match dsn {
-        Some(dsn) => format!(" (database url: {dsn})"),
-        None => String::new(),
-    }
-}
-
 impl CliError {
+    /// Exit code 1 for every failure this type carries.
+    ///
+    /// There used to be a code 2 for "the postgres store is not available in
+    /// this build". It is gone with the refusal it described: keeping a code
+    /// nothing can produce would leave the CLI reference promising a
+    /// behaviour, and a script branching on it waiting for something that
+    /// never comes. Clap still exits 2 on a usage error, which is its
+    /// convention and not this type's business.
     #[must_use]
     pub fn exit_code(&self) -> u8 {
         match self {
-            Self::StoreUnavailable { .. } => 2,
             Self::Failed(_) => 1,
         }
     }
@@ -169,9 +162,35 @@ impl StoreArgs {
     /// directly rather than swallowed.
     pub async fn open(&self) -> Result<(Arc<dyn ConfigStore>, Config), CliError> {
         match self.store {
-            StoreKind::Postgres => Err(CliError::StoreUnavailable {
-                dsn: self.database_url.as_deref().map(mask_dsn),
-            }),
+            StoreKind::Postgres => {
+                let url = self.database_url.as_deref().ok_or_else(|| {
+                    CliError::Failed(
+                        "--database-url is required with --store postgres; there is nothing to \
+                         connect to without it, and guessing a local default would let a \
+                         mistyped environment talk to the wrong database"
+                            .to_owned(),
+                    )
+                })?;
+
+                // The templates directory is a chicken-and-egg: it lives in
+                // the configuration, and the configuration lives behind the
+                // store. Opened with a placeholder, then reopened once the
+                // real value is known -- one extra connect at startup, which
+                // is the cheapest way to keep `templates.dir` a configuration
+                // field rather than a second command-line argument nobody
+                // would remember to keep in step with it.
+                let probe = PostgresStore::connect(url, &self.config_name, ".")
+                    .await
+                    .map_err(store_failed(url))?;
+                let (config, _) = probe.load().await.map_err(store_failed(url))?;
+                drop(probe);
+
+                let store =
+                    PostgresStore::connect(url, &self.config_name, config.templates.dir.clone())
+                        .await
+                        .map_err(store_failed(url))?;
+                Ok((Arc::new(store), config))
+            }
             StoreKind::File => {
                 let config = doppel_core::config::load_from_path(&self.config)
                     .map_err(|err| CliError::Failed(err.to_string()))?;
@@ -195,6 +214,21 @@ pub fn mask_dsn(dsn: &str) -> String {
             url.to_string()
         }
         Err(_) => "<unparseable dsn>".to_owned(),
+    }
+}
+
+/// A store failure on its way to stderr, with the DSN masked.
+///
+/// The message reaches stderr on every path that prints a `CliError`, none of
+/// which can be relied on to have logging initialised, so the masking happens
+/// here rather than at a call site that might not run.
+fn store_failed(url: &str) -> impl Fn(StoreError) -> CliError + '_ {
+    move |err| CliError::Failed(format!("{err} (database url: {})", mask_dsn(url)))
+}
+
+impl From<StoreError> for CliError {
+    fn from(err: StoreError) -> Self {
+        Self::Failed(err.to_string())
     }
 }
 
@@ -305,33 +339,54 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn opening_a_postgres_store_is_refused_with_exit_code_2() {
+    async fn a_postgres_store_without_a_database_url_is_refused_by_name() {
+        // There used to be a blanket refusal here, with its own exit code,
+        // because the store did not exist. It exists now, so the only thing
+        // left to refuse is the case where there is nothing to connect to --
+        // and guessing a local default would let a mistyped environment talk
+        // to the wrong database.
         let args = StoreArgs {
             store: StoreKind::Postgres,
             config: "./main.yaml".into(),
             config_name: "default".to_owned(),
-            database_url: Some("postgres://u:p@h/db".to_owned()),
+            database_url: None,
         };
         // `Arc<dyn ConfigStore>` is not `Debug`, so `unwrap_err` (which
         // requires the `Ok` type to be `Debug`) does not apply here.
         let err = match args.open().await {
-            Ok(_) => panic!("expected the postgres store to be refused"),
+            Ok(_) => panic!("expected a refusal with no database url"),
             Err(err) => err,
         };
-        assert_eq!(err.exit_code(), 2);
-        assert!(err.to_string().contains("not available in this build"));
+        assert_eq!(err.exit_code(), 1);
         assert!(
-            !err.to_string().contains(":p@"),
-            "the dsn must not leak into the message"
+            err.to_string().contains("--database-url"),
+            "the message must name the missing argument, got: {err}"
         );
-        // The negative check above (no raw password) was trivially true
-        // before `dsn` even existed on this variant. Assert the positive
-        // too: the masked form the caller supplied must actually show up in
-        // the message, not merely "no password leaked because nothing about
-        // the dsn appears at all".
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_database_is_reported_with_the_password_masked() {
+        // The DSN reaches stderr on this path, and it is the one place an
+        // operator's password could be printed by the command they ran to
+        // diagnose a connection problem.
+        let args = StoreArgs {
+            store: StoreKind::Postgres,
+            config: "./main.yaml".into(),
+            config_name: "default".to_owned(),
+            database_url: Some("postgres://u:hunter2@127.0.0.1:1/db".to_owned()),
+        };
+        let err = match args.open().await {
+            Ok(_) => panic!("port 1 cannot be a database"),
+            Err(err) => err,
+        };
+        let message = err.to_string();
         assert!(
-            err.to_string().contains("postgres://u:***@h/db"),
-            "the masked dsn must appear in the message, got: {err}"
+            !message.contains("hunter2"),
+            "the password leaked: {message}"
+        );
+        assert!(
+            message.contains("127.0.0.1"),
+            "the host must survive: {message}"
         );
     }
 

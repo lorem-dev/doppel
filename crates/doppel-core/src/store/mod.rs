@@ -195,6 +195,20 @@ pub trait ConfigStore: Send + Sync {
     /// Drop every template for `proxy` except those named in `keep`. An empty
     /// `keep` removes the proxy's storage entirely.
     async fn retain_templates(&self, proxy: &str, keep: &[String]) -> Result<(), StoreError>;
+
+    /// Make every template this store holds available as a file under `dir`.
+    ///
+    /// The render path reads a template from the filesystem at request time,
+    /// so a store that keeps them anywhere else has to put them there before
+    /// the configuration is compiled. `reload` calls this, which is how a
+    /// second instance picks up a template its peer uploaded.
+    ///
+    /// The default does nothing, which is correct for `FileStore`: its
+    /// templates already are those files.
+    async fn materialize_templates(&self, dir: &std::path::Path) -> Result<(), StoreError> {
+        let _ = dir;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

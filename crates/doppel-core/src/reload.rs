@@ -66,6 +66,20 @@ pub async fn reload(
         }
     };
 
+    // Before compiling, so a mock that names a template finds the file. A
+    // store that keeps its templates in a database has to put them on disk
+    // first; `FileStore`'s default does nothing, so both stores go through one
+    // reload sequence rather than one branching on which store it has.
+    if let Err(err) = store.materialize_templates(&config.templates.dir).await {
+        return Err(ReloadFailure {
+            code: ErrorCode::StoreError,
+            violations: vec![Violation::new(
+                "templates.dir",
+                format!("cannot materialize templates: {err}"),
+            )],
+        });
+    }
+
     let unapplied = unapplied_sections(startup_config, &config);
     if !unapplied.is_empty() {
         tracing::warn!(

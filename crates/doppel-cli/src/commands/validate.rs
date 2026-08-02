@@ -152,11 +152,10 @@ proxies:
     }
 
     #[tokio::test]
-    async fn validating_a_postgres_store_exits_2_not_1() {
-        // `StoreArgs::open()` refuses `--store postgres` with exit code 2;
-        // `validate` must carry that code through rather than flattening
-        // every failure down to 1, or a script cannot tell "your config is
-        // wrong" apart from "this build cannot do that".
+    async fn validating_a_postgres_store_with_no_url_reports_the_failure() {
+        // `validate` carries whatever code `StoreArgs::open()` produced rather
+        // than inventing one, so a script sees the same answer whichever
+        // command hit the problem.
         let args = StoreArgs {
             store: StoreKind::Postgres,
             config: "./main.yaml".into(),
@@ -164,6 +163,6 @@ proxies:
             database_url: None,
         };
         let report = validate(&args).await;
-        assert_eq!(report.exit_code(), 2);
+        assert_eq!(report.exit_code(), 1);
     }
 }

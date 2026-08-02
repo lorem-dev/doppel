@@ -13,7 +13,7 @@ async fn connect_succeeds_against_a_migrated_schema() {
     let schema = TestSchema::create(&url).await;
     schema.migrate().await;
 
-    doppel_store_postgres::PostgresStore::connect(&schema.url(), "default")
+    doppel_store_postgres::PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect to a migrated schema");
 
@@ -30,9 +30,13 @@ async fn connect_to_an_unmigrated_schema_names_the_command_that_fixes_it() {
     };
     let schema = TestSchema::create(&url).await;
 
-    let err = doppel_store_postgres::PostgresStore::connect(&schema.url(), "default")
-        .await
-        .expect_err("an unmigrated schema must be refused");
+    let err = doppel_store_postgres::PostgresStore::connect(
+        &schema.url(),
+        "default",
+        schema.templates_dir(),
+    )
+    .await
+    .expect_err("an unmigrated schema must be refused");
     let message = err.to_string();
     assert!(
         message.contains("doppel config migrate"),
@@ -53,7 +57,7 @@ async fn migrations_are_idempotent() {
     schema.migrate().await;
     schema.migrate().await;
 
-    doppel_store_postgres::PostgresStore::connect(&schema.url(), "default")
+    doppel_store_postgres::PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
         .await
         .expect("connect after a repeated migration");
 
