@@ -21,13 +21,16 @@ without a network and the proxy logic is exercised without an admin API.
 | `doppel-proxy` | The proxy listener, request resolution, fault injection, mock matching, and upstream forwarding. |
 | `doppel-render` | Jinja2 rendering for mock responses. |
 | `doppel-admin` | The admin HTTP API: token access control, proxy CRUD, template files, reload, status, metrics, the OpenAPI document. |
+| `doppel-store-postgres` | `PostgresStore`, and the sqlx migrations that own its schema. |
 | `doppel-telemetry` | Logging initialization and optional Sentry. |
 | `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other crates together. |
 
 ```
-doppel-cli -> { doppel-proxy, doppel-admin, doppel-telemetry, doppel-core }
+doppel-cli -> { doppel-proxy, doppel-admin, doppel-store-postgres,
+                doppel-telemetry, doppel-core }
 doppel-proxy -> { doppel-render, doppel-core }
 doppel-admin -> doppel-core
+doppel-store-postgres -> doppel-core
 doppel-render -> doppel-core
 doppel-telemetry -> doppel-core
 doppel-core -> (nothing in this workspace)

@@ -32,11 +32,12 @@
   and a generated Swagger UI, behind token access control. See
   [the documentation](docs/admin-api.md).
 - Reports errors to Sentry, optionally, behind the `sentry` cargo feature.
+- Stores its configuration in a YAML file or in PostgreSQL, selected by
+  `--store`, with `config push` and `config pull` to move a configuration
+  between the two. See [the documentation](docs/storage.md).
 
 ## What it does not do yet
 
-- No PostgreSQL-backed configuration store; configuration lives in a single
-  YAML file on disk (phase 4).
 - No TCP proxying. A `type: tcp` proxy is rejected at load with a message
   saying so, rather than being quietly ignored.
 

@@ -23,13 +23,15 @@ yet.
   Prometheus metrics and Swagger UI -- behind token access control. See
   [Admin API](admin-api.md).
 - **Reports to Sentry**, optionally, behind a cargo feature.
+- **Stores its configuration** in a YAML file or in PostgreSQL, with
+  `config push` and `config pull` to move between them. See
+  [Configuration storage](storage.md).
 
 ## What it does not do yet
 
 Named plainly, because a tool's honest boundary is more useful than its
 roadmap:
 
-- No PostgreSQL-backed configuration; the YAML file is the only store.
 - No TCP proxying. A `type: tcp` proxy is rejected at load with a message
   saying so, rather than being quietly ignored.
 

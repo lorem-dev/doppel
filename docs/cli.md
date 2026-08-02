@@ -5,6 +5,11 @@ doppel serve            [--workers <n>] [--config <path>] [--store file|postgres
                         [--database-url <dsn>] [--config-name <name>]
 doppel config validate  [same store flags]
 doppel config reload    [--socket <path>] [same store flags]
+doppel config push      [--config <path>] --database-url <dsn>
+                        [--config-name <name>] [--if-revision <hex>]
+doppel config pull      --database-url <dsn> [--config-name <name>]
+                        [--output <path>]
+doppel config migrate   --database-url <dsn>
 doppel version
 ```
 
@@ -15,8 +20,12 @@ Scripts depend on these, so they are a contract:
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | The configuration was rejected, or a reload failed |
-| `2` | An unsupported option, such as `--store postgres` in this build |
+| `1` | The configuration was rejected, or the command could not do its work |
+| `2` | A usage error, from argument parsing |
+
+There is no longer a code for "this build cannot do that". It went with the
+refusal it described when the PostgreSQL store landed: an exit code nothing
+can produce is a promise a script waits on forever.
 
 ## Store flags
 
@@ -33,9 +42,10 @@ cannot depend on reading the store.
 
 Precedence is command line, then environment, then default.
 
-`--store postgres` exits `2`. The flag exists now so that adding the store
-later adds behaviour rather than syntax, and a build that cannot do it says so
-instead of pretending.
+`--database-url` is required with `--store postgres`, and there is no local
+default: a mistyped environment would otherwise connect to whatever database
+happened to be at hand. See [Configuration storage](storage.md) for what each
+store does.
 
 A database URL is masked wherever it can surface -- in an error message, in a
 log line, in a debug formatting of the arguments. An unparseable value is
@@ -56,6 +66,38 @@ so zero cannot reach the runtime builder, which would panic on it.
 Shutdown on `SIGINT` or `SIGTERM` stops accepting, drains in-flight requests
 for up to 30 seconds, removes the control socket and exits `0`. A second signal
 exits at once.
+
+## `config push`
+
+Reads a YAML document and writes it into the database. Both ends are named
+separately rather than through `--store`, because this command always reads a
+file and always writes a database: a store selector would be a flag with one
+legal value and a misleading name.
+
+Unconditional by default, which is what provisioning wants. `--if-revision
+<hex>` makes it the same compare-and-swap the admin API uses, so a scripted
+push cannot overwrite a change made in between; a revision that has moved is
+refused and nothing is written. A malformed `--if-revision` is refused before
+the database is touched, and is not reported as a mismatch -- a typo is not a
+stale copy, and the two need different fixes.
+
+An invalid document is refused with every violation listed, and writes
+nothing.
+
+## `config pull`
+
+Reads the database and writes canonical YAML to `--output`, or to stdout when
+there is none, so `doppel config pull > main.yaml` produces a file `push`
+accepts unchanged. Comments and layout are not preserved; they are no part of
+what the database stores.
+
+Pulling a name that is not there fails without creating the output file.
+
+## `config migrate`
+
+Applies any migrations the database has not seen, and reports how many ran.
+Safe to run twice. Never run at startup -- see
+[Configuration storage](storage.md#migrations).
 
 ## `config validate`
 
