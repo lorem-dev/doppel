@@ -11,7 +11,7 @@ asserted against by the test suite.
 | Key | Required | Purpose |
 |---|---|---|
 | `server` | yes | Where the proxy listens |
-| `admin` | yes | Admin API settings, parsed and validated now, served in a later phase |
+| `admin` | yes | Admin API settings |
 | `proxies` | yes | At least one proxy |
 | `logging` | no | Level and format; defaults to `info` and `json` |
 | `control` | no | Control socket path; defaults to `/tmp/doppel.sock` |
@@ -77,14 +77,12 @@ Optional. An absent section or an empty DSN disables it.
 
 ## `admin`
 
-Parsed and validated now; the API itself arrives in a later phase. A
-configuration written today stays valid when it does.
+The admin listener's address, its tokens, and who may do what.
 
 ```yaml
 admin:
   host: "0.0.0.0"
   port: 8081
-  workers: 1
   auth:
     header: X-Proxy-Authorization
   tokens:
@@ -111,6 +109,12 @@ action out entirely, which is far more often a typo than an intent.
 
 `access` maps each action to `public`, a single name, or a list of names. An
 empty list means public. Names are token names or group names.
+
+Reads default to public; `create`, `update`, `delete` and `upload` default to
+the `admin` group. That asymmetry is deliberate -- the most common
+configuration is the one nobody wrote, and an omitted `access` block must not
+hand an unauthenticated caller the ability to rewrite the proxy set. Setting a
+write action to `public` explicitly is refused for the same reason.
 
 `upload.limit` accepts `4096`, `512K`, `1M`, `2G`. It must be greater than
 zero.
@@ -194,7 +198,7 @@ Exceeding it is `413`. See [Mocks and templating](mocks.md#bodies-and-the-size-l
 
 ## Validation
 
-Thirty-three rules run identically at startup, on reload, and under
+Thirty-four rules run identically at startup, on reload, and under
 `doppel config validate`. Every violation is reported together with the others,
 each carrying the configuration path that produced it:
 

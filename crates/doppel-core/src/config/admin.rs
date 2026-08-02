@@ -11,8 +11,6 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub struct AdminConfig {
     pub host: IpAddr,
     pub port: u16,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workers: Option<usize>,
     #[serde(default)]
     pub auth: AuthConfig,
     #[serde(default)]
@@ -116,21 +114,49 @@ impl<'de> Deserialize<'de> for Subjects {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AccessConfig {
     #[serde(default)]
     pub list: Subjects,
     #[serde(default)]
     pub read: Subjects,
-    #[serde(default)]
+    #[serde(default = "admin_only")]
     pub create: Subjects,
-    #[serde(default)]
+    #[serde(default = "admin_only")]
     pub update: Subjects,
-    #[serde(default)]
+    #[serde(default = "admin_only")]
     pub delete: Subjects,
-    #[serde(default)]
+    #[serde(default = "admin_only")]
     pub upload: Subjects,
+}
+
+/// The default for every action that changes something.
+///
+/// Reads default to public: a proxy listing and `/status` give nothing away.
+/// Writes do not, because the alternative is that omitting an `access` block
+/// hands any unauthenticated caller the ability to rewrite the proxy set --
+/// and the most common configuration is the one nobody wrote. Rule V34 then
+/// refuses an *explicit* public write, so the safe state cannot be reached by
+/// accident in either direction.
+fn admin_only() -> Subjects {
+    Subjects::Names(vec!["admin".to_owned()])
+}
+
+impl Default for AccessConfig {
+    /// Kept in step with the `serde` defaults above by construction: an empty
+    /// `access:` block and `AccessConfig::default()` must describe the same
+    /// permissions, or the two ways of getting one would disagree.
+    fn default() -> Self {
+        Self {
+            list: Subjects::Public,
+            read: Subjects::Public,
+            create: admin_only(),
+            update: admin_only(),
+            delete: admin_only(),
+            upload: admin_only(),
+        }
+    }
 }
 
 /// Per-proxy override. Only these four actions may be overridden (rule V28 is

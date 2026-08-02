@@ -19,7 +19,6 @@ templates:
 admin:
   host: "0.0.0.0"
   port: 8081
-  workers: 1
   auth:
     header: X-Proxy-Authorization  # expects "Bearer {token}"
   tokens:

@@ -111,7 +111,7 @@ pub fn is_valid_header_value(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::load_from_str;
+    use crate::config::{Subjects, load_from_str};
 
     /// A config that passes every rule. Tests mutate one thing at a time.
     fn good() -> String {
@@ -259,6 +259,52 @@ proxies:
             "    url: \"https://example.com/\"\n    access:\n      create: admin",
         );
         assert!(load_from_str(&text).is_err());
+    }
+
+    #[test]
+    fn v34_a_write_action_may_not_be_public() {
+        for action in ["create", "update", "delete", "upload"] {
+            // Replace the whole block rather than appending a line: the
+            // fixture already sets `update`, and appending would produce a
+            // duplicate YAML key that fails to parse before the rule is
+            // reached -- a test that fails for the wrong reason.
+            let text = good().replace(
+                "  access:\n    read: public\n    update: user1",
+                &format!("  access:\n    read: public\n    {action}: public"),
+            );
+            assert_violation(
+                &text,
+                &format!("admin.access.{action}"),
+                "must not be public",
+            );
+        }
+    }
+
+    #[test]
+    fn v34_reads_may_still_be_public() {
+        let text = good().replace(
+            "  access:\n    read: public",
+            "  access:\n    read: public\n    list: public",
+        );
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
+    }
+
+    #[test]
+    fn an_omitted_access_block_defaults_writes_to_admin_not_public() {
+        // The most common configuration is the one nobody wrote, so the
+        // default has to be the safe one. Rule V34 refuses an explicit public
+        // write; this pins that the implicit case is safe too.
+        let text = good().replace(
+            "  access:\n    read: public\n    update: user1\n",
+            "  access: {}\n",
+        );
+        let config = load_from_str(&text).expect("an empty access block must parse");
+        assert_eq!(config.admin.access.read, Subjects::Public);
+        assert_eq!(
+            config.admin.access.create,
+            Subjects::Names(vec!["admin".to_owned()])
+        );
+        assert_eq!(validate(&config), Ok(()));
     }
 
     #[test]

@@ -17,7 +17,4 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
     if let Some(workers) = config.server.workers {
         v.require(workers >= 1, "server.workers", "workers must be at least 1");
     }
-    if let Some(workers) = config.admin.workers {
-        v.require(workers >= 1, "admin.workers", "workers must be at least 1");
-    }
 }
