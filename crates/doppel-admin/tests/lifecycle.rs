@@ -295,3 +295,89 @@ async fn metrics_needs_no_token() {
         200
     );
 }
+
+#[tokio::test]
+async fn the_openapi_document_is_served_as_json() {
+    let harness = Harness::new();
+    let reply = Call::get("/openapi.json").send(harness.router()).await;
+
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    let doc = reply.json();
+    assert_eq!(doc["info"]["title"], "Doppel admin API");
+    assert!(
+        doc["paths"]["/api/v1/proxies"]["get"].is_object(),
+        "{}",
+        reply.body
+    );
+}
+
+#[tokio::test]
+async fn the_openapi_document_needs_no_token() {
+    // It describes the API rather than exposing any of it, and a client
+    // cannot authenticate before it knows how to.
+    let harness = Harness::new();
+    assert_eq!(
+        Call::get("/openapi.json")
+            .send(harness.router())
+            .await
+            .status,
+        200
+    );
+}
+
+#[tokio::test]
+async fn swagger_ui_is_served() {
+    let harness = Harness::new();
+    // The UI root redirects to its index; both are the UI answering rather
+    // than the router falling through to a 404.
+    let reply = Call::get("/swagger-ui").send(harness.router()).await;
+    assert!(
+        reply.status.is_success() || reply.status.is_redirection(),
+        "{} {}",
+        reply.status,
+        reply.body
+    );
+
+    let index = Call::get("/swagger-ui/index.html")
+        .send(harness.router())
+        .await;
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert!(
+        index.body.contains("swagger"),
+        "{}",
+        &index.body[..200.min(index.body.len())]
+    );
+}
+
+#[tokio::test]
+async fn the_documented_error_envelope_is_the_one_the_api_actually_sends() {
+    // The document promises `status`, `message` and `code`. This checks a
+    // real error response against that promise, so the two cannot drift
+    // apart in the direction the document is silent about.
+    let harness = Harness::new();
+    let doc = Call::get("/openapi.json")
+        .send(harness.router())
+        .await
+        .json();
+    let documented: Vec<String> = doc["components"]["schemas"]["ErrorBody"]["properties"]
+        .as_object()
+        .expect("ErrorBody properties")
+        .keys()
+        .cloned()
+        .collect();
+
+    let actual = Call::get("/api/v1/proxies/nope")
+        .send(harness.router())
+        .await
+        .json();
+    let mut fields: Vec<String> = actual
+        .as_object()
+        .expect("an object")
+        .keys()
+        .cloned()
+        .collect();
+    fields.sort();
+    let mut documented = documented;
+    documented.sort();
+    assert_eq!(fields, documented);
+}

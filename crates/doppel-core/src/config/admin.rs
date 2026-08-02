@@ -173,7 +173,7 @@ impl Default for AccessConfig {
 
 /// Per-proxy override. Only these four actions may be overridden (rule V28 is
 /// expressed in the type, so a config overriding `create` fails at parse time).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProxyAccessConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,4 +311,61 @@ mod tests {
         let err = "5T".parse::<ByteSize>().unwrap_err();
         assert!(err.contains("unknown size suffix"), "got `{err}`");
     }
+}
+
+/// `Subjects` and `ByteSize` carry hand-written schemas because both have
+/// hand-written `Serialize`/`Deserialize` impls: a derived schema would
+/// describe the Rust shape rather than the wire shape, which is the one thing
+/// a generated document exists to get right.
+mod schemas {
+    use utoipa::PartialSchema;
+    use utoipa::openapi::schema::{ArrayBuilder, ObjectBuilder, OneOfBuilder, Type};
+    use utoipa::openapi::{RefOr, Schema};
+
+    impl PartialSchema for super::Subjects {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .description(Some(
+                    "Who may perform an action: `public`, one token or group \
+                     name, or a list of them. An empty list means public.",
+                ))
+                .item(
+                    ObjectBuilder::new()
+                        .schema_type(Type::String)
+                        .examples([serde_json::json!("public")]),
+                )
+                .item(
+                    ArrayBuilder::new()
+                        .items(ObjectBuilder::new().schema_type(Type::String))
+                        .examples([serde_json::json!(["admin", "user1"])]),
+                )
+                .into()
+        }
+    }
+
+    impl utoipa::ToSchema for super::Subjects {}
+
+    impl PartialSchema for super::ByteSize {
+        fn schema() -> RefOr<Schema> {
+            OneOfBuilder::new()
+                .description(Some(
+                    "A byte count, as a plain integer or with a `K`, `M` or \
+                     `G` suffix. Always serialized back as an integer.",
+                ))
+                .item(
+                    ObjectBuilder::new()
+                        .schema_type(Type::Integer)
+                        .minimum(Some(0.0))
+                        .examples([serde_json::json!(1_048_576u64)]),
+                )
+                .item(
+                    ObjectBuilder::new()
+                        .schema_type(Type::String)
+                        .examples([serde_json::json!("1M")]),
+                )
+                .into()
+        }
+    }
+
+    impl utoipa::ToSchema for super::ByteSize {}
 }

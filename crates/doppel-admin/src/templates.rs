@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use doppel_core::config::ProxyConfig;
 use doppel_core::store::name::sanitize;
-use doppel_core::{Config, Error, ErrorCode};
+use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 
 use crate::access::{Action, authorize, caller_from_headers};
@@ -34,15 +34,16 @@ pub fn routes() -> Router<AdminState> {
         .route_layer(DefaultBodyLimit::disable())
 }
 
-#[derive(Debug, Serialize)]
-struct TemplateEntry {
-    name: String,
-    size: usize,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct TemplateEntry {
+    pub name: String,
+    /// Size in bytes.
+    pub size: usize,
 }
 
-#[derive(Debug, Serialize)]
-struct TemplateList {
-    templates: Vec<TemplateEntry>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct TemplateList {
+    pub templates: Vec<TemplateEntry>,
 }
 
 /// Every template file name the proxy's mocks declare.
@@ -62,7 +63,17 @@ pub fn declared(proxy: &ProxyConfig) -> Vec<String> {
     names
 }
 
-async fn list(
+#[utoipa::path(
+    get, path = "/api/v1/proxies/{name}/templates", tag = "templates",
+    params(("name" = String, Path, description = "Proxy name")),
+    responses(
+        (status = 200, description = "Template files present for this proxy", body = TemplateList),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, description = "No such proxy", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn list(
     State(state): State<AdminState>,
     Path(name): Path<String>,
     headers: HeaderMap,
@@ -91,7 +102,24 @@ async fn list(
     Ok(axum::Json(TemplateList { templates }).into_response())
 }
 
-async fn upload(
+#[utoipa::path(
+    post, path = "/api/v1/proxies/{name}/templates/{file}", tag = "templates",
+    params(
+        ("name" = String, Path, description = "Proxy name"),
+        ("file" = String, Path, description = "File name, which some mock must name in `response.template`"),
+    ),
+    request_body(content = String, description = "The template source, as a raw body", content_type = "text/plain"),
+    responses(
+        (status = 204, description = "Stored. Uploading the same file again replaces it"),
+        (status = 400, description = "The file name is not usable as one", body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, description = "No such proxy", body = ErrorBody),
+        (status = 413, description = "Body over `admin.upload.limit`", body = ErrorBody),
+        (status = 422, description = "No mock of this proxy declares that file", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn upload(
     State(state): State<AdminState>,
     Path((name, file)): Path<(String, String)>,
     headers: HeaderMap,
@@ -132,7 +160,21 @@ async fn upload(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-async fn remove(
+#[utoipa::path(
+    delete, path = "/api/v1/proxies/{name}/templates/{file}", tag = "templates",
+    params(
+        ("name" = String, Path, description = "Proxy name"),
+        ("file" = String, Path, description = "File name"),
+    ),
+    responses(
+        (status = 204, description = "Deleted"),
+        (status = 400, description = "The file name is not usable as one", body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, description = "No such proxy, or no such file", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn remove(
     State(state): State<AdminState>,
     Path((name, file)): Path<(String, String)>,
     headers: HeaderMap,

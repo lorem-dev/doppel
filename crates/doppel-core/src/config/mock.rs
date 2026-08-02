@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::proxy::{LatencyConfig, LossConfig};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockConfig {
     pub name: String,
@@ -16,7 +16,7 @@ pub struct MockConfig {
     pub proxy: Option<MockProxyOverride>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockRequest {
     pub method: String,
@@ -32,7 +32,7 @@ pub struct MockRequest {
     pub body: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockResponse {
     pub status: u16,
@@ -58,7 +58,7 @@ impl MockResponse {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MockProxyOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1,6 +1,7 @@
 //! The admin HTTP API: proxy CRUD, template upload, reload, status, metrics.
 
 pub mod access;
+pub mod openapi;
 pub mod proxies;
 pub mod response;
 pub mod state;
@@ -20,5 +21,6 @@ pub fn router(state: AdminState) -> axum::Router {
         .merge(proxies::routes())
         .merge(templates::routes())
         .merge(status::routes())
+        .merge(openapi::routes())
         .with_state(state)
 }

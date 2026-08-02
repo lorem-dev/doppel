@@ -9,7 +9,7 @@ use axum::routing::get;
 use doppel_core::config::ProxyConfig;
 use doppel_core::store::{ConfigStore, Revision, StoreError};
 use doppel_core::validate::validate;
-use doppel_core::{Config, Error, ErrorCode};
+use doppel_core::{Config, Error, ErrorBody, ErrorCode};
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Action, authorize, caller_from_headers};
@@ -42,28 +42,42 @@ pub fn routes() -> Router<AdminState> {
 /// The revision is a sibling of the proxy rather than a field inside it so
 /// that `proxy` stays exactly the document that goes in a `main.yaml` -- a
 /// client can lift it out of a response and paste it into a file.
-#[derive(Debug, Serialize)]
-struct ProxyView {
-    revision: String,
-    proxy: ProxyConfig,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ProxyView {
+    /// Sixteen hex digits. Send it back in `If-Match` to update.
+    pub revision: String,
+    pub proxy: ProxyConfig,
 }
 
-#[derive(Debug, Serialize)]
-struct ProxyList {
-    proxies: Vec<ProxyView>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ProxyList {
+    pub proxies: Vec<ProxyView>,
 }
 
 /// The request body for create and update. Symmetrical with `ProxyView` on
 /// purpose: what a client reads is what it sends back.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
-struct ProxyRequest {
+pub struct ProxyRequest {
+    /// Required on update, refused on create.
     #[serde(default)]
-    revision: Option<String>,
-    proxy: ProxyConfig,
+    pub revision: Option<String>,
+    pub proxy: ProxyConfig,
 }
 
-async fn list(State(state): State<AdminState>, headers: HeaderMap) -> Result<Response, ApiError> {
+#[utoipa::path(
+    get, path = "/api/v1/proxies", tag = "proxies",
+    responses(
+        (status = 200, description = "Every proxy, each with its revision", body = ProxyList),
+        (status = 401, description = "No token, where one is required", body = ErrorBody),
+        (status = 403, description = "Token without the `list` right", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn list(
+    State(state): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let config = load(&state).await?;
     let caller = caller_from_headers(&config.admin, &headers);
     authorize(&config.admin, None, Action::List, &caller)?;
@@ -72,7 +86,17 @@ async fn list(State(state): State<AdminState>, headers: HeaderMap) -> Result<Res
     Ok(axum::Json(ProxyList { proxies }).into_response())
 }
 
-async fn read(
+#[utoipa::path(
+    get, path = "/api/v1/proxies/{name}", tag = "proxies",
+    params(("name" = String, Path, description = "Proxy name")),
+    responses(
+        (status = 200, description = "The proxy and its revision, also in `ETag`", body = ProxyView),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, description = "No such proxy", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn read(
     State(state): State<AdminState>,
     Path(name): Path<String>,
     headers: HeaderMap,
@@ -87,7 +111,18 @@ async fn read(
     Ok(with_etag(StatusCode::OK, view(proxy), None))
 }
 
-async fn create(
+#[utoipa::path(
+    post, path = "/api/v1/proxies", tag = "proxies",
+    request_body = ProxyRequest,
+    responses(
+        (status = 201, description = "Created; `Location` and `ETag` are set", body = ProxyView),
+        (status = 400, description = "Malformed body, or a `revision` was sent", body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 409, description = "A proxy of that name exists, or the store is under contention", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn create(
     State(state): State<AdminState>,
     headers: HeaderMap,
     body: Bytes,
@@ -144,7 +179,24 @@ async fn create(
     Ok(with_etag(StatusCode::CREATED, created, Some(location)))
 }
 
-async fn update(
+#[utoipa::path(
+    put, path = "/api/v1/proxies/{name}", tag = "proxies",
+    params(
+        ("name" = String, Path, description = "Proxy name; the body must repeat it"),
+        ("If-Match" = Option<String>, Header, description = "The revision read earlier, quoted"),
+    ),
+    request_body = ProxyRequest,
+    responses(
+        (status = 200, description = "Replaced; the new revision is in the body and `ETag`", body = ProxyView),
+        (status = 400, description = "Malformed body, a rename, or two disagreeing revisions", body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, body = ErrorBody),
+        (status = 409, description = "The proxy changed since it was read", body = ErrorBody),
+        (status = 428, description = "No revision was supplied", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn update(
     State(state): State<AdminState>,
     Path(name): Path<String>,
     headers: HeaderMap,
@@ -199,7 +251,22 @@ async fn update(
     Ok(with_etag(StatusCode::OK, updated, None))
 }
 
-async fn remove(
+#[utoipa::path(
+    delete, path = "/api/v1/proxies/{name}", tag = "proxies",
+    params(
+        ("name" = String, Path, description = "Proxy name"),
+        ("If-Match" = Option<String>, Header, description = "Optional: delete only if unchanged"),
+    ),
+    responses(
+        (status = 204, description = "Deleted, along with its template files"),
+        (status = 400, description = "Deleting it would leave an invalid configuration", body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 404, body = ErrorBody),
+        (status = 409, description = "The proxy changed since it was read", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn remove(
     State(state): State<AdminState>,
     Path(name): Path<String>,
     headers: HeaderMap,

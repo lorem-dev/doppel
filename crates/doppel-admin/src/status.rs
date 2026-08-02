@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use doppel_core::config::{ResolveKind, redact_credentials};
-use doppel_core::{Error, ErrorCode};
+use doppel_core::{Error, ErrorBody, ErrorCode};
 use serde::Serialize;
 
 use crate::access::{Action, authorize, caller_from_headers};
@@ -20,30 +20,33 @@ pub fn routes() -> Router<AdminState> {
         .route("/api/v1/config/reload", post(reload))
 }
 
-#[derive(Debug, Serialize)]
-struct Status {
-    uptime_seconds: u64,
-    revision: String,
-    proxies: Vec<ProxyStatus>,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Status {
+    pub uptime_seconds: u64,
+    /// The revision of the configuration currently in effect.
+    pub revision: String,
+    pub proxies: Vec<ProxyStatus>,
 }
 
-#[derive(Debug, Serialize)]
-struct ProxyStatus {
-    name: String,
-    upstream: String,
-    resolve: String,
-    mocks: usize,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ProxyStatus {
+    pub name: String,
+    /// The upstream, with any credentials stripped.
+    pub upstream: String,
+    /// `default`, or `header:<name>`.
+    pub resolve: String,
+    pub mocks: usize,
 }
 
-#[derive(Debug, Serialize)]
-struct ReloadReport {
-    revision: String,
-    proxies: usize,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ReloadReport {
+    pub revision: String,
+    pub proxies: usize,
     /// Sections that changed but need a restart. Absent when empty, so the
     /// common answer stays quiet rather than carrying an empty list every
     /// time.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    unapplied: Vec<String>,
+    pub unapplied: Vec<String>,
 }
 
 /// What the process is serving right now.
@@ -56,7 +59,11 @@ struct ReloadReport {
 /// Unauthenticated by design -- it is the endpoint a load balancer calls, and
 /// that is why every upstream goes through `redact_credentials` on the way
 /// out.
-async fn status(State(state): State<AdminState>) -> Response {
+#[utoipa::path(
+    get, path = "/status", tag = "process",
+    responses((status = 200, description = "What this process is serving right now", body = Status)),
+)]
+pub(crate) async fn status(State(state): State<AdminState>) -> Response {
     let runtime = state.holder().load();
     let proxies = runtime
         .config
@@ -90,7 +97,11 @@ async fn status(State(state): State<AdminState>) -> Response {
 /// Unauthenticated, like `/status`: a scraper is a machine on the operator's
 /// network with no place to put a token, and the exposition names proxies and
 /// counts -- never a token, a URL or a header value.
-async fn exposition(State(state): State<AdminState>) -> Response {
+#[utoipa::path(
+    get, path = "/metrics", tag = "process",
+    responses((status = 200, description = "Prometheus text exposition", content_type = "text/plain")),
+)]
+pub(crate) async fn exposition(State(state): State<AdminState>) -> Response {
     (
         // The text exposition format's registered content type. Without it
         // some scrapers fall back to guessing, and a guess of `text/plain`
@@ -105,7 +116,20 @@ async fn exposition(State(state): State<AdminState>) -> Response {
 }
 
 /// Promote the stored configuration to the running one.
-async fn reload(State(state): State<AdminState>, headers: HeaderMap) -> Result<Response, ApiError> {
+#[utoipa::path(
+    post, path = "/api/v1/config/reload", tag = "process",
+    responses(
+        (status = 200, description = "The stored configuration is now the running one", body = ReloadReport),
+        (status = 400, description = "The stored configuration is invalid; the running one survives", body = ErrorBody),
+        (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
+        (status = 500, description = "The store could not be read", body = ErrorBody),
+    ),
+    security(("token" = [])),
+)]
+pub(crate) async fn reload(
+    State(state): State<AdminState>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     // Authorized against the *running* configuration, unlike the CRUD
     // handlers, which authorize against the stored one. Each authorizes
     // against the policy governing the thing it changes: CRUD edits the

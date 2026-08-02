@@ -153,7 +153,7 @@ impl Error {
 
 /// The response body shape required by the spec. Field order is part of the
 /// contract, so the struct field order is load bearing.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ErrorBody {
     pub status: String,
     pub message: String,
