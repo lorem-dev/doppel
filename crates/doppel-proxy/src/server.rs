@@ -8,6 +8,7 @@ use axum::extract::{ConnectInfo, Request, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::routing::any;
+use doppel_core::metrics;
 use doppel_core::{CompiledMock, CompiledProxy, Error, ErrorCode, MockBody, RuntimeHolder};
 use doppel_render::{Renderer, Variables};
 
@@ -73,6 +74,15 @@ async fn handle(
         Ok(proxy) => proxy,
         Err(err) => {
             let response = with_request_id(error_response(&err), &request_id);
+            // Read once and shared with the metric, so the log line and the
+            // histogram cannot disagree about how long the same request took.
+            let elapsed = started.elapsed();
+            metrics::record_proxy(
+                metrics::UNRESOLVED,
+                method.as_str(),
+                response.status().as_u16(),
+                elapsed,
+            );
             // `upstream_contacted` is a bool, not an `Option`-typed null: the
             // `tracing::Value` impl for `Option<T>` records nothing at all
             // when the value is `None`, so the JSON layer omits a null field
@@ -92,7 +102,7 @@ async fn handle(
                 method = %method,
                 path,
                 status = response.status().as_u16(),
-                duration_ms = started.elapsed().as_millis(),
+                duration_ms = elapsed.as_millis(),
                 upstream_contacted = false,
                 loss_injected = false,
                 latency_injected_ms = 0u128,
@@ -117,13 +127,16 @@ async fn handle(
                 .expect("status came from a validated config"),
             &request_id,
         );
+        let elapsed = started.elapsed();
+        metrics::record_loss(&proxy.name);
+        metrics::record_proxy(&proxy.name, method.as_str(), status, elapsed);
         tracing::info!(
             request_id,
             proxy = proxy.name,
             method = %method,
             path,
             status,
-            duration_ms = started.elapsed().as_millis(),
+            duration_ms = elapsed.as_millis(),
             upstream_contacted = false,
             loss_injected = true,
             latency_injected_ms = 0u128,
@@ -134,6 +147,7 @@ async fn handle(
 
     let latency_ms = match faults.latency {
         Some(delay) => {
+            metrics::record_latency_injected(&proxy.name);
             tokio::time::sleep(delay).await;
             delay.as_millis()
         }
@@ -159,6 +173,17 @@ async fn handle(
                 Err(err) => (error_response(&err), Some(err.code.as_str())),
             };
             let response = with_request_id(response, &request_id);
+            let elapsed = started.elapsed();
+            metrics::record_mock_hit(&proxy.name, &mock.name);
+            // No upstream histogram: a served mock never contacts one, and
+            // recording a zero there would put a fabricated observation in
+            // the middle of real upstream latency data.
+            metrics::record_proxy(
+                &proxy.name,
+                method.as_str(),
+                response.status().as_u16(),
+                elapsed,
+            );
             // `upstream_contacted` is false here and the two upstream fields
             // are absent: a served mock never reaches the upstream, which is
             // precisely the distinction that field exists to record.
@@ -169,7 +194,7 @@ async fn handle(
                 method = %method,
                 path,
                 status = response.status().as_u16(),
-                duration_ms = started.elapsed().as_millis(),
+                duration_ms = elapsed.as_millis(),
                 upstream_contacted = false,
                 loss_injected = false,
                 latency_injected_ms = latency_ms,
@@ -191,13 +216,26 @@ async fn handle(
     .await
     {
         Ok((response, outcome)) => {
+            let elapsed = started.elapsed();
+            metrics::record_upstream(
+                &proxy.name,
+                method.as_str(),
+                outcome.status,
+                outcome.duration,
+            );
+            metrics::record_proxy(
+                &proxy.name,
+                method.as_str(),
+                response.status().as_u16(),
+                elapsed,
+            );
             tracing::info!(
                 request_id,
                 proxy = proxy.name,
                 method = %method,
                 path,
                 status = response.status().as_u16(),
-                duration_ms = started.elapsed().as_millis(),
+                duration_ms = elapsed.as_millis(),
                 upstream_contacted = true,
                 upstream_status = outcome.status,
                 upstream_duration_ms = outcome.duration.as_millis(),
@@ -209,6 +247,16 @@ async fn handle(
         }
         Err(err) => {
             let response = with_request_id(error_response(&err), &request_id);
+            let elapsed = started.elapsed();
+            // The proxy histogram only. A failed attempt produced no
+            // `UpstreamOutcome`, so there is no upstream status or duration
+            // that would be anything but invented.
+            metrics::record_proxy(
+                &proxy.name,
+                method.as_str(),
+                response.status().as_u16(),
+                elapsed,
+            );
             // `forward` validates the request path before it ever opens a
             // connection (see `join_upstream`), so a 4xx here (always
             // `InvalidRequestPath` today) means the request was rejected on
@@ -242,7 +290,7 @@ async fn handle(
                         method = %method,
                         path,
                         status = response.status().as_u16(),
-                        duration_ms = started.elapsed().as_millis(),
+                        duration_ms = elapsed.as_millis(),
                         upstream_contacted = err.status() >= 500,
                         loss_injected = false,
                         latency_injected_ms = latency_ms,
@@ -462,6 +510,164 @@ proxies:
             .await
             .unwrap();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    /// Serve one request against a recorder of this test's own and return
+    /// both the response and the exposition.
+    ///
+    /// A local recorder rather than the global one: the global is
+    /// process-wide, so every test would see every other test's counters and
+    /// the assertions would silently depend on execution order.
+    /// `set_default_local_recorder` is thread-local, and `#[tokio::test]`
+    /// runs a current-thread runtime, so it covers the awaits inside the
+    /// handler.
+    async fn recorded(
+        state: ProxyState,
+        request: Request<Body>,
+    ) -> (axum::response::Response, String) {
+        let recorder = doppel_core::metrics::build().unwrap();
+        let handle = recorder.handle();
+        let guard = ::metrics::set_default_local_recorder(&recorder);
+        let response = send(state, request).await;
+        let text = handle.render();
+        drop(guard);
+        (response, text)
+    }
+
+    #[tokio::test]
+    async fn a_proxied_request_records_both_histograms() {
+        let upstream = spawn_ok_upstream().await;
+        let text = config_pointing_at(&upstream, "");
+        let (response, exposition) = recorded(state(&text, vec![]), get("/widgets/")).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            exposition.contains(doppel_core::metrics::UPSTREAM_DURATION),
+            "{exposition}"
+        );
+        assert!(
+            exposition.contains(doppel_core::metrics::PROXY_DURATION),
+            "{exposition}"
+        );
+        assert!(exposition.contains(r#"proxy="p1""#), "{exposition}");
+        assert!(exposition.contains(r#"method="GET""#), "{exposition}");
+        assert!(exposition.contains(r#"status="200""#), "{exposition}");
+    }
+
+    #[tokio::test]
+    async fn a_dropped_request_increments_the_loss_counter_and_contacts_no_upstream() {
+        let text = config_with("    loss:\n      percentage: 1.0\n      status: 503");
+        let (response, exposition) = recorded(state(&text, vec![0.0]), get("/anything")).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            exposition.contains(doppel_core::metrics::LOSS_TOTAL),
+            "{exposition}"
+        );
+        // The request is still one the proxy answered, so it belongs in the
+        // proxy histogram -- otherwise dropping traffic would make the
+        // request rate appear to fall rather than the error rate to rise.
+        assert!(
+            exposition.contains(doppel_core::metrics::PROXY_DURATION),
+            "{exposition}"
+        );
+        assert!(
+            !exposition.contains(doppel_core::metrics::UPSTREAM_DURATION),
+            "a dropped request never reached an upstream: {exposition}"
+        );
+    }
+
+    #[tokio::test]
+    async fn injected_latency_increments_its_own_counter() {
+        let text =
+            config_with("    latency:\n      percentage: 1.0\n      min: 0.0\n      max: 0.0");
+        let (_, exposition) = recorded(state(&text, vec![0.0, 0.0]), get("/anything")).await;
+
+        assert!(
+            exposition.contains(doppel_core::metrics::LATENCY_INJECTED_TOTAL),
+            "{exposition}"
+        );
+    }
+
+    #[tokio::test]
+    async fn latency_that_does_not_fire_increments_nothing() {
+        // Otherwise the counter measures how often latency was configured
+        // rather than how often it was applied.
+        let text =
+            config_with("    latency:\n      percentage: 0.5\n      min: 0.1\n      max: 0.1");
+        let (_, exposition) = recorded(state(&text, vec![0.9]), get("/anything")).await;
+
+        assert!(
+            !exposition.contains(doppel_core::metrics::LATENCY_INJECTED_TOTAL),
+            "{exposition}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unresolved_request_is_still_counted() {
+        let text = config_with("").replace(
+            "      type: default",
+            "      type: header\n      header: X-Proxy-Name",
+        );
+        let (response, exposition) = recorded(state(&text, vec![]), get("/anything")).await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            exposition.contains(doppel_core::metrics::PROXY_DURATION),
+            "{exposition}"
+        );
+        assert!(exposition.contains(r#"proxy="""#), "{exposition}");
+    }
+
+    #[tokio::test]
+    async fn a_mocked_request_records_the_mock_counter_but_no_upstream_histogram() {
+        // The upstream is loopback port 1, where nothing listens, so an
+        // upstream observation here could only have been invented.
+        let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+        let (response, exposition) =
+            recorded(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            exposition.contains(doppel_core::metrics::MOCK_HITS_TOTAL),
+            "{exposition}"
+        );
+        assert!(exposition.contains(r#"mock="m1""#), "{exposition}");
+        assert!(
+            exposition.contains(doppel_core::metrics::PROXY_DURATION),
+            "{exposition}"
+        );
+        assert!(
+            !exposition.contains(doppel_core::metrics::UPSTREAM_DURATION),
+            "a mock never contacts an upstream: {exposition}"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_request_can_put_its_path_into_the_exposition() {
+        // The cardinality guard, at the level where a real path exists. A
+        // path label is unbounded by definition, and filling a metrics
+        // backend from the outside is a production incident rather than an
+        // inconvenience.
+        let upstream = spawn_ok_upstream().await;
+        let text = config_pointing_at(&upstream, "");
+        let (_, exposition) = recorded(
+            state(&text, vec![]),
+            get("/cardinality-canary/9f3a1c/deep/"),
+        )
+        .await;
+
+        assert!(!exposition.contains("cardinality-canary"), "{exposition}");
+        assert!(!exposition.contains("9f3a1c"), "{exposition}");
+        assert!(!exposition.contains("path="), "{exposition}");
     }
 
     #[tokio::test]

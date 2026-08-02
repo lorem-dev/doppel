@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 
 use doppel_core::store::ConfigStore;
 use doppel_core::{Config, RuntimeHolder};
+use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::sync::Mutex;
 
 /// Shared handler state.
@@ -14,6 +15,7 @@ pub struct AdminState {
     holder: Arc<RuntimeHolder>,
     startup: Arc<Config>,
     reload_lock: Arc<Mutex<()>>,
+    metrics: PrometheusHandle,
     started_at: Instant,
 }
 
@@ -32,6 +34,7 @@ impl AdminState {
         holder: Arc<RuntimeHolder>,
         startup: Arc<Config>,
         reload_lock: Arc<Mutex<()>>,
+        metrics: PrometheusHandle,
         started_at: Instant,
     ) -> Self {
         Self {
@@ -39,6 +42,7 @@ impl AdminState {
             holder,
             startup,
             reload_lock,
+            metrics,
             started_at,
         }
     }
@@ -67,6 +71,16 @@ impl AdminState {
     #[must_use]
     pub fn reload_lock(&self) -> &Mutex<()> {
         &self.reload_lock
+    }
+
+    /// The handle `/metrics` renders from. Must come from
+    /// `doppel_core::metrics::install`, the recorder the proxy pipeline
+    /// actually records into -- a handle from a second recorder renders an
+    /// empty exposition, which reads as "no traffic" rather than as a
+    /// misconfiguration.
+    #[must_use]
+    pub fn metrics(&self) -> &PrometheusHandle {
+        &self.metrics
     }
 
     #[must_use]

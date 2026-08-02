@@ -2,6 +2,8 @@
 
 mod common;
 
+use std::time::Duration;
+
 use common::{BASE_CONFIG, Call, Harness, proxy_json};
 
 const ROOT: &str = "root-token";
@@ -253,4 +255,43 @@ async fn a_stored_config_cannot_authorise_its_own_promotion() {
         .send(harness.router())
         .await;
     assert_eq!(genuine.status, 200, "{}", genuine.body);
+}
+
+#[tokio::test]
+async fn metrics_renders_the_exposition_with_the_registered_content_type() {
+    let harness = Harness::new();
+    {
+        // Recorded into the harness's own recorder, which is the one the
+        // handler renders from. A test that recorded into the global
+        // recorder would pass here whether or not the handler was wired to
+        // anything.
+        let _guard = metrics::set_default_local_recorder(&harness.recorder);
+        doppel_core::metrics::record_proxy("alpha", "GET", 200, Duration::from_millis(5));
+        doppel_core::metrics::record_loss("alpha");
+    }
+
+    let reply = Call::get("/metrics").send(harness.router()).await;
+
+    assert_eq!(reply.status, 200);
+    assert_eq!(
+        reply.content_type.as_deref(),
+        Some("text/plain; version=0.0.4; charset=utf-8")
+    );
+    assert!(
+        reply.body.contains("doppel_proxy_request_duration_seconds"),
+        "{}",
+        reply.body
+    );
+    assert!(reply.body.contains("doppel_loss_total"), "{}", reply.body);
+    assert!(reply.body.contains(r#"proxy="alpha""#), "{}", reply.body);
+}
+
+#[tokio::test]
+async fn metrics_needs_no_token() {
+    // A scraper is a machine with nowhere to put one.
+    let harness = Harness::new();
+    assert_eq!(
+        Call::get("/metrics").send(harness.router()).await.status,
+        200
+    );
 }

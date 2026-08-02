@@ -129,6 +129,10 @@ pub struct Harness {
     pub holder: Arc<RuntimeHolder>,
     pub startup: Arc<Config>,
     pub reload_lock: Arc<Mutex<()>>,
+    /// A recorder of this harness's own, never the global one: a global
+    /// recorder is process-wide, so every test would see every other test's
+    /// counters and the assertions would depend on execution order.
+    pub recorder: Arc<metrics_exporter_prometheus::PrometheusRecorder>,
 }
 
 impl Harness {
@@ -160,6 +164,7 @@ impl Harness {
             holder,
             startup,
             reload_lock: Arc::new(Mutex::new(())),
+            recorder: Arc::new(doppel_core::metrics::build().expect("recorder builds")),
         }
     }
 
@@ -181,6 +186,7 @@ impl Harness {
             Arc::clone(&self.holder),
             Arc::clone(&self.startup),
             Arc::clone(&self.reload_lock),
+            self.recorder.handle(),
             Instant::now(),
         ))
     }
@@ -296,6 +302,7 @@ pub struct Reply {
     pub status: StatusCode,
     pub etag: Option<String>,
     pub location: Option<String>,
+    pub content_type: Option<String>,
     pub body: String,
 }
 
@@ -311,6 +318,7 @@ impl Reply {
         };
         let etag = header("etag");
         let location = header("location");
+        let content_type = header("content-type");
         let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
             .await
             .expect("collect body");
@@ -318,6 +326,7 @@ impl Reply {
             status,
             etag,
             location,
+            content_type,
             body: String::from_utf8(bytes.to_vec()).expect("body is utf-8"),
         }
     }

@@ -4,35 +4,9 @@ use std::collections::BTreeSet;
 
 use super::{Violations, is_valid_header_name};
 use crate::config::{MockRequest, MockResponse, ProxyConfig};
+use crate::method::KNOWN_METHODS;
 use crate::store::StoreError;
 use crate::store::name::sanitize;
-
-/// Methods Doppel will match on. Deliberately a closed list: a typo like
-/// `FETCH` should be a config error, not a mock that silently never matches.
-/// This is a typo guard, not a protocol restriction -- a method that is
-/// genuinely non-standard just needs to be added here.
-const KNOWN_METHODS: &[&str] = &[
-    "GET",
-    "HEAD",
-    "POST",
-    "PUT",
-    "PATCH",
-    "DELETE",
-    "OPTIONS",
-    "TRACE",
-    "CONNECT",
-    // The safe, idempotent method for a request that carries a body -- the
-    // "GET with a body" gap.
-    "QUERY",
-    // WebDAV methods (RFC 4918).
-    "PROPFIND",
-    "PROPPATCH",
-    "MKCOL",
-    "COPY",
-    "MOVE",
-    "LOCK",
-    "UNLOCK",
-];
 
 /// Statuses that must not carry a body, per RFC 9110.
 const BODILESS_STATUSES: [u16; 2] = [204, 304];

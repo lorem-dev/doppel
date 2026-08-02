@@ -2,7 +2,7 @@
 
 use axum::Router;
 use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use doppel_core::config::{ResolveKind, redact_credentials};
@@ -16,6 +16,7 @@ use crate::state::AdminState;
 pub fn routes() -> Router<AdminState> {
     Router::new()
         .route("/status", get(status))
+        .route("/metrics", get(exposition))
         .route("/api/v1/config/reload", post(reload))
 }
 
@@ -82,6 +83,25 @@ async fn status(State(state): State<AdminState>) -> Response {
         proxies,
     })
     .into_response()
+}
+
+/// The Prometheus exposition.
+///
+/// Unauthenticated, like `/status`: a scraper is a machine on the operator's
+/// network with no place to put a token, and the exposition names proxies and
+/// counts -- never a token, a URL or a header value.
+async fn exposition(State(state): State<AdminState>) -> Response {
+    (
+        // The text exposition format's registered content type. Without it
+        // some scrapers fall back to guessing, and a guess of `text/plain`
+        // without the version parameter is not the same contract.
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        state.metrics().render(),
+    )
+        .into_response()
 }
 
 /// Promote the stored configuration to the running one.

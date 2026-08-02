@@ -2,6 +2,8 @@
 
 pub mod config;
 pub mod error;
+pub mod method;
+pub mod metrics;
 pub mod reload;
 pub mod runtime;
 pub mod store;
