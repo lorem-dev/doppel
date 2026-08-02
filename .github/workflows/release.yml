@@ -245,6 +245,46 @@ jobs:
           # here would be a fixed string and would give both architectures the
           # same binary.
 
+      # Docker Hub's page is the one place an image is described to someone who
+      # never opens the repository, and it stays whatever was last pushed to it
+      # -- including empty. DOCKERHUB.md is written for that page rather than
+      # being the README, which opens with an installer the image's reader has
+      # no use for.
+      #
+      # Skipped for a pre-release, on the same reasoning as the moving tags: the
+      # page would tell everyone to pull an rc.
+      - name: Prepare the overview for the version being released
+        if: ${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          # Only the copy-paste commands, which name the image. The tags table
+          # uses bare `1.2.3-alpine` to show the shape and is left alone.
+          sed -i -E "s|loremdev/doppel:[0-9][^[:space:]]*-alpine|loremdev/doppel:${version}-alpine|g" \
+            DOCKERHUB.md
+          # Drop the file's own note to maintainers. Docker Hub renders
+          # markdown, and every overview on the hub that shows an image uses
+          # `![]()` rather than a tag -- so whether it strips HTML or escapes
+          # it is not something to find out on a live page. Deleting the
+          # comment makes the question moot. The range form assumes the
+          # comment does not wrap anything meant to be published, which is
+          # what the one at the top of DOCKERHUB.md says it is for.
+          sed -i '/<!--/,/-->/d' DOCKERHUB.md
+          head -4 DOCKERHUB.md
+          grep -n 'loremdev/doppel:' DOCKERHUB.md
+
+      - name: Push the overview to Docker Hub
+        if: ${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: loremdev/doppel
+          readme-filepath: ./DOCKERHUB.md
+          short-description: "CLI-driven HTTP reverse proxy that forwards, degrades, or mocks a backend"
+
   publish:
     name: Publish the release
     needs: build
