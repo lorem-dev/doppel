@@ -89,5 +89,34 @@ services:
       postgres:
         condition: service_healthy
 
+    healthcheck:
+      # `/status` on the admin listener: it needs no token by default, answers
+      # only once the runtime is compiled and both listeners are bound, and
+      # reports the revision actually in force -- which is what "ready" means
+      # here, rather than "the process started".
+      #
+      # `wget` rather than `curl`: the image installs neither, and busybox --
+      # which Alpine's base image is -- provides wget. A healthcheck calling
+      # something absent reports the container unhealthy forever, and the
+      # reason is buried in `docker inspect`.
+      #
+      # Short flags for the same reason: busybox accepts `-q` and `-O`
+      # everywhere, while the long spellings depend on how it was compiled.
+      #
+      # The port is the one inside the container, not the published one.
+      #
+      # This assumes `admin.enable` is true, as `main.example.yaml` has it. A
+      # configuration that turns the admin listener off has nothing to probe
+      # and would sit unhealthy while serving perfectly well; drop the
+      # healthcheck in that case rather than pointing it at the proxy port,
+      # where every path either reaches an upstream or is a mock.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/status"]
+      interval: 5s
+      timeout: 3s
+      # Startup is well under a second; this is slack for a cold container on
+      # a loaded machine, not an expectation.
+      start_period: 5s
+      retries: 5
+
 volumes:
   doppel-templates:

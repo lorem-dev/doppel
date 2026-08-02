@@ -137,10 +137,26 @@ services:
       - doppel-templates:/var/lib/doppel/templates
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
+    healthcheck:
+      # `/status` needs no token by default and answers only once the runtime
+      # is compiled and both listeners are bound. `wget` because the image
+      # installs no curl and Alpine's busybox provides it; short flags because
+      # busybox's long ones depend on how it was compiled. The port is the one
+      # inside the container.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8081/status"]
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
 
 volumes:
   doppel-templates:
 ```
+
+A configuration with `admin.enable: false` has nothing to probe. Drop the
+healthcheck there rather than pointing it at the proxy port, where every path
+either reaches an upstream or is answered by a mock -- neither of which says
+anything about whether Doppel itself is well.
 
 ## What the image contains
 
