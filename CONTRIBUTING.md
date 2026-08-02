@@ -109,6 +109,28 @@ git rebase "$LAST_SIGNED" --exec "git commit --amend --no-edit -S"
 A release commit prepares the version bump, then `develop` merges to `main`
 via Merge Request.
 
+### What the branch protection enforces
+
+`main` and `develop` both carry the same rules, so neither can be rewritten or
+lost by accident:
+
+- **No force pushes, no deletion.** A separate repository ruleset blocks
+  deletion of either branch with no bypass at all, including for
+  administrators -- a protection setting can be switched off in a moment of
+  haste, and the point of this one is that it cannot.
+- **Pull requests need one approving review**, and an approval is dismissed
+  when new commits arrive. Conversations must be resolved before merging.
+- **CI must pass and be up to date with the base branch** -- `Format, lint,
+  test` and `Documentation builds`, the two jobs that run on pull requests.
+  "Up to date" is what stops two individually-green branches from merging into
+  a broken one.
+
+Administrators are not forced through this, which is deliberate while the
+project has one maintainer: nobody can approve their own pull request, and a
+rule that made the repository unmergeable would be turned off rather than
+obeyed. It is the deletion ruleset, which no one can bypass, that carries the
+guarantee.
+
 Tags:
 
 - `v<version>-rc.<n>` -- a release candidate, tagged on `develop`. It builds and

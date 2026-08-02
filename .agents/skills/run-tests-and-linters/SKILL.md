@@ -18,7 +18,7 @@ cargo test
 Run the gate so its output lands in a file, and quote the file:
 
 ```bash
-docker compose up -d --wait
+docker compose up -d --wait   # the database only; Doppel is behind a profile
 export DOPPEL_TEST_DATABASE_URL=postgres://doppel:doppel@127.0.0.1:55432/doppel
 export DOPPEL_REQUIRE_DATABASE=1
 

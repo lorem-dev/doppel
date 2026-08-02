@@ -1,21 +1,49 @@
 <p align="center">
-    <img src="/docs/assets/logo.svg" width="64" alt="Doppel Logo">
+    <img src="/docs/assets/icon.svg" width="64" alt="Doppel Logo">
 </p>
 
 <h1 align="center">$$Doppel{\color{lightblue}ganger}$$</h1>
+
+<p align="center">
+    <a href="https://lorem-dev.github.io/doppel/"><img src="https://img.shields.io/badge/docs-online-blue" alt="Documentation"></a>
+    <a href="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/lorem-dev/doppel/actions/workflows/docs.yml"><img src="https://github.com/lorem-dev/doppel/actions/workflows/docs.yml/badge.svg" alt="Docs"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/github/license/lorem-dev/doppel" alt="License"></a>
+</p>
 
 <p align="center">
     Doppel is a CLI-driven HTTP reverse proxy. The name is from "doppelganger": it
     stands in front of, or in place of, a real backend, so clients of that backend
     can be developed and tested against a realistic, deliberately degraded, or
     entirely absent upstream. It forwards traffic to a configured upstream,
-    injects controlled latency and loss, and (in a later phase) replaces selected
-    endpoints with templated mock responses.
+    injects controlled latency and loss, and replaces selected endpoints with
+    templated mock responses.
 </p>
 
 ---
 
-## What phase 1 does
+## Installing
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/scripts/install.sh | sh
+```
+
+Prebuilt binaries are published for macOS on Apple Silicon and Linux on x86-64
+and arm64. Anywhere else, `cargo install --path crates/doppel-cli`. See
+[the documentation](docs/usage/installation.md).
+
+Or run the image:
+
+```bash
+docker run --rm -p 8080:8080 -p 8081:8081 \
+  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  loremdev/doppel:1.2.3-alpine
+```
+
+Published for `linux/amd64` and `linux/arm64`, with no `latest` tag -- pin the
+version. See [Running in Docker](docs/usage/docker.md).
+
+## What it does
 
 - Forwards HTTP requests to a configured upstream, streaming both request and
   response bodies rather than buffering them.
@@ -52,6 +80,9 @@ theme. Python tooling here is driven by `uv`, never `pip`:
 ```bash
 uv run --with-requirements docs/requirements.txt mkdocs serve
 ```
+
+The workspace layout -- the crates, what each owns, and the dependency
+direction -- is in [the architecture page](docs/development/architecture.md).
 
 `.superpowers/specs/` holds the design documents; that directory is git-ignored
 and not shipped.
@@ -113,17 +144,3 @@ See `main.example.yaml` at the repository root for a fuller reference covering
 tokens, access control, and fault injection. Note that every admin action --
 reads included -- defaults to the `admin` group: a proxy document carries the
 headers that proxy injects upstream, so a public listing would publish them.
-
-## Where the crates live
-
-A Cargo workspace under `crates/`; each crate owns one responsibility, and
-dependencies point one way, into `doppel-core`:
-
-| Crate | Owns |
-|---|---|
-| `doppel-core` | Configuration model, YAML loading, validation, the `ConfigStore` trait and its file-backed implementation, the compiled runtime, the error model. |
-| `doppel-proxy` | The proxy listener, request resolution, fault injection, and upstream forwarding. |
-| `doppel-render` | Mock matching and Jinja2 rendering. |
-| `doppel-admin` | The admin HTTP API: access control, proxy CRUD, templates, reload, status, metrics, OpenAPI. |
-| `doppel-telemetry` | Logging initialization and optional Sentry. |
-| `doppel-cli` | The `doppel` binary: argument parsing, the control channel, and wiring the other crates together. |

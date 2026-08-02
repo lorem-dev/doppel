@@ -36,9 +36,10 @@ proxies:
       type: default
 ```
 
-The `admin` block is required even though the admin API is not implemented
-yet: the configuration model is complete from the start, so a config written
-now stays valid when the API lands.
+The `admin` block is required. Empty `tokens` and `access` mean the API is
+reachable only under the default access rules, which grant every action to the
+`admin` group -- so with no tokens configured, nothing can call it. See
+[the admin API](admin-api.md).
 
 ## Check it before running it
 

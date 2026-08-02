@@ -9,6 +9,17 @@ clients of a backend be developed and tested against something realistic --
 including a backend that is slow, that drops requests, or that does not exist
 yet.
 
+## Installing
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lorem-dev/doppel/main/scripts/install.sh | sh
+```
+
+Prebuilt binaries for macOS on Apple Silicon and Linux on x86-64 and arm64.
+Anywhere else, `cargo install --path crates/doppel-cli`. Full instructions,
+including verifying a download and the macOS quarantine case, are on
+[Installing](usage/installation.md).
+
 ## What it does
 
 - **Proxies** HTTP to a configured upstream, streaming request and response

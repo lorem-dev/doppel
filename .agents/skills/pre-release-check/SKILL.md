@@ -33,6 +33,119 @@ The workspace version must be ahead of the newest release tag, and the
 CHANGES.md heading for it must exist with a date. If the version is unchanged
 since the last tag, the release has not been prepared -- stop and say so.
 
+## Then dry-run the release scripts
+
+The release workflow composes its body from these two. Running them here means
+a failure lands before the tag rather than after, when the only fix is a second
+tag.
+
+```bash
+uv run scripts/release_notes.py <version>
+uv run scripts/release_downloads.py <version> <a directory of fake assets>
+```
+
+`release_notes.py` fails when CHANGES.md has no section for the version, or has
+an empty one. `release_downloads.py` fails on an empty asset directory and puts
+anything it cannot classify under "Other" rather than dropping it -- so read its
+output rather than only its exit code, and check every platform you expect is
+listed.
+
+Read the composed `RELEASE_NOTES.md` before continuing, and delete it: it is a
+build artifact, not a file the repository keeps.
+
+## Then check that a release can actually be installed
+
+The asset names are a contract. `scripts/install.sh` builds
+`doppel-<target>.tar.gz` from a hardcoded pattern, and
+`.github/workflows/release.yml` stages the archives under exactly that name.
+Neither reads the other.
+
+```bash
+grep -n 'doppel-\${target}\|asset=' scripts/install.sh
+grep -n 'asset=' .github/workflows/release.yml
+```
+
+The three targets in the `build` matrix, the three in `install.sh`'s `case`,
+and the three in `release_downloads.py`'s `TARGETS` must be the same three. A
+target added to the build and not to the installer produces an archive nobody
+can install with one line, and nothing else notices.
+
+The `musl` job's two targets are deliberately *not* in those three: they are
+copied into the container image and are not release assets. What has to hold
+for them is that the `image` job's `install` lines name the artifacts the
+`musl` job produced -- a rename there fails the job, which is the good case,
+but check it rather than assuming.
+
+For the image itself:
+
+```bash
+grep -n 'images:\|tags:' -A6 .github/workflows/release.yml | sed -n '/metadata-action/,+12p'
+```
+
+`latest=false` must still be there. A moving tag is one an unpinned deployment
+follows into a release nobody reviewed, and a pre-release would take it.
+
+## Then check that every action reference resolves
+
+`actionlint` validates syntax and inputs. It does not, and cannot without the
+network, check that the tag you pinned exists. A reference to a tag that does
+not is not caught until the job fails at "Set up job", before a single step
+runs.
+
+```bash
+for ref in $(grep -rhoE 'uses: [a-zA-Z0-9/_.-]+@[a-zA-Z0-9._-]+' .github/workflows/ \
+             | sed 's/uses: //' | sort -u); do
+  repo="${ref%@*}"; tag="${ref#*@}"
+  code=$(curl -o /dev/null -s -w '%{http_code}' \
+         "https://api.github.com/repos/$repo/git/ref/tags/$tag")
+  [ "$code" = "200" ] && echo "OK      $ref" || echo "MISSING $ref"
+done
+```
+
+**Do not derive a major tag from a release number.** `releases/latest`
+returning `v9.0.0` does not mean `@v9` exists: publishing a sliding major tag
+is a convention, not a rule, and maintainers drop it. `astral-sh/setup-uv`
+publishes `v9.0.0` and stops its major tags at `v7`; assuming otherwise put two
+workflows in the repository that could not start. Ask for the ref you intend to
+write.
+
+## On the first release only: the two remaining badges
+
+The README carries badges for docs, CI, Docs and the licence. Two more belong
+there and are deliberately absent until there is something behind them, because
+each renders as an error otherwise:
+
+```html
+<a href="https://github.com/lorem-dev/doppel/releases/latest"><img src="https://img.shields.io/github/v/release/lorem-dev/doppel?label=download" alt="Download"></a>
+<a href="https://hub.docker.com/r/loremdev/doppel"><img src="https://img.shields.io/docker/v/loremdev/doppel?label=docker&sort=semver" alt="Docker"></a>
+```
+
+`no releases or repo not found` and `repository or tag not found` are what they
+say today. Add them once the first release and the first image exist, and check
+what they render before committing -- a download badge on a project with
+nothing to download is worse than no badge.
+
+## Then check the release key
+
+The signature is worth nothing if the published public key has expired or no
+longer matches what signs releases.
+
+```bash
+gpg --show-keys .github/release-key.asc
+```
+
+Read the expiry date, not just that the command succeeded. A key that expires
+between this release and the next produces signatures nobody can verify, and
+the failure appears on the *user's* machine rather than in this pipeline.
+
+Signing is gated on `DOPPEL_RELEASE_GPG_KEY` being set, so a release without it
+publishes unsigned and logs a warning rather than failing. Confirm the secret
+exists before a release that is meant to be signed:
+
+```bash
+gh secret list --repo lorem-dev/doppel
+```
+
 ## Then check commit hygiene
 
 Over the range since the last tag:
@@ -50,7 +163,7 @@ anywhere in any message, body or trailer.
 
 ## Report
 
-List each of the six checks with its result and the evidence you read. A pass
+List each check with its result and the evidence you read. A pass
 with no evidence behind it is the failure mode this project has seen most
 often: several reports over its history quoted counts and diagnostics that did
 not survive being checked. Name the command and the file for each figure.

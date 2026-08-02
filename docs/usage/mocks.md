@@ -137,8 +137,9 @@ intercepted, and you would have no way to tell.
 `template: put.json.j2` names a file at `<templates.dir>/<proxy-name>/put.json.j2`.
 
 The file is read when the request arrives, not when the configuration loads, so
-a mock may name a file that does not exist yet -- a later phase uploads them at
-runtime. A missing file at request time is `TEMPLATE_NOT_FOUND`.
+a mock may name a file that does not exist yet and have it
+[uploaded through the admin API](runtime-changes.md#uploading-a-template-at-runtime)
+later, with no reload. A missing file at request time is `TEMPLATE_NOT_FOUND`.
 
 ## Errors
 

@@ -1,0 +1,352 @@
+# Release: build the CLI for every supported target, then publish a GitHub
+# release whose body is the CHANGES.md section for the tag plus a download
+# list.
+#
+# Triggered by a version tag. Branch rules for where a tag may be cut from are
+# in CONTRIBUTING.md and are not enforced here -- a tag is the decision, and
+# this workflow carries it out.
+#
+# A pre-release tag (`v1.2.3-rc.1`, anything with a `-` qualifier) builds and
+# publishes exactly like a final one, marked as a pre-release so it does not
+# become `releases/latest` -- which is the URL `scripts/install.sh` resolves.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build, e.g. v0.2.0"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    strategy:
+      # One target failing should not throw away the others: they take
+      # different amounts of time and rebuilding all three to retry one is
+      # most of an hour.
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          # Native, on GitHub's arm64 runners. Those are free for public
+          # repositories, which this now is; before that this target was
+          # cross-compiled with `gcc-aarch64-linux-gnu` and an explicit
+          # `CC_*` so `ring`'s C would not be built for the host by mistake.
+          # None of that is needed when the runner is already arm64.
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # `rust-toolchain.toml` pins the channel; only the target has to be added
+      # on top of it, and `rustup target add` uses that same pinned toolchain.
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: |
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p doppel-cli
+
+      - name: Stage the archive
+        id: stage
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          asset="doppel-${{ matrix.target }}.tar.gz"
+          # Archived from inside the directory so the tarball holds a bare
+          # `doppel`, which is what install.sh expects to find after
+          # extracting.
+          tar -czf "dist/${asset}" -C "target/${{ matrix.target }}/release" doppel
+          echo "asset=${asset}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.stage.outputs.asset }}
+          path: dist/${{ steps.stage.outputs.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+  musl:
+    name: Build ${{ matrix.target }} (for the image)
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    # Separate from `build` rather than two more matrix rows: these are not
+    # release assets. They exist only to be copied into the Alpine image, and
+    # keeping them out of the `doppel-*` artifact namespace is what stops the
+    # publish job's glob from attaching them to the release.
+    # Each musl target on its own architecture, so `musl-gcc` is the native
+    # one and nothing is cross-compiled. Before arm64 runners became free for
+    # public repositories this went through cargo-zigbuild, because Ubuntu
+    # packages no `aarch64-linux-musl-gcc` and `ring` compiles C, so a linker
+    # alone would not have been enough. Native runners remove the whole
+    # problem, and with it a `cargo install` that compiled zigbuild from
+    # source on every run.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Install musl
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq -o DPkg::Lock::Timeout=300
+          sudo apt-get install -y --no-install-recommends \
+            -o DPkg::Lock::Timeout=300 musl-tools
+
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: |
+          rustup show active-toolchain
+          rustup target add ${{ matrix.target }}
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          cache-on-failure: true
+
+      - name: Build
+        env:
+          # `cc-rs` defaults to plain `cc`, which is glibc's. `ring` compiles
+          # C through it, so without this the build links glibc objects into a
+          # musl binary and fails at the last step -- or worse, produces one
+          # that does not run on Alpine.
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CC_aarch64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+        run: cargo build --release --locked --target ${{ matrix.target }} -p doppel-cli
+
+      - name: Upload the binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/doppel
+          if-no-files-found: error
+          retention-days: 1
+
+  image:
+    name: Build and push the image
+    needs: musl
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Collect the musl binaries
+        uses: actions/download-artifact@v8
+        with:
+          pattern: docker-*
+          path: staging
+
+      # buildx needs one path per platform, named the way the Dockerfile's
+      # `TARGETPLATFORM` resolves. Laid out here rather than in the Dockerfile
+      # so the Dockerfile stays buildable by hand from a single binary.
+      - name: Lay the binaries out by platform
+        run: |
+          set -euo pipefail
+          mkdir -p dist/linux/amd64 dist/linux/arm64
+          install -m 0755 staging/docker-x86_64-unknown-linux-musl/doppel dist/linux/amd64/doppel
+          install -m 0755 staging/docker-aarch64-unknown-linux-musl/doppel dist/linux/arm64/doppel
+          file dist/linux/*/doppel
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Every tag carries the `-alpine` suffix, naming the base the image is
+      # built on. That is the convention the images this one sits next to use
+      # (`postgres:17.6-alpine`, `node:22-alpine`), and it leaves the
+      # unsuffixed names free for a second base later without renaming
+      # anything anyone has already pinned.
+      #
+      # No `latest`. A tag that moves is one an unpinned deployment follows
+      # into a release nobody reviewed, and a pre-release would take it with
+      # the naive configuration. Final releases get `1.2.3-alpine`,
+      # `1.2-alpine` and `1-alpine`; a pre-release gets its full version and
+      # nothing else.
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: loremdev/doppel
+          flavor: |
+            latest=false
+            suffix=-alpine
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+            type=semver,pattern={{major}},enable=${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.title=Doppel
+            org.opencontainers.image.description=An HTTP proxy that forwards, degrades, or replaces a backend
+            org.opencontainers.image.licenses=Apache-2.0
+
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # No `build-args`: the Dockerfile reads `TARGETPLATFORM`, which
+          # buildx sets per platform, and defaults `BIN` from it. Passing one
+          # here would be a fixed string and would give both architectures the
+          # same binary.
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Sign only when the release key is configured. GitHub passes an empty
+    # string for a secret that does not exist, so this gate is what keeps a
+    # release publishable -- unsigned, and saying so -- before the key is set
+    # up. Failing instead would make the first release of a new checkout
+    # depend on a secret nobody has created yet.
+    env:
+      HAS_GPG: ${{ secrets.DOPPEL_RELEASE_GPG_KEY != '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      # Pinned to an exact release, unlike every other action here. astral-sh
+      # publishes `v9.0.0` but stopped publishing the sliding major tag after
+      # `v7`, so `@v9` resolves to nothing and the job fails before it runs.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+
+      - name: Collect every built archive
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          # Every build job uploaded one file under its own artifact name;
+          # flatten them into one directory.
+          merge-multiple: true
+
+      - name: Write checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          # Relative names, so `shasum -c` works from whatever directory the
+          # verifier downloaded into.
+          sha256sum -- *.tar.gz > checksums.txt
+          cat checksums.txt
+
+      - name: Import the release key
+        if: env.HAS_GPG == 'true'
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.DOPPEL_RELEASE_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.gnupg
+          chmod 700 ~/.gnupg
+          # Loopback pinentry: there is no terminal to prompt on, and without
+          # this gpg fails asking for one rather than reading the passphrase
+          # from the flag below.
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+
+      - name: Sign the checksums
+        if: env.HAS_GPG == 'true'
+        env:
+          GPG_PASSPHRASE: ${{ secrets.DOPPEL_RELEASE_GPG_PASSPHRASE }}
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          gpg --batch --yes --pinentry-mode loopback \
+              --passphrase "$GPG_PASSPHRASE" \
+              --detach-sign --armor \
+              --output checksums.txt.asc \
+              checksums.txt
+          # Verify what was just produced rather than trusting that the
+          # signing command exiting zero means a usable signature.
+          gpg --verify checksums.txt.asc checksums.txt
+
+      - name: Say so when the release is unsigned
+        if: env.HAS_GPG != 'true'
+        run: |
+          echo "::warning::DOPPEL_RELEASE_GPG_KEY is not set; publishing checksums.txt without a signature."
+
+      - name: Compose the release notes
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          uv run scripts/release_notes.py "$TAG"
+          uv run scripts/release_downloads.py "$TAG" dist
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          # A `-` qualifier marks a pre-release, which keeps it out of
+          # `releases/latest` -- the URL scripts/install.sh resolves when no
+          # version is given.
+          prerelease=""
+          case "$TAG" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file RELEASE_NOTES.md \
+            $prerelease \
+            dist/*

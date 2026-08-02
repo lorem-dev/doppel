@@ -1,0 +1,9 @@
+# The image copies one already-built binary in; nothing else in the repository
+# belongs in the build context. Keeping it small matters more than usual here:
+# `target/` alone is tens of gigabytes on a working checkout, and every byte of
+# the context is sent to the daemon before the first instruction runs.
+*
+
+# The staged binary, which the `docker` release job puts here and the local
+# build instructions in the Dockerfile copy here too.
+!dist/

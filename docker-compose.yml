@@ -1,6 +1,9 @@
-# A database for local work and for the PostgreSQL integration tests.
+# Two things, deliberately not started together.
 #
-#   docker compose up -d
+# **The database**, for local work and for the PostgreSQL integration tests.
+# This is what comes up by default:
+#
+#   docker compose up -d --wait
 #   export DOPPEL_TEST_DATABASE_URL=postgres://doppel:doppel@127.0.0.1:55432/doppel
 #   cargo test
 #
@@ -8,6 +11,16 @@
 # keeps `cargo test` green on a machine with no database. The
 # `run-tests-and-linters` skill brings this file up itself, so "skipped" does
 # not quietly become "never verified".
+#
+# **Doppel itself**, behind a profile, for trying the two together:
+#
+#   docker compose --profile doppel up -d --wait
+#
+# The profile is what keeps the two apart. A service carrying one is not
+# started by a bare `docker compose up`, so the test workflow above is
+# unaffected -- and it has to stay that way: running the proxy during a test
+# run would put a second process on the ports and the templates directory the
+# integration tests bind and write themselves.
 
 services:
   postgres:
@@ -36,3 +49,70 @@ services:
       interval: 1s
       timeout: 3s
       retries: 30
+
+  doppel:
+    # Not started by a bare `docker compose up`. See the header.
+    profiles: ["doppel"]
+
+    # Built rather than pulled: there is no published image before the first
+    # release, and a local build is what you want anyway when trying a change.
+    #
+    # Stage the binary first -- the image copies one in rather than compiling,
+    # and it has to be musl-linked because the base is Alpine:
+    #
+    #   cargo zigbuild --release --target x86_64-unknown-linux-musl -p doppel-cli
+    #   mkdir -p dist && cp target/x86_64-unknown-linux-musl/release/doppel dist/
+    #
+    # On an arm64 machine, substitute aarch64-unknown-linux-musl.
+    build:
+      context: .
+      args:
+        BIN: dist/doppel
+
+    ports:
+      # Offset like the database's, and for the same reason: a developer
+      # already running Doppel from `cargo run` would otherwise collide.
+      - "127.0.0.1:58080:8080"
+      - "127.0.0.1:58081:8081"
+
+    volumes:
+      # The configuration. Read-only: this container has no business editing
+      # the file on your working tree, and `config push`/the admin API write
+      # through the store rather than through this mount.
+      - ./main.example.yaml:/etc/doppel/main.yaml:ro
+      # Templates. A named volume rather than a bind mount, and not optional:
+      # templates uploaded through the admin API are written here at runtime,
+      # and without a volume they vanish with the container.
+      - doppel-templates:/var/lib/doppel/templates
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      # `/status` on the admin listener: it needs no token by default, answers
+      # only once the runtime is compiled and both listeners are bound, and
+      # reports the revision actually in force -- which is what "ready" means
+      # here, rather than "the process started".
+      #
+      # `-f` is the flag that matters: without it curl exits 0 on a 500, and
+      # the healthcheck would report a container healthy for answering at all
+      # rather than for answering correctly.
+      #
+      # The port is the one inside the container, not the published one.
+      #
+      # This assumes `admin.enable` is true, as `main.example.yaml` has it. A
+      # configuration that turns the admin listener off has nothing to probe
+      # and would sit unhealthy while serving perfectly well; drop the
+      # healthcheck in that case rather than pointing it at the proxy port,
+      # where every path either reaches an upstream or is a mock.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
+      interval: 5s
+      timeout: 3s
+      # Startup is well under a second; this is slack for a cold container on
+      # a loaded machine, not an expectation.
+      start_period: 5s
+      retries: 5
+
+volumes:
+  doppel-templates:

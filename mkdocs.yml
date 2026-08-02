@@ -9,7 +9,7 @@ edit_uri: ""
 
 theme:
   name: material
-  # Rendered from `docs/assets/logo.svg` at 512x512, which is oversized for
+  # Rendered from `docs/assets/icon.svg` at 512x512, which is oversized for
   # both uses on purpose: the header renders it around 24px and a favicon is
   # smaller still, but browsers pick this up on retina displays and mkdocs
   # copies it verbatim rather than resampling.
@@ -20,14 +20,22 @@ theme:
     - navigation.top
     - content.code.copy
     - toc.follow
+  # `custom` for both, with the actual values in
+  # docs/stylesheets/theme.css. Material's named palettes are a fixed list and
+  # none of them is the icon's teal; naming the nearest one would put a colour
+  # in the header that the icon does not contain.
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -37,7 +45,9 @@ nav:
       - What Doppel is: index.md
       - Concepts: overview/concepts.md
   - Usage:
+      - Installing: usage/installation.md
       - Getting started: usage/getting-started.md
+      - Running in Docker: usage/docker.md
       - Proxying to an upstream: usage/proxying.md
       - Injecting faults: usage/faults.md
       - Mocking endpoints: usage/mocks.md
@@ -48,9 +58,13 @@ nav:
       - Observability: usage/observability.md
       - Configuration reference: usage/configuration.md
       - CLI reference: usage/cli.md
+      - Troubleshooting: usage/troubleshooting.md
   - Development:
       - Working on Doppel: development/index.md
       - Architecture: development/architecture.md
+
+extra_css:
+  - stylesheets/theme.css
 
 markdown_extensions:
   - admonition
