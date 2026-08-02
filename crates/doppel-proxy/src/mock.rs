@@ -1,8 +1,8 @@
-//! Matching a request against a proxy's mocks.
+//! Matching a request against a proxy's mocks, and binding its variables.
 
-use axum::http::Method;
-use doppel_core::{CompiledMock, CompiledProxy};
-use doppel_render::Variables;
+use axum::http::{HeaderMap, Method};
+use doppel_core::{CompiledMock, CompiledProxy, Error};
+use doppel_render::{Selector, Variables};
 
 /// Finds the first mock, in configuration order, whose method and path match
 /// the request, and binds its named capture groups into [`Variables`].
@@ -38,6 +38,80 @@ pub fn match_mock<'a>(
 
         Some((mock, vars))
     })
+}
+
+/// Binds the mock's declared header variables. A header the request does not
+/// carry binds nothing -- referencing it in a template is an undefined
+/// variable, per section 5 of the design.
+pub fn bind_headers(mock: &CompiledMock, headers: &HeaderMap, vars: &mut Variables) {
+    for (name, header) in &mock.header_vars {
+        if let Some(value) = headers.get(header.as_str()).and_then(|v| v.to_str().ok()) {
+            vars.insert(name, serde_json::Value::String(value.to_owned()));
+        }
+    }
+}
+
+/// Binds the mock's declared query variables. The raw query string is parsed
+/// into a flat JSON object first, so query selectors are evaluated with
+/// exactly the same `Selector` grammar and code path as body selectors --
+/// `filter: .filter` addresses the `filter` key the same way a body selector
+/// addresses a JSON object's key.
+///
+/// Percent-decoding goes through `reqwest::Url::query_pairs`, an inherent
+/// method on the `Url` type `reqwest` already re-exports as `reqwest::Url`
+/// (see `doppel_core::runtime::compile_proxy`'s own use of it) -- this needs
+/// no dependency on the `url` or `form_urlencoded` crates directly. A key
+/// repeated in the query string keeps its first value, matching this
+/// codebase's existing convention for a repeated header (see the
+/// `x-forwarded-for` handling in `upstream.rs`).
+pub fn bind_query(
+    mock: &CompiledMock,
+    query: Option<&str>,
+    vars: &mut Variables,
+) -> Result<(), Error> {
+    if mock.query_vars.is_empty() {
+        return Ok(());
+    }
+    let root = query_object(query.unwrap_or(""));
+    bind_selectors(&mock.query_vars, &root, vars)
+}
+
+/// Binds the mock's declared body variables against an already-parsed body.
+/// The caller is responsible for buffering and parsing the body only when
+/// `mock.body_vars` is non-empty, per section 6 of the design.
+pub fn bind_body(
+    mock: &CompiledMock,
+    root: &serde_json::Value,
+    vars: &mut Variables,
+) -> Result<(), Error> {
+    bind_selectors(&mock.body_vars, root, vars)
+}
+
+fn bind_selectors(
+    pairs: &[(String, String)],
+    root: &serde_json::Value,
+    vars: &mut Variables,
+) -> Result<(), Error> {
+    for (name, raw_selector) in pairs {
+        let selector = Selector::parse(raw_selector)?;
+        if let Some(value) = selector.eval(root) {
+            vars.insert(name, value.clone());
+        }
+    }
+    Ok(())
+}
+
+/// A URL good only for giving `Url::parse` an absolute form to parse the raw
+/// query string against; nothing about it (scheme, host) is ever inspected.
+fn query_object(query: &str) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    if let Ok(url) = reqwest::Url::parse(&format!("http://doppel.invalid/?{query}")) {
+        for (key, value) in url.query_pairs() {
+            map.entry(key.into_owned())
+                .or_insert_with(|| serde_json::Value::String(value.into_owned()));
+        }
+    }
+    serde_json::Value::Object(map)
 }
 
 #[cfg(test)]

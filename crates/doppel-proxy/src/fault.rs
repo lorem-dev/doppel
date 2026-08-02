@@ -95,7 +95,12 @@ pub fn decide(
 
 /// `percentage` of 0.0 never fires and 1.0 always does, because the sampler's
 /// range is half-open.
-fn fires(percentage: f64, sampler: &dyn Sampler) -> bool {
+///
+/// `pub(crate)` rather than private: the pipeline's `replace` roll (server.rs)
+/// is exactly the same kind of draw against a threshold as loss and latency
+/// are, and reusing this one definition keeps "what counts as a roll
+/// succeeding" defined in exactly one place.
+pub(crate) fn fires(percentage: f64, sampler: &dyn Sampler) -> bool {
     percentage > 0.0 && sampler.sample() < percentage
 }
 

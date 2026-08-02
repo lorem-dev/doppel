@@ -8,9 +8,10 @@ use axum::extract::{ConnectInfo, Request, State};
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::routing::any;
-use doppel_core::RuntimeHolder;
+use doppel_core::{CompiledMock, CompiledProxy, Error, ErrorCode, MockBody, RuntimeHolder};
+use doppel_render::{Renderer, Variables};
 
-use crate::fault::{OsSampler, Sampler, decide};
+use crate::fault::{OsSampler, Sampler, decide, fires};
 use crate::resolve::resolve;
 use crate::upstream::{error_response, forward};
 
@@ -139,6 +140,46 @@ async fn handle(
         None => 0,
     };
 
+    // Mock matching sits here, between latency and forwarding, because the
+    // spec fixes that order: faults are a property of the proxy and apply
+    // before an endpoint is chosen, while a mock replaces the endpoint.
+    //
+    // The `replace` roll is what makes a matched mock optional -- a proxy can
+    // serve a mock some of the time and the real backend the rest -- so a
+    // mock that matches but loses the roll falls through to `forward` below
+    // with its request untouched. That is why `serve_mock`, which consumes
+    // the request, is only reached inside the winning branch.
+    if let Some((mock, vars)) = crate::mock::match_mock(proxy, &method, &path) {
+        let replace = mock.replace.unwrap_or(proxy.replace);
+        if fires(replace, state.sampler.as_ref()) {
+            let outcome =
+                serve_mock(&runtime.config.templates.dir, proxy, mock, vars, request).await;
+            let (response, error_code) = match outcome {
+                Ok(response) => (response, None),
+                Err(err) => (error_response(&err), Some(err.code.as_str())),
+            };
+            let response = with_request_id(response, &request_id);
+            // `upstream_contacted` is false here and the two upstream fields
+            // are absent: a served mock never reaches the upstream, which is
+            // precisely the distinction that field exists to record.
+            tracing::info!(
+                request_id,
+                proxy = proxy.name,
+                mock = mock.name,
+                method = %method,
+                path,
+                status = response.status().as_u16(),
+                duration_ms = started.elapsed().as_millis(),
+                upstream_contacted = false,
+                loss_injected = false,
+                latency_injected_ms = latency_ms,
+                error_code,
+                "request mocked"
+            );
+            return response;
+        }
+    }
+
     match forward(
         &runtime.client,
         proxy,
@@ -243,6 +284,97 @@ fn with_request_id(mut response: Response, request_id: &str) -> Response {
         response.headers_mut().insert("x-request-id", value);
     }
     response
+}
+
+/// Renders a matched, roll-winning mock into its response. Order, per spec
+/// section 3 and the task brief: bind headers, then query, then body (only
+/// if the mock declares body selectors, buffering no more than
+/// `proxy.body_limit` -- phase 1's streaming stays untouched for every other
+/// mock and every unmatched request); read the template file if the body is
+/// `MockBody::Template`; render the body and every response header; return
+/// the mock's status.
+async fn serve_mock(
+    templates_dir: &std::path::Path,
+    proxy: &CompiledProxy,
+    mock: &CompiledMock,
+    mut vars: Variables,
+    request: Request,
+) -> Result<Response, Error> {
+    crate::mock::bind_headers(mock, request.headers(), &mut vars);
+    crate::mock::bind_query(mock, request.uri().query(), &mut vars)?;
+
+    if !mock.body_vars.is_empty() {
+        // Buffering is deferred to exactly here: only a mock that declares a
+        // body selector ever causes the request body to be read into memory
+        // at all (spec section 6 and section 10).
+        let limit = usize::try_from(proxy.body_limit).unwrap_or(usize::MAX);
+        let bytes = axum::body::to_bytes(request.into_body(), limit)
+            .await
+            .map_err(|err| {
+                Error::new(
+                    ErrorCode::UploadTooLarge,
+                    format!(
+                        "request body exceeds proxy `{}`'s body_limit of {} bytes: {err}",
+                        proxy.name, proxy.body_limit
+                    ),
+                )
+            })?;
+        let root = doppel_render::parse_body(&bytes)?;
+        crate::mock::bind_body(mock, &root, &mut vars)?;
+    }
+
+    let renderer = Renderer::new();
+    let body: Vec<u8> = match &mock.body {
+        MockBody::None => Vec::new(),
+        MockBody::Text(template) => renderer.render_str(template, &vars)?.into_bytes(),
+        MockBody::Json(template) => renderer.render_json(template, &vars)?.into_bytes(),
+        MockBody::Template(file) => {
+            let contents = read_template(templates_dir, &proxy.name, file)?;
+            renderer.render_str(&contents, &vars)?.into_bytes()
+        }
+    };
+
+    let mut builder = Response::builder().status(mock.status);
+    for (name, template) in &mock.headers {
+        let value = renderer.render_str(template, &vars)?;
+        builder = builder.header(name.as_str(), value);
+    }
+
+    builder.body(axum::body::Body::from(body)).map_err(|err| {
+        Error::new(
+            ErrorCode::TemplateRenderError,
+            format!("mock `{}` produced an invalid response: {err}", mock.name),
+        )
+    })
+}
+
+/// Reads `<templates_dir>/<proxy>/<file>` for `MockBody::Template`. Per spec
+/// section 8, this happens per request rather than at compile time, because
+/// phase 3 uploads templates at runtime and a reload must pick up whatever is
+/// on disk *at that moment*.
+///
+/// The mock's file name already passed `sanitize` at config validation (rule
+/// V31), but the proxy name never goes through that check -- V6 only rejects
+/// a *duplicate* proxy name, not an unsafe one -- so both are sanitized again
+/// here, defensively, before either becomes a path component. A name that
+/// fails this check cannot name a real template underneath `templates_dir`
+/// either way, so it is reported the same as a genuinely missing file rather
+/// than inventing a new error code for it.
+fn read_template(
+    templates_dir: &std::path::Path,
+    proxy_name: &str,
+    file: &str,
+) -> Result<String, Error> {
+    let not_found = || {
+        Error::new(
+            ErrorCode::TemplateNotFound,
+            format!("template `{file}` not found for proxy `{proxy_name}`"),
+        )
+    };
+    let safe_proxy = doppel_core::store::name::sanitize(proxy_name).map_err(|_| not_found())?;
+    let safe_file = doppel_core::store::name::sanitize(file).map_err(|_| not_found())?;
+    let path = templates_dir.join(safe_proxy).join(safe_file);
+    std::fs::read_to_string(&path).map_err(|_| not_found())
 }
 
 #[cfg(test)]
@@ -807,5 +939,306 @@ proxies:
             .unwrap();
         assert_eq!(returned.len(), 32);
         assert!(returned.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    // -- Mock pipeline integration (phase 2 task 6) -----------------------
+
+    mod mocks {
+        use super::*;
+
+        async fn body_string(response: axum::response::Response) -> String {
+            let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            String::from_utf8(bytes.to_vec()).unwrap()
+        }
+
+        /// `oneshot` bypasses `axum::serve`, so tests insert connect info
+        /// themselves, same as `get` above.
+        fn post(uri: &str, body: &'static [u8]) -> Request<Body> {
+            let mut request = Request::builder()
+                .method("POST")
+                .uri(uri)
+                .body(Body::from(body))
+                .unwrap();
+            request.extensions_mut().insert(axum::extract::ConnectInfo(
+                "127.0.0.1:54321".parse::<std::net::SocketAddr>().unwrap(),
+            ));
+            request
+        }
+
+        /// A config text pointing at the dead upstream (see `config_with`),
+        /// with a `templates.dir` an individual test controls, so a template
+        /// test can put (or withhold) a real file underneath it.
+        fn config_with_templates(dir: &std::path::Path, extra: &str) -> String {
+            format!(
+                r#"
+server:
+  host: "127.0.0.1"
+  port: 8080
+admin:
+  host: "127.0.0.1"
+  port: 8081
+  tokens: []
+  access: {{}}
+  upload:
+    limit: 1M
+templates:
+  dir: "{dir}"
+proxies:
+  - name: p1
+    type: http
+    url: "http://127.0.0.1:1/"
+    resolve:
+      type: default
+{extra}
+"#,
+                dir = dir.display(),
+            )
+        }
+
+        /// A fresh, per-call directory under the OS temp dir -- an atomic
+        /// counter alongside the process id keeps concurrently running tests
+        /// in this binary from colliding on the same path.
+        fn temp_templates_dir() -> std::path::PathBuf {
+            static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let dir = std::env::temp_dir().join(format!(
+                "doppel-proxy-test-templates-{}-{id}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        }
+
+        #[tokio::test]
+        async fn a_matched_mock_serves_without_contacting_the_upstream() {
+            // The upstream is loopback port 1 (see `config_with`), where
+            // nothing listens: passing at all, rather than timing out or
+            // getting a connection-refused error, proves the mock served the
+            // response and the upstream was never contacted.
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+        }
+
+        #[tokio::test]
+        async fn a_mock_that_loses_the_replace_roll_reaches_the_upstream() {
+            let extra = r#"    replace: 0.3
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            // Draw above the replace threshold, so the roll is lost and the
+            // dead upstream is contacted, producing 502 -- the same proof by
+            // dead upstream `loss_that_does_not_fire_falls_through_to_the_upstream`
+            // above uses.
+            let response = send(state(&config_with(extra), vec![0.9]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        }
+
+        #[tokio::test]
+        async fn a_body_extracting_mock_renders_from_the_body() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: POST
+          url: /widgets/
+          body:
+            itemName: .name
+        response:
+          status: 201
+          json: '{"item": "{{ itemName }}"}'
+"#;
+            let response = send(
+                state(&config_with(extra), vec![0.0]),
+                post("/widgets/", br#"{"name": "widget-1"}"#),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::CREATED);
+            let body = json_body(response).await;
+            assert_eq!(body["item"], "widget-1");
+        }
+
+        #[tokio::test]
+        async fn a_body_over_the_limit_yields_413_upload_too_large() {
+            let extra = r#"    body_limit: 10
+    mocks:
+      - name: m1
+        request:
+          method: POST
+          url: /widgets/
+          body:
+            itemName: .name
+        response:
+          status: 201
+          json: '{"item": "{{ itemName }}"}'
+"#;
+            let response = send(
+                state(&config_with(extra), vec![0.0]),
+                post(
+                    "/widgets/",
+                    br#"{"name": "a name much longer than ten bytes"}"#,
+                ),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+            let body = json_body(response).await;
+            assert_eq!(body["code"], "UPLOAD_TOO_LARGE");
+        }
+
+        #[tokio::test]
+        async fn a_mock_without_body_selectors_does_not_buffer_or_parse_the_body() {
+            // `body_limit` is tiny and the body sent is both far larger than
+            // it and not valid JSON. If the body were buffered at all, this
+            // would fail as either UPLOAD_TOO_LARGE or BODY_EXTRACTION_ERROR;
+            // getting the mock's own plain 200 back instead is the only
+            // externally observable trace that buffering would leave, and
+            // this is the strongest assertion honestly available from
+            // outside the request path -- it is not a memory-instrumentation
+            // proof that no allocation occurred, only a behavioural one that
+            // neither failure mode a real buffer read would trip ever fires.
+            let extra = r#"    body_limit: 5
+    mocks:
+      - name: m1
+        request:
+          method: POST
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(
+                state(&config_with(extra), vec![0.0]),
+                post(
+                    "/widgets/",
+                    b"this is not json and is much longer than five bytes",
+                ),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+        }
+
+        #[tokio::test]
+        async fn an_undefined_template_variable_yields_template_render_error() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          json: '{"x": "{{ missing }}"}'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let body = json_body(response).await;
+            assert_eq!(body["code"], "TEMPLATE_RENDER_ERROR");
+        }
+
+        #[tokio::test]
+        async fn a_missing_template_file_yields_template_not_found() {
+            let dir = temp_templates_dir();
+            std::fs::create_dir_all(dir.join("p1")).unwrap();
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          template: missing.j2
+"#;
+            let response = send(
+                state(&config_with_templates(&dir, extra), vec![0.0]),
+                get("/widgets/"),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let body = json_body(response).await;
+            assert_eq!(body["code"], "TEMPLATE_NOT_FOUND");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        #[tokio::test]
+        async fn a_non_json_body_with_a_body_selector_yields_body_extraction_error() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: POST
+          url: /widgets/
+          body:
+            itemName: .name
+        response:
+          status: 201
+          json: '{"item": "{{ itemName }}"}'
+"#;
+            let response = send(
+                state(&config_with(extra), vec![0.0]),
+                post("/widgets/", b"not json"),
+            )
+            .await;
+            assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+            let body = json_body(response).await;
+            assert_eq!(body["code"], "BODY_EXTRACTION_ERROR");
+        }
+
+        #[tokio::test]
+        async fn response_header_templates_render() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/(?P<resourceId>[0-9]+)/
+        response:
+          status: 200
+          headers:
+            X-Resource-ID: "{{ resourceId }}"
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/42/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers().get("x-resource-id").unwrap(), "42");
+        }
+
+        #[tokio::test]
+        async fn the_log_line_carries_the_mock_name_with_upstream_contacted_false() {
+            let extra = r#"    mocks:
+      - name: my-mock
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let (response, events) =
+                run_captured(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(events.len(), 1, "{events:?}");
+            let event = &events[0];
+            assert_upstream_contacted(event, false);
+            assert!(
+                event
+                    .recorded_fields
+                    .get("mock")
+                    .is_some_and(|value| value.contains("my-mock")),
+                "expected the mock name in {event:?}"
+            );
+        }
     }
 }
