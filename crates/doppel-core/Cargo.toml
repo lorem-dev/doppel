@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# The store conformance suite. On for tests, absent from a release build.
+test-support = []
+
 [dependencies]
 async-trait.workspace = true
 arc-swap.workspace = true
@@ -22,7 +26,9 @@ tracing.workspace = true
 utoipa.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true }
+doppel-core = { path = ".", features = ["test-support"] }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [lints]
 workspace = true

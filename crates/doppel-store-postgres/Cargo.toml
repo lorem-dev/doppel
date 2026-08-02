@@ -19,6 +19,7 @@ tempfile = { workspace = true, optional = true }
 tracing.workspace = true
 
 [dev-dependencies]
+doppel-core = { path = "../doppel-core", features = ["test-support"] }
 doppel-store-postgres = { path = ".", features = ["test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }

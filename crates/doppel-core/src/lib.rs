@@ -1,6 +1,8 @@
 //! Configuration model, validation, storage, and runtime state for Doppel.
 
 pub mod config;
+#[cfg(feature = "test-support")]
+pub mod conformance;
 pub mod error;
 pub mod method;
 pub mod metrics;
