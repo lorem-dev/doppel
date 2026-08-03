@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 0.2.0 -- 2026-08-03
+
 ### Changed
 
 - A matching mock is now decided before `loss` and `latency`, not after, so
@@ -23,7 +25,6 @@ release promotes it to a version heading; the `bump-version` skill does that.
   ending in `/` to a path beginning with `/`; it is legal HTTP, nothing rejected
   it, and the only symptom was an anchored mock silently not firing. Empty
   segments elsewhere in the path are left alone.
-
 - An injected `latency` is now a target for the whole response rather than an
   addition to it: the time the upstream really took is subtracted, and only the
   remainder is waited out. A 500ms latency in front of a backend answering in
