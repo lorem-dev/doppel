@@ -72,10 +72,14 @@ The order is fixed:
 client  -->  doppel  -->  upstream
               |
               |  1. resolve which proxy handles this request
-              |  2. maybe answer it here       (a matching mock, subject to `replace`)
-              |  3. maybe drop it              (loss)
-              |  4. maybe delay it             (latency)
-              |  5. otherwise forward it
+              |  2. does a mock match, and does `replace` fire?
+              |
+              |     yes -> the mock's loss; drop and stop if it fires
+              |            render the mock
+              |     no  -> the proxy's loss; drop and stop if it fires
+              |            forward it
+              |
+              |  3. wait out whatever is left of the latency
 ```
 
 Step 2 is conditional twice over. A mock has to match, and then `replace` --
@@ -84,15 +88,27 @@ requests to the real upstream and answers the other half locally, which is how
 a backend is replaced incrementally rather than all at once.
 
 Mock matching comes before the faults, and that ordering is what makes
-`replace` mean what it says. `loss` and `latency` describe the real backend; a
-mock replaces the real backend, so neither applies to a request a mock
-answered. Were it the other way round, `replace: 0.5` under `loss: 0.5` would
-answer a quarter of matching requests from the mock rather than half, and no
-configuration could ask for half while any loss was set.
+`replace` mean what it says. Were `loss` decided first, `replace: 0.5` under
+`loss: 0.5` would answer a quarter of matching requests from the mock rather
+than half, and no configuration could ask for half while any loss was set. So a
+request a mock answers is never dropped by the proxy's `loss`; only by the
+mock's own, which it does not inherit.
 
-The consequence worth knowing: a request a mock answers is never dropped and
-never delayed, however the proxy's faults are set. The faults are on the path
-to the upstream, and a mocked request does not take it.
+`latency` is the other way round: it says how slow this proxy is to answer, and
+that holds whatever answers, so a mocked response is delayed like any other. A
+mock may override the figure but does not add to it.
+
+Step 3 comes last because the delay is a target for the whole response, not an
+addition to it: the time the upstream really took is subtracted, and what
+remains is waited out. A 500ms latency in front of a backend answering in 120ms
+sleeps 380ms. An upstream slower than the target leaves nothing to wait for --
+Doppel does not make a slow backend look fast.
+
+A request the loss roll drops stops at step 2 and is never delayed: refusing a
+request and then holding the connection open for 200ms would be the worst of
+both.
+
+See [Injecting faults](../usage/faults.md).
 
 ## Two things that are not what they sound like
 

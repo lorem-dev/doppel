@@ -24,13 +24,32 @@ release promotes it to a version heading; the `bump-version` skill does that.
   it, and the only symptom was an anchored mock silently not firing. Empty
   segments elsewhere in the path are left alone.
 
+- An injected `latency` is now a target for the whole response rather than an
+  addition to it: the time the upstream really took is subtracted, and only the
+  remainder is waited out. A 500ms latency in front of a backend answering in
+  120ms delays by 380ms, where before it delayed by 500 and produced 620ms
+  total -- so the number written in the configuration was unreachable by
+  construction, and moved with whatever the upstream happened to be doing. An
+  upstream slower than the target leaves no remainder and is passed straight
+  through; the setting is a floor, never a ceiling. `latency_injected_ms` in the
+  log line is the wait actually taken and reads `0` in that case, while
+  `doppel_latency_injected_total` still counts the request.
+
 ### Fixed
 
-- The documentation claimed a mock's `proxy` block applied all three of
-  `replace`, `loss` and `latency` to requests matching that mock. Only
-  `replace` is read; the other two are parsed, validated and compiled, and then
-  ignored. Documented as not yet implemented rather than left as a promise the
-  code does not keep.
+- A mock's `proxy.loss` and `proxy.latency` are applied. They were parsed,
+  validated and compiled into the runtime, and then never read, so a mock
+  declaring either was silently answering every request it matched. They now
+  apply to the requests the mock answers, after it has won its `replace` roll,
+  and go through the same `decide` as the proxy's -- so loss short-circuits
+  latency there too.
+- What a mock inherits from its proxy is now settled per setting rather than by
+  accident: `replace` and `latency` fall back to the proxy's, `loss` does not.
+  `latency` describes how slow the proxy is to answer, which holds whatever
+  answers, so a mocked response is delayed like any other and a mock's own value
+  overrides rather than adds to it. `loss` is excluded because a mock inheriting
+  it would be dropped by the proxy's loss, which is the coupling between `loss`
+  and `replace` the ordering above exists to remove.
 
 ## 0.1.0 -- 2026-08-02
 
