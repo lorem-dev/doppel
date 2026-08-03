@@ -14,3 +14,10 @@
 # evaluate.
 mkdocs>=1.6,<2
 mkdocs-material>=9.7,<10
+
+# Versioned publication: `mike` keeps one built site per release on the
+# `gh-pages` branch and writes the `versions.json` the header switcher reads.
+# Only the Docs workflow calls it; `mkdocs build` and `mkdocs serve` do not need
+# it, and it is listed here so the workflow has one requirements file to install
+# rather than a second list of pins that can drift from this one.
+mike>=2.1,<3

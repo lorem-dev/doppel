@@ -50,8 +50,11 @@ pub async fn serve(
         .await
 }
 
-/// Pipeline order is fixed by the spec: resolve, loss, latency, forward. Phase 2
-/// inserts mock matching between latency and forwarding.
+/// Pipeline order: resolve, then either a mock and the mock's own faults, or
+/// the proxy's faults and a forward. A mock is decided before any fault, so
+/// `replace` is the share of matching requests a mock answers rather than the
+/// share of those that survived a loss roll, and the two sets of faults never
+/// both apply to one request. See the comment on the mock branch below.
 async fn handle(
     State(state): State<ProxyState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -113,65 +116,95 @@ async fn handle(
         }
     };
 
-    let faults = decide(
-        proxy.loss.as_ref(),
-        proxy.latency.as_ref(),
-        state.sampler.as_ref(),
-    );
-
-    if let Some(status) = faults.loss_status {
-        let response = with_request_id(
-            Response::builder()
-                .status(status)
-                .body(axum::body::Body::empty())
-                .expect("status came from a validated config"),
-            &request_id,
-        );
-        let elapsed = started.elapsed();
-        metrics::record_loss(&proxy.name);
-        metrics::record_proxy(&proxy.name, method.as_str(), status, elapsed);
-        tracing::info!(
-            request_id,
-            proxy = proxy.name,
-            method = %method,
-            path,
-            status,
-            duration_ms = elapsed.as_millis(),
-            upstream_contacted = false,
-            loss_injected = true,
-            latency_injected_ms = 0u128,
-            "request dropped"
-        );
-        return response;
-    }
-
-    let latency_ms = match faults.latency {
-        Some(delay) => {
-            metrics::record_latency_injected(&proxy.name);
-            tokio::time::sleep(delay).await;
-            delay.as_millis()
-        }
-        None => 0,
-    };
-
-    // Mock matching sits here, between latency and forwarding, because the
-    // spec fixes that order: faults are a property of the proxy and apply
-    // before an endpoint is chosen, while a mock replaces the endpoint.
+    // Mock matching comes before fault injection, so `replace` means what it
+    // says: the share of matching requests a mock answers. Deciding the faults
+    // first made it the share of whatever survived the loss roll instead --
+    // `loss: 0.5` quietly halved every `replace` in the proxy, and no
+    // configuration could express "answer half of these from a mock" while any
+    // loss was set.
+    //
+    // Proxy-level `loss` and `latency` therefore do not touch a request a mock
+    // answered. They describe the real backend, and a mock replaces the real
+    // backend -- which is the distinction the documentation already drew
+    // ("loss and latency make the real backend worse; `replace` decides how
+    // much of it is still involved at all").
+    //
+    // A mock that wants faults declares its own, in its `proxy` block, and
+    // those are applied here -- after it has won the `replace` roll, so they
+    // bear only on requests this mock would actually have answered. They do not
+    // fall back to the proxy's, the way `replace` does: inheriting the proxy's
+    // `loss` would drop mocked requests again and put back exactly the coupling
+    // the ordering above exists to remove. `replace` can sensibly have a
+    // proxy-wide default because it describes how much of the proxy a mock
+    // stands in for; `loss` and `latency` describe the upstream, which a mock
+    // is not.
     //
     // The `replace` roll is what makes a matched mock optional -- a proxy can
-    // serve a mock some of the time and the real backend the rest -- so a
-    // mock that matches but loses the roll falls through to `forward` below
-    // with its request untouched. That is why `serve_mock`, which consumes
-    // the request, is only reached inside the winning branch.
+    // serve a mock some of the time and the real backend the rest -- so a mock
+    // that matches but loses the roll falls through to the faults and then to
+    // `forward` below, with its request untouched. That is why `serve_mock`,
+    // which consumes the request, is only reached inside the winning branch.
     if let Some((mock, vars)) = crate::mock::match_mock(proxy, &method, &path) {
         let replace = mock.replace.unwrap_or(proxy.replace);
         if fires(replace, state.sampler.as_ref()) {
+            // The same `decide` the forwarding path uses, so "what a fault roll
+            // means" -- including loss short-circuiting latency, so a dropped
+            // request is not delayed first -- has one definition.
+            //
+            // `latency` falls back to the proxy's, `loss` does not. The
+            // configured latency describes how slow this proxy is to answer,
+            // whatever answers, so it applies to a mocked request too and a
+            // mock's own value overrides rather than adds to it. Loss is the
+            // one that must not be inherited: a mock picking up the proxy's
+            // would be dropped by it, which is the coupling between `loss` and
+            // `replace` the ordering above exists to remove.
+            let faults = decide(
+                mock.loss.as_ref(),
+                mock.latency.as_ref().or(proxy.latency.as_ref()),
+                state.sampler.as_ref(),
+            );
+
+            if let Some(status) = faults.loss_status {
+                let response = with_request_id(
+                    Response::builder()
+                        .status(status)
+                        .body(axum::body::Body::empty())
+                        .expect("status came from a validated config"),
+                    &request_id,
+                );
+                let elapsed = started.elapsed();
+                // Loss, but not a mock hit: the mock decided this response
+                // rather than rendering one, and `mock_hits_total` counts
+                // mocks that answered. The mock is named in the log line
+                // instead, which is where "whose loss fired" belongs.
+                metrics::record_loss(&proxy.name);
+                metrics::record_proxy(&proxy.name, method.as_str(), status, elapsed);
+                tracing::info!(
+                    request_id,
+                    proxy = proxy.name,
+                    mock = mock.name,
+                    method = %method,
+                    path,
+                    status,
+                    duration_ms = elapsed.as_millis(),
+                    upstream_contacted = false,
+                    loss_injected = true,
+                    latency_injected_ms = 0u128,
+                    "request dropped"
+                );
+                return response;
+            }
+
+            // Rendered first, then padded: the delay is a target for the whole
+            // response, so whatever producing it cost comes out of the wait.
+            let rendering = std::time::Instant::now();
             let outcome =
                 serve_mock(&runtime.config.templates.dir, proxy, mock, vars, request).await;
             let (response, error_code) = match outcome {
                 Ok(response) => (response, None),
                 Err(err) => (error_response(&err), Some(err.code.as_str())),
             };
+            let latency_ms = pad_to_target(faults.latency, rendering.elapsed(), &proxy.name).await;
             let response = with_request_id(response, &request_id);
             let elapsed = started.elapsed();
             metrics::record_mock_hit(&proxy.name, &mock.name);
@@ -205,7 +238,52 @@ async fn handle(
         }
     }
 
-    match forward(
+    let faults = decide(
+        proxy.loss.as_ref(),
+        proxy.latency.as_ref(),
+        state.sampler.as_ref(),
+    );
+
+    if let Some(status) = faults.loss_status {
+        let response = with_request_id(
+            Response::builder()
+                .status(status)
+                .body(axum::body::Body::empty())
+                .expect("status came from a validated config"),
+            &request_id,
+        );
+        let elapsed = started.elapsed();
+        metrics::record_loss(&proxy.name);
+        metrics::record_proxy(&proxy.name, method.as_str(), status, elapsed);
+        tracing::info!(
+            request_id,
+            proxy = proxy.name,
+            method = %method,
+            path,
+            status,
+            duration_ms = elapsed.as_millis(),
+            upstream_contacted = false,
+            loss_injected = true,
+            latency_injected_ms = 0u128,
+            "request dropped"
+        );
+        return response;
+    }
+
+    // Forwarded first, then padded. The upstream is a real server and takes
+    // real time, and the configured latency is what the client should
+    // experience in total -- so the wait is the remainder, not an addition. A
+    // 500ms latency in front of an upstream that answers in 120ms sleeps 380ms.
+    // Sleeping first would have produced 620ms and made the configured number
+    // unreachable by construction.
+    //
+    // Timed around the call rather than read from `UpstreamOutcome`, so the
+    // failure arm -- which produces no outcome -- is padded by the same rule as
+    // the success arm. A refused connection returning in 1ms would otherwise
+    // ignore the latency entirely, which is exactly the case someone
+    // configuring latency wants to see slow.
+    let attempt = std::time::Instant::now();
+    let forwarded = forward(
         &runtime.client,
         proxy,
         request,
@@ -213,8 +291,10 @@ async fn handle(
         &runtime.resolve_headers,
         &request_id,
     )
-    .await
-    {
+    .await;
+    let latency_ms = pad_to_target(faults.latency, attempt.elapsed(), &proxy.name).await;
+
+    match forwarded {
         Ok((response, outcome)) => {
             let elapsed = started.elapsed();
             metrics::record_upstream(
@@ -307,6 +387,38 @@ async fn handle(
             response
         }
     }
+}
+
+/// Sleeps whatever is left of `target` once `spent` has already gone by, and
+/// reports how long that wait was in milliseconds.
+///
+/// `target` is the delay the latency roll produced, or `None` when it did not
+/// fire -- in which case nothing is waited on and nothing is counted.
+///
+/// The delay is a target for the response as a whole, not an addition to it, so
+/// producing the response is paid for out of the wait. `saturating_sub` is the
+/// whole of the "or nothing" case: an upstream slower than the target leaves no
+/// remainder and the request is passed straight through. Doppel does not make a
+/// slow backend look fast, and a latency setting is a floor, not a budget.
+///
+/// The counter increments whenever the roll fired, including when the remainder
+/// came out at zero: the fault applied to the request, and what varied was how
+/// much of it the upstream had already delivered. `latency_injected_ms` in the
+/// log line is the wait actually taken, so the two answer different questions
+/// on purpose -- how often latency was in play, and how much of it this request
+/// felt.
+async fn pad_to_target(
+    target: Option<std::time::Duration>,
+    spent: std::time::Duration,
+    proxy_name: &str,
+) -> u128 {
+    let Some(target) = target else {
+        return 0;
+    };
+    metrics::record_latency_injected(proxy_name);
+    let remainder = target.saturating_sub(spent);
+    tokio::time::sleep(remainder).await;
+    remainder.as_millis()
 }
 
 /// Reuse an incoming `X-Request-ID` so one request can be followed across
@@ -701,6 +813,77 @@ proxies:
         assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     }
 
+    /// The arithmetic of the padding, on its own, where no scheduler is
+    /// involved: the wait is the remainder of the target, and an upstream that
+    /// already spent more than the target leaves nothing to wait for.
+    ///
+    /// Tested here rather than only through the pipeline because the interesting
+    /// cases are exact numbers, and asserting exact numbers on elapsed wall
+    /// clock is a claim about the scheduler rather than about this code.
+    #[tokio::test]
+    async fn the_latency_padding_is_the_remainder_of_the_target() {
+        let target = Some(Duration::from_millis(200));
+
+        // Nothing spent yet: the whole target is waited on.
+        assert_eq!(pad_to_target(target, Duration::ZERO, "p").await, 200);
+        // Half spent upstream: half remains.
+        assert_eq!(
+            pad_to_target(target, Duration::from_millis(120), "p").await,
+            80
+        );
+        // Spent exactly the target: nothing remains.
+        assert_eq!(
+            pad_to_target(target, Duration::from_millis(200), "p").await,
+            0
+        );
+        // Slower than the target: still nothing, and no underflow. Doppel does
+        // not make a slow backend look fast, so the setting is a floor.
+        assert_eq!(
+            pad_to_target(target, Duration::from_millis(900), "p").await,
+            0
+        );
+        // The roll did not fire: no wait at all.
+        assert_eq!(pad_to_target(None, Duration::ZERO, "p").await, 0);
+    }
+
+    /// And the same rule through the pipeline, against a real upstream that
+    /// takes real time. The upstream sleeps 300ms and the target is 200ms, so
+    /// the remainder is nothing and the total should stay near the upstream's
+    /// own figure -- not 500ms, which is what adding the delay would give.
+    ///
+    /// The upper bound is generous on purpose: it has 200ms of headroom over the
+    /// upstream's own 300ms, so it fails on the 500ms of an addition and not on
+    /// a slow machine.
+    #[tokio::test]
+    async fn a_slow_upstream_absorbs_the_configured_latency_rather_than_adding_to_it() {
+        let app = axum::Router::new().fallback(axum::routing::any(|| async {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            "ok"
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let text = config_pointing_at(
+            &format!("http://{addr}/"),
+            "    latency:\n      percentage: 1.0\n      min: 0.2\n      max: 0.2",
+        );
+        let started = Instant::now();
+        let response = send(state(&text, vec![0.0, 0.0]), get("/anything")).await;
+        let elapsed = started.elapsed();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            elapsed >= Duration::from_millis(300),
+            "the upstream's own 300ms cannot be shortened, took {elapsed:?}"
+        );
+        assert!(
+            elapsed < Duration::from_millis(500),
+            "the 200ms latency must be absorbed by the upstream's 300ms, not added: {elapsed:?}"
+        );
+    }
+
     #[tokio::test]
     async fn unresolvable_request_returns_the_error_envelope() {
         let text = config_with("").replace(
@@ -1027,6 +1210,28 @@ proxies:
     }
 
     #[tokio::test]
+    async fn a_mocks_own_loss_branch_has_the_full_schema_with_upstream_contacted_false() {
+        let text = config_with(
+            "    mocks:\n      - name: m1\n        request:\n          method: GET\n          \
+             url: /widgets/\n        response:\n          status: 200\n          body: 'hello'\n        \
+             proxy:\n          loss:\n            percentage: 1.0\n            status: 503",
+        );
+        // Two draws: the `replace` roll, then the mock's own loss roll.
+        let (response, events) = run_captured(state(&text, vec![0.0, 0.0]), get("/widgets/")).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(events.len(), 1, "{events:?}");
+        assert_full_schema(&events[0]);
+        assert_upstream_contacted(&events[0], false);
+        assert_upstream_fields_absent(&events[0]);
+        assert_eq!(
+            events[0].recorded_fields.get("mock").map(String::as_str),
+            Some("\"m1\""),
+            "the dropped line must name whose loss fired: {:?}",
+            events[0]
+        );
+    }
+
+    #[tokio::test]
     async fn forward_error_branch_has_the_full_schema_with_upstream_contacted_true() {
         // Connection to loopback port 1 is refused: a genuine upstream
         // failure, so `upstream_contacted` is true even though `forward`
@@ -1316,6 +1521,275 @@ proxies:
             // above uses.
             let response = send(state(&config_with(extra), vec![0.9]), get("/widgets/")).await;
             assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        }
+
+        /// `replace` is the share of matching requests a mock answers, and
+        /// nothing about `loss` changes that number. Before the pipeline put
+        /// the mock first, a proxy dropping everything answered no mock at all,
+        /// and `loss: 0.5` silently halved every `replace` in the proxy.
+        ///
+        /// One sampler draw is supplied: the `replace` roll. If loss were still
+        /// decided first it would take that draw, drop the request, and this
+        /// test would see 503.
+        #[tokio::test]
+        async fn a_matched_mock_answers_a_request_loss_would_have_dropped() {
+            let extra = r#"    loss:
+      percentage: 1.0
+      status: 503
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+        }
+
+        /// The other half of the ordering: `loss` is not disabled by the
+        /// presence of a mock, only deferred behind it. A mock that loses its
+        /// `replace` roll leaves the request on the way to the real backend,
+        /// where the proxy's faults do apply.
+        ///
+        /// `replace: 0` never fires and draws nothing (see `fault::fires`), so
+        /// the single draw here is the loss roll.
+        #[tokio::test]
+        async fn loss_still_drops_a_request_whose_mock_lost_the_replace_roll() {
+            let extra = r#"    replace: 0.0
+    loss:
+      percentage: 1.0
+      status: 503
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+
+        /// The proxy's `latency` describes how slow this proxy is to answer,
+        /// whatever answers, so a mocked response waits for it too -- the mock
+        /// does not have to repeat it.
+        ///
+        /// Three draws: `replace`, the latency roll, and the interpolation
+        /// between `min` and `max`. The mock declares no `loss`, and `decide`
+        /// draws nothing for an absent one.
+        #[tokio::test]
+        async fn the_proxys_latency_applies_to_a_served_mock_too() {
+            let extra = r#"    latency:
+      percentage: 1.0
+      min: 0.2
+      max: 0.2
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let started = Instant::now();
+            let response = send(
+                state(&config_with(extra), vec![0.0, 0.0, 0.0]),
+                get("/widgets/"),
+            )
+            .await;
+            let elapsed = started.elapsed();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+            assert!(
+                elapsed >= Duration::from_millis(200),
+                "expected the proxy's 200ms latency to apply to the mock, took {elapsed:?}"
+            );
+        }
+
+        /// A mock's own `latency` overrides the proxy's rather than adding to
+        /// it. The proxy asks for two seconds and the mock for 200ms; the
+        /// response must arrive on the mock's schedule, so the assertion is an
+        /// upper bound well below the proxy's figure.
+        #[tokio::test]
+        async fn a_mocks_own_latency_overrides_the_proxys_rather_than_adding_to_it() {
+            let extra = r#"    latency:
+      percentage: 1.0
+      min: 2.0
+      max: 2.0
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+        proxy:
+          latency:
+            percentage: 1.0
+            min: 0.2
+            max: 0.2
+"#;
+            let started = Instant::now();
+            let response = send(
+                state(&config_with(extra), vec![0.0, 0.0, 0.0]),
+                get("/widgets/"),
+            )
+            .await;
+            let elapsed = started.elapsed();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(
+                elapsed >= Duration::from_millis(200),
+                "the mock's own 200ms should still be waited on, took {elapsed:?}"
+            );
+            assert!(
+                elapsed < Duration::from_millis(1500),
+                "the proxy's 2s must not be added to the mock's 200ms, took {elapsed:?}"
+            );
+        }
+
+        /// A request line of `GET //widgets/` is legal, and clients produce it
+        /// by accident whenever a base URL ending in `/` is joined to a path
+        /// beginning with one. The mock must still answer -- the dead upstream
+        /// is the proof it did, since reaching it would give 502.
+        ///
+        /// The pattern is anchored deliberately. An unanchored `/widgets/`
+        /// matches `//widgets/` on its own, because the doubled slash falls
+        /// outside the substring it looks for, so this test would pass with the
+        /// normalisation removed and pin nothing. Verified by removing it: with
+        /// `url: /widgets/` here the test still passed.
+        #[tokio::test]
+        async fn repeated_leading_slashes_still_reach_the_mock() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: ^/widgets/$
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("//widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+        }
+
+        /// A mock's own `loss` drops requests the mock would have answered.
+        /// 503 rather than the dead upstream's 502 is what says the mock's loss
+        /// fired and not that the request fell through to forwarding.
+        ///
+        /// Two draws: the `replace` roll, then the mock's loss roll.
+        #[tokio::test]
+        async fn a_mocks_own_loss_drops_a_request_it_would_have_answered() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+        proxy:
+          loss:
+            percentage: 1.0
+            status: 503
+"#;
+            let response = send(state(&config_with(extra), vec![0.0, 0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+
+        /// And it is scoped to the mock: a path the mock does not match is
+        /// forwarded, reaching the dead upstream for 502 rather than picking up
+        /// the mock's 503. No draws at all -- this proxy declares no faults of
+        /// its own, so an empty sampler proves none were rolled.
+        #[tokio::test]
+        async fn a_mocks_own_loss_does_not_touch_a_path_it_does_not_match() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+        proxy:
+          loss:
+            percentage: 1.0
+            status: 503
+"#;
+            let response = send(state(&config_with(extra), vec![]), get("/other/")).await;
+            assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        }
+
+        /// A mock's own `latency` delays the mock's response. Asserted as a
+        /// lower bound on elapsed time: an upper bound would be a claim about
+        /// the scheduler.
+        ///
+        /// Three draws: `replace`, the latency roll, and the interpolation
+        /// between `min` and `max`.
+        #[tokio::test]
+        async fn a_mocks_own_latency_delays_its_response() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+        proxy:
+          latency:
+            percentage: 1.0
+            min: 0.2
+            max: 0.2
+"#;
+            let started = Instant::now();
+            let response = send(
+                state(&config_with(extra), vec![0.0, 0.0, 0.0]),
+                get("/widgets/"),
+            )
+            .await;
+            let elapsed = started.elapsed();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+            assert!(
+                elapsed >= Duration::from_millis(200),
+                "expected the mock's own 200ms latency to be waited on, took {elapsed:?}"
+            );
+        }
+
+        /// `latency` is inherited from the proxy and `loss` is not, and this
+        /// pins the half that is easy to break by making the two symmetrical.
+        /// Inheriting `loss` would drop mocked requests again and restore the
+        /// coupling between `loss` and `replace` that the pipeline order exists
+        /// to remove.
+        ///
+        /// One draw, the `replace` roll. A fallback to the proxy's loss would
+        /// take a second and answer 503.
+        #[tokio::test]
+        async fn a_mock_does_not_inherit_the_proxys_loss_though_it_inherits_latency() {
+            let extra = r#"    loss:
+      percentage: 1.0
+      status: 503
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
         }
 
         #[tokio::test]

@@ -19,11 +19,16 @@ use doppel_render::Variables;
 /// declaration order distinguishes the two. Do not "fix" this by anchoring
 /// the pattern here -- doing so would silently change what an existing,
 /// unedited configuration means.
+///
+/// The path is matched with any run of leading slashes collapsed to one, so a
+/// request for `//api/v1/index/` is matched as `/api/v1/index/`. See
+/// [`for_matching`].
 pub fn match_mock<'a>(
     proxy: &'a CompiledProxy,
     method: &Method,
     path: &str,
 ) -> Option<(&'a CompiledMock, Variables)> {
+    let path = for_matching(path);
     proxy.mocks.iter().find_map(|mock| {
         // `as_str` on both sides, and no case folding: a mock can only
         // declare a method the type knows, and an incoming method that is
@@ -43,6 +48,36 @@ pub fn match_mock<'a>(
 
         Some((mock, vars))
     })
+}
+
+/// The request path as mock patterns see it: any run of leading slashes
+/// collapsed to a single one.
+///
+/// A request line of `GET //api/v1/index/` is legal HTTP, and clients produce
+/// it by accident all the time -- a base URL ending in `/` joined to a path
+/// beginning with `/` is the usual way. Nothing in the path's meaning changed,
+/// but a pattern written `^/api/v1/index/$` no longer matched it, and the
+/// request fell through to the upstream with no sign of why. Matching one slash
+/// where the client sent several removes a class of "the mock just does not
+/// fire" that has no diagnosis short of reading the request line.
+///
+/// Only *leading* slashes. An empty segment in the middle of a path (`/a//b`)
+/// is a segment, and collapsing it would be a claim about what the upstream
+/// considers the same resource -- which is the upstream's to make, not this
+/// function's. A borrow is returned when there is nothing to collapse, so the
+/// common path allocates nothing.
+fn for_matching(path: &str) -> &str {
+    match path.strip_prefix('/') {
+        // `trim_start_matches` on the remainder rather than on `path`, so the
+        // one slash the path is entitled to survives.
+        Some(rest) => {
+            let trimmed = rest.trim_start_matches('/');
+            // Byte arithmetic on a `str`: every byte removed was `/`, which is
+            // ASCII, so the split cannot land inside a character.
+            &path[path.len() - trimmed.len() - 1..]
+        }
+        None => path,
+    }
 }
 
 /// Binds the mock's declared header variables. A header the request does not
@@ -183,6 +218,54 @@ mod tests {
         let p = proxy(vec![mock("m1", "GET", "/api/v1/resource/")]);
         let (matched, _vars) = match_mock(&p, &Method::GET, "/api/v1/resource/42/").unwrap();
         assert_eq!(matched.name, "m1");
+    }
+
+    /// An anchored pattern is the case that made this worth fixing: an
+    /// unanchored `/api/v1/index/` already matched `//api/v1/index/`, because
+    /// the doubled slash sits outside the substring it looks for. `^`-anchored,
+    /// it did not, and nothing said why.
+    #[test]
+    fn repeated_leading_slashes_match_an_anchored_pattern_written_with_one() {
+        let p = proxy(vec![mock("m1", "GET", "^/api/v1/index/$")]);
+        let (matched, _vars) = match_mock(&p, &Method::GET, "//api/v1/index/").unwrap();
+        assert_eq!(matched.name, "m1");
+    }
+
+    #[test]
+    fn any_number_of_leading_slashes_collapses_to_one() {
+        let p = proxy(vec![mock("m1", "GET", "^/widgets/$")]);
+        for path in ["/widgets/", "//widgets/", "///widgets/", "/////widgets/"] {
+            assert!(
+                match_mock(&p, &Method::GET, path).is_some(),
+                "`{path}` should have matched"
+            );
+        }
+    }
+
+    /// Only the leading run. An empty segment in the middle of a path is a
+    /// segment, and whether `/a//b` and `/a/b` name the same resource is the
+    /// upstream's business -- collapsing it here would answer that question on
+    /// the upstream's behalf, for mocks only, and disagree with what gets
+    /// forwarded.
+    #[test]
+    fn an_empty_segment_inside_the_path_is_left_alone() {
+        let p = proxy(vec![mock("m1", "GET", "^/a/b/$")]);
+        assert!(match_mock(&p, &Method::GET, "/a//b/").is_none());
+    }
+
+    #[test]
+    fn for_matching_leaves_a_path_that_needs_nothing_untouched() {
+        // Also covers the degenerate paths, where an off-by-one in the slice
+        // arithmetic would panic or eat the last slash rather than merely
+        // return the wrong string.
+        assert_eq!(for_matching("/widgets/"), "/widgets/");
+        assert_eq!(for_matching("/"), "/");
+        assert_eq!(for_matching("//"), "/");
+        assert_eq!(for_matching("///"), "/");
+        assert_eq!(for_matching(""), "");
+        // A request target that is not origin-form reaches this function
+        // unchanged; there is no leading slash to collapse.
+        assert_eq!(for_matching("widgets/"), "widgets/");
     }
 
     /// Fixture names are adversarial on purpose: `zeta` is declared first and

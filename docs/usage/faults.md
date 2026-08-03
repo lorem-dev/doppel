@@ -35,8 +35,34 @@ for i in $(seq 1 20); do
 done | sort -n | tail -5
 ```
 
-Roughly nine of twenty should sit near the base latency and the rest between
-50 and 200 milliseconds above it.
+Roughly nine of twenty should sit near the base latency and the rest between 50
+and 200 milliseconds.
+
+### The delay is a target, not an addition
+
+The drawn delay is what the whole response should take, and the time the real
+upstream already spent comes out of it. A `min: 0.5, max: 0.5` in front of a
+backend answering in 120ms waits 380ms, so the client sees about 500ms -- not
+620ms.
+
+This is what makes the configured number mean something: adding to an upstream
+whose own latency varies gives a figure nobody chose, and the setting you wrote
+would be unreachable by construction.
+
+!!! note "A floor, not a budget"
+    An upstream slower than the delay leaves no remainder, and the request is
+    passed straight through. Doppel never makes a slow backend look fast, so a
+    500ms setting in front of a backend taking 900ms produces 900ms and waits
+    for nothing.
+
+    `latency_injected_ms` in the log line is the wait actually taken, so it
+    reads `0` in that case even though the roll fired. `duration_ms` is the
+    total. The `doppel_latency_injected_total` counter, by contrast, counts
+    every request whose roll fired -- whether or not there was anything left to
+    wait for.
+
+A request answered by a mock is delayed on the same rule; see
+[Faults on one endpoint only](#faults-on-one-endpoint-only).
 
 ## Dropping a share of requests
 
@@ -101,7 +127,32 @@ endpoint, put the fault on a **mock's** `proxy` block instead:
 ```
 
 The mock's `proxy` block accepts the same three settings and is held to the
-same bounds. It applies only to requests that matched this mock.
+same bounds. They apply to requests the mock actually answers -- after it has
+matched and won its `replace` roll.
+
+What each one does when the mock leaves it out:
+
+| Setting | A mock that does not declare it | A mock that does |
+|---|---|---|
+| `replace` | uses the proxy's | uses its own |
+| `latency` | uses the proxy's | uses its own **instead** of the proxy's, never on top |
+| `loss` | has none at all | uses its own |
+
+`latency` is inherited because it describes how slow this proxy is to answer,
+and that is true whatever answers -- so a mocked response is delayed like any
+other, and the example above makes `/checkout/` slower than the rest rather than
+being the only thing that is slow. Overriding replaces the proxy's figure; the
+two are not added, or a mock could only ever be slower than its proxy.
+
+`loss` is the one exception. A mock inheriting it would be dropped by the
+proxy's loss, which is exactly the coupling between `loss` and `replace` that
+[the ordering](#loss-does-not-eat-into-replace) exists to remove. So a mock that
+should be flaky has to say so itself.
+
+!!! note "A dropped request is not delayed first"
+    Within either set, `loss` is decided before `latency` and short-circuits it.
+    A request the mock's own loss drops does not wait for the mock's latency
+    first, and a request the proxy's loss drops does not wait for the proxy's.
 
 ## Replacing a backend gradually
 
@@ -131,6 +182,37 @@ the proxy (as above) or per mock inside its `proxy` block.
     and latency make the real backend worse, `replace` decides how much of it
     is still involved at all. A `replace: 0` mock is dead configuration, not a
     disabled fault.
+
+### `loss` does not eat into `replace`
+
+A mock is decided before either fault, so `replace` is the share of *matching*
+requests the mock answers, whatever `loss` is set to:
+
+```yaml
+    loss:
+      percentage: 0.5
+      status: 503
+    replace: 0.5
+    mocks:
+      - name: new-pricing
+        request:
+          method: GET
+          url: /pricing/
+        response:
+          status: 200
+          json: '{"price": 100}'
+```
+
+Half of `GET /pricing/` requests get the mock -- not a quarter. The other half
+go on to the loss roll, so about a quarter are dropped with `503` and about a
+quarter reach the real service. Requests to any other path are unaffected by
+`replace` and take the loss roll as usual.
+
+The mock's half is not touched by the proxy's `loss` -- that is the whole point
+of deciding the mock first. It *is* delayed by the proxy's `latency`, which
+applies to every answer this proxy gives. See
+[Faults on one endpoint only](#faults-on-one-endpoint-only) for the table of
+what a mock inherits and what it does not.
 
 ## The bounds, and why they exist
 
