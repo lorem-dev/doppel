@@ -50,8 +50,11 @@ pub async fn serve(
         .await
 }
 
-/// Pipeline order is fixed by the spec: resolve, loss, latency, forward. Phase 2
-/// inserts mock matching between latency and forwarding.
+/// Pipeline order: resolve, mock, loss, latency, forward. A mock is decided
+/// before any fault, so `replace` is the share of matching requests a mock
+/// answers rather than the share of those that survived a loss roll, and the
+/// proxy's faults apply only on the way to the real backend. See the comment
+/// on the mock branch below.
 async fn handle(
     State(state): State<ProxyState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -113,6 +116,71 @@ async fn handle(
         }
     };
 
+    // Mock matching comes before fault injection, so `replace` means what it
+    // says: the share of matching requests a mock answers. Deciding the faults
+    // first made it the share of whatever survived the loss roll instead --
+    // `loss: 0.5` quietly halved every `replace` in the proxy, and no
+    // configuration could express "answer half of these from a mock" while any
+    // loss was set.
+    //
+    // Proxy-level `loss` and `latency` therefore do not touch a request a mock
+    // answered. They describe the real backend, and a mock replaces the real
+    // backend -- which is the distinction the documentation already drew
+    // ("loss and latency make the real backend worse; `replace` decides how
+    // much of it is still involved at all"). A mock that wants faults of its
+    // own is a separate matter: `mocks[].loss` and `mocks[].latency` are
+    // parsed and compiled but nothing reads them yet.
+    //
+    // The `replace` roll is what makes a matched mock optional -- a proxy can
+    // serve a mock some of the time and the real backend the rest -- so a mock
+    // that matches but loses the roll falls through to the faults and then to
+    // `forward` below, with its request untouched. That is why `serve_mock`,
+    // which consumes the request, is only reached inside the winning branch.
+    if let Some((mock, vars)) = crate::mock::match_mock(proxy, &method, &path) {
+        let replace = mock.replace.unwrap_or(proxy.replace);
+        if fires(replace, state.sampler.as_ref()) {
+            let outcome =
+                serve_mock(&runtime.config.templates.dir, proxy, mock, vars, request).await;
+            let (response, error_code) = match outcome {
+                Ok(response) => (response, None),
+                Err(err) => (error_response(&err), Some(err.code.as_str())),
+            };
+            let response = with_request_id(response, &request_id);
+            let elapsed = started.elapsed();
+            metrics::record_mock_hit(&proxy.name, &mock.name);
+            // No upstream histogram: a served mock never contacts one, and
+            // recording a zero there would put a fabricated observation in
+            // the middle of real upstream latency data.
+            metrics::record_proxy(
+                &proxy.name,
+                method.as_str(),
+                response.status().as_u16(),
+                elapsed,
+            );
+            // `upstream_contacted` is false here and the two upstream fields
+            // are absent: a served mock never reaches the upstream, which is
+            // precisely the distinction that field exists to record.
+            tracing::info!(
+                request_id,
+                proxy = proxy.name,
+                mock = mock.name,
+                method = %method,
+                path,
+                status = response.status().as_u16(),
+                duration_ms = elapsed.as_millis(),
+                upstream_contacted = false,
+                loss_injected = false,
+                // Always zero, and not because nothing was injected by chance:
+                // a served mock is decided before the faults are, so there is
+                // no latency for it to have waited on.
+                latency_injected_ms = 0u128,
+                error_code,
+                "request mocked"
+            );
+            return response;
+        }
+    }
+
     let faults = decide(
         proxy.loss.as_ref(),
         proxy.latency.as_ref(),
@@ -153,57 +221,6 @@ async fn handle(
         }
         None => 0,
     };
-
-    // Mock matching sits here, between latency and forwarding, because the
-    // spec fixes that order: faults are a property of the proxy and apply
-    // before an endpoint is chosen, while a mock replaces the endpoint.
-    //
-    // The `replace` roll is what makes a matched mock optional -- a proxy can
-    // serve a mock some of the time and the real backend the rest -- so a
-    // mock that matches but loses the roll falls through to `forward` below
-    // with its request untouched. That is why `serve_mock`, which consumes
-    // the request, is only reached inside the winning branch.
-    if let Some((mock, vars)) = crate::mock::match_mock(proxy, &method, &path) {
-        let replace = mock.replace.unwrap_or(proxy.replace);
-        if fires(replace, state.sampler.as_ref()) {
-            let outcome =
-                serve_mock(&runtime.config.templates.dir, proxy, mock, vars, request).await;
-            let (response, error_code) = match outcome {
-                Ok(response) => (response, None),
-                Err(err) => (error_response(&err), Some(err.code.as_str())),
-            };
-            let response = with_request_id(response, &request_id);
-            let elapsed = started.elapsed();
-            metrics::record_mock_hit(&proxy.name, &mock.name);
-            // No upstream histogram: a served mock never contacts one, and
-            // recording a zero there would put a fabricated observation in
-            // the middle of real upstream latency data.
-            metrics::record_proxy(
-                &proxy.name,
-                method.as_str(),
-                response.status().as_u16(),
-                elapsed,
-            );
-            // `upstream_contacted` is false here and the two upstream fields
-            // are absent: a served mock never reaches the upstream, which is
-            // precisely the distinction that field exists to record.
-            tracing::info!(
-                request_id,
-                proxy = proxy.name,
-                mock = mock.name,
-                method = %method,
-                path,
-                status = response.status().as_u16(),
-                duration_ms = elapsed.as_millis(),
-                upstream_contacted = false,
-                loss_injected = false,
-                latency_injected_ms = latency_ms,
-                error_code,
-                "request mocked"
-            );
-            return response;
-        }
-    }
 
     match forward(
         &runtime.client,
@@ -1316,6 +1333,117 @@ proxies:
             // above uses.
             let response = send(state(&config_with(extra), vec![0.9]), get("/widgets/")).await;
             assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        }
+
+        /// `replace` is the share of matching requests a mock answers, and
+        /// nothing about `loss` changes that number. Before the pipeline put
+        /// the mock first, a proxy dropping everything answered no mock at all,
+        /// and `loss: 0.5` silently halved every `replace` in the proxy.
+        ///
+        /// One sampler draw is supplied: the `replace` roll. If loss were still
+        /// decided first it would take that draw, drop the request, and this
+        /// test would see 503.
+        #[tokio::test]
+        async fn a_matched_mock_answers_a_request_loss_would_have_dropped() {
+            let extra = r#"    loss:
+      percentage: 1.0
+      status: 503
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
+        }
+
+        /// The other half of the ordering: `loss` is not disabled by the
+        /// presence of a mock, only deferred behind it. A mock that loses its
+        /// `replace` roll leaves the request on the way to the real backend,
+        /// where the proxy's faults do apply.
+        ///
+        /// `replace: 0` never fires and draws nothing (see `fault::fires`), so
+        /// the single draw here is the loss roll.
+        #[tokio::test]
+        async fn loss_still_drops_a_request_whose_mock_lost_the_replace_roll() {
+            let extra = r#"    replace: 0.0
+    loss:
+      percentage: 1.0
+      status: 503
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        }
+
+        /// Latency is a property of reaching the real backend too. A served
+        /// mock never reaches it, so it does not wait: with a 2s delay
+        /// configured, a mocked response returns immediately.
+        ///
+        /// One draw, the `replace` roll. Were the faults still decided first,
+        /// `SequenceSampler` would panic on exhaustion when latency asked for
+        /// its own two draws -- so this test cannot pass for the wrong reason.
+        #[tokio::test]
+        async fn a_served_mock_is_not_delayed_by_the_proxys_latency() {
+            let extra = r#"    latency:
+      percentage: 1.0
+      min: 2.0
+      max: 2.0
+    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: /widgets/
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let started = Instant::now();
+            let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/")).await;
+            let elapsed = started.elapsed();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(
+                elapsed < Duration::from_millis(500),
+                "expected the 2s configured latency to be skipped for a mock, took {elapsed:?}"
+            );
+        }
+
+        /// A request line of `GET //widgets/` is legal, and clients produce it
+        /// by accident whenever a base URL ending in `/` is joined to a path
+        /// beginning with one. The mock must still answer -- the dead upstream
+        /// is the proof it did, since reaching it would give 502.
+        ///
+        /// The pattern is anchored deliberately. An unanchored `/widgets/`
+        /// matches `//widgets/` on its own, because the doubled slash falls
+        /// outside the substring it looks for, so this test would pass with the
+        /// normalisation removed and pin nothing. Verified by removing it: with
+        /// `url: /widgets/` here the test still passed.
+        #[tokio::test]
+        async fn repeated_leading_slashes_still_reach_the_mock() {
+            let extra = r#"    mocks:
+      - name: m1
+        request:
+          method: GET
+          url: ^/widgets/$
+        response:
+          status: 200
+          body: 'hello'
+"#;
+            let response = send(state(&config_with(extra), vec![0.0]), get("//widgets/")).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(body_string(response).await, "hello");
         }
 
         #[tokio::test]

@@ -8,6 +8,30 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+### Changed
+
+- A matching mock is now decided before `loss` and `latency`, not after, so
+  `replace` is the share of matching requests a mock answers rather than the
+  share of those that survived a loss roll. Previously `loss: 0.5` halved every
+  `replace` in the proxy, and no configuration could ask a mock to answer half
+  of its matching requests while any loss was set. The proxy's `loss` and
+  `latency` no longer apply to a request a mock answered: they describe the real
+  backend, and a mock replaces it.
+- A run of slashes at the start of a request path is collapsed to one before
+  mocks are matched, so `//api/v1/index/` matches a mock declared
+  `^/api/v1/index/$`. Clients produce the doubled form by joining a base URL
+  ending in `/` to a path beginning with `/`; it is legal HTTP, nothing rejected
+  it, and the only symptom was an anchored mock silently not firing. Empty
+  segments elsewhere in the path are left alone.
+
+### Fixed
+
+- The documentation claimed a mock's `proxy` block applied all three of
+  `replace`, `loss` and `latency` to requests matching that mock. Only
+  `replace` is read; the other two are parsed, validated and compiled, and then
+  ignored. Documented as not yet implemented rather than left as a promise the
+  code does not keep.
+
 ## 0.1.0 -- 2026-08-02
 
 The first release. Everything below is new, so the sections are what a reader

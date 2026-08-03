@@ -101,7 +101,14 @@ endpoint, put the fault on a **mock's** `proxy` block instead:
 ```
 
 The mock's `proxy` block accepts the same three settings and is held to the
-same bounds. It applies only to requests that matched this mock.
+same bounds.
+
+!!! warning "Only `replace` is applied per mock today"
+    A mock's `proxy.replace` overrides the proxy's, and does so on every
+    request that matched the mock. Its `proxy.loss` and `proxy.latency` are
+    accepted, validated and compiled, and then nothing reads them: no request
+    is dropped or delayed on their account. They are declared behaviour that
+    does not exist yet, not a setting with a subtle scope.
 
 ## Replacing a backend gradually
 
@@ -131,6 +138,35 @@ the proxy (as above) or per mock inside its `proxy` block.
     and latency make the real backend worse, `replace` decides how much of it
     is still involved at all. A `replace: 0` mock is dead configuration, not a
     disabled fault.
+
+### `loss` does not eat into `replace`
+
+A mock is decided before either fault, so `replace` is the share of *matching*
+requests the mock answers, whatever `loss` is set to:
+
+```yaml
+    loss:
+      percentage: 0.5
+      status: 503
+    replace: 0.5
+    mocks:
+      - name: new-pricing
+        request:
+          method: GET
+          url: /pricing/
+        response:
+          status: 200
+          json: '{"price": 100}'
+```
+
+Half of `GET /pricing/` requests get the mock -- not a quarter. The other half
+go on to the loss roll, so about a quarter are dropped with `503` and about a
+quarter reach the real service. Requests to any other path are unaffected by
+`replace` and take the loss roll as usual.
+
+The mock's half is never dropped and never delayed. That is the same rule
+stated from the other side: the faults are on the path to the upstream, and a
+mocked request does not take it.
 
 ## The bounds, and why they exist
 

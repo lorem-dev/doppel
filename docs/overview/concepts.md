@@ -72,20 +72,27 @@ The order is fixed:
 client  -->  doppel  -->  upstream
               |
               |  1. resolve which proxy handles this request
-              |  2. maybe drop it              (loss)
-              |  3. maybe delay it             (latency)
-              |  4. maybe answer it here       (a matching mock, subject to `replace`)
+              |  2. maybe answer it here       (a matching mock, subject to `replace`)
+              |  3. maybe drop it              (loss)
+              |  4. maybe delay it             (latency)
               |  5. otherwise forward it
 ```
 
-Faults come before mock matching because they belong to the proxy rather than
-to a route: a backend that is slow is slow for endpoints you have mocked and
-endpoints you have not. A mock replaces the endpoint, so it comes after.
-
-Step 4 is conditional twice over. A mock has to match, and then `replace` --
+Step 2 is conditional twice over. A mock has to match, and then `replace` --
 itself a fraction -- has to fire. `replace: 0.5` sends half of the matching
 requests to the real upstream and answers the other half locally, which is how
 a backend is replaced incrementally rather than all at once.
+
+Mock matching comes before the faults, and that ordering is what makes
+`replace` mean what it says. `loss` and `latency` describe the real backend; a
+mock replaces the real backend, so neither applies to a request a mock
+answered. Were it the other way round, `replace: 0.5` under `loss: 0.5` would
+answer a quarter of matching requests from the mock rather than half, and no
+configuration could ask for half while any loss was set.
+
+The consequence worth knowing: a request a mock answers is never dropped and
+never delayed, however the proxy's faults are set. The faults are on the path
+to the upstream, and a mocked request does not take it.
 
 ## Two things that are not what they sound like
 

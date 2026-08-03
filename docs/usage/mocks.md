@@ -28,6 +28,23 @@ what already-written configurations mean, and a change that alters behaviour
 without the configuration changing is the worst kind -- there is no error and
 nothing to review.
 
+### Repeated leading slashes
+
+A run of slashes at the start of the path is collapsed to one before matching,
+so `GET //api/v1/index/` is matched as `/api/v1/index/`.
+
+Clients produce the doubled form constantly -- a base URL ending in `/` joined
+to a path beginning with `/` is the usual way -- and it is legal HTTP, so
+nothing rejects it. An unanchored pattern happened to match it anyway, because
+the extra slash falls outside the substring being looked for. An anchored one
+(`^/api/v1/index/$`) did not, and the only symptom was the mock silently not
+firing.
+
+Only the leading run. `/a//b/` keeps its empty middle segment and does not
+match a pattern written `/a/b/`: whether those name the same resource is the
+upstream's business, and answering it here would also disagree with the path
+that gets forwarded.
+
 ## Variables
 
 Four sources, all optional.
