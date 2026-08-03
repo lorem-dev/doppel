@@ -1,19 +1,29 @@
-# Docs: publish the mkdocs site to GitHub Pages on every push to main.
+# Docs: build the versioned documentation site with mike (Material for MkDocs)
+# and publish it to the `gh-pages` branch, which GitHub Pages serves.
 #
 # One-time repository setup (Settings -> Pages):
-#   Source: "GitHub Actions".
+#   Source: "Deploy from a branch" -> branch `gh-pages`, folder `/ (root)`.
 #
-# The build also runs in `ci.yml`, on every pull request, so documentation
+# This replaced an `upload-pages-artifact` + `deploy-pages` pair, and with it the
+# "Source: GitHub Actions" setting. mike needs a branch it owns: it keeps one
+# built site per version there and maintains the `versions.json` the header
+# switcher reads, neither of which survives a model where every deploy replaces
+# the whole artifact.
+#
+# Versioning:
+#   - A final release tag (`v1.2.3`) publishes that release under its bare
+#     version number and moves the `latest` alias, which the site root redirects
+#     to.
+#   - A PRE-RELEASE tag (`v1.2.3-rc.1`, or any tag with a `-` qualifier)
+#     publishes nothing. Release candidates are cut from `develop` to exercise
+#     the release pipeline; their documentation is in-progress documentation,
+#     already covered by `dev`, and publishing it only adds throwaway entries to
+#     the switcher that someone then has to delete by hand.
+#   - A push to `main` publishes the in-progress documentation under `dev`.
+#   - `workflow_dispatch` re-runs whatever ref it is pointed at.
+#
+# The strict build also runs in `ci.yml` on every pull request, so documentation
 # breakage is caught before it reaches main rather than at the deploy.
-#
-# Deployed through the Pages actions rather than by pushing a `gh-pages`
-# branch: no branch to maintain, and the artifact is what Pages serves.
-#
-# Not versioned. `mike` would put a version switcher in the header and keep a
-# page per release, which is worth doing once there are releases to switch
-# between; there are none yet, and an empty switcher is worse than none. When
-# the first tag lands, add `extra.version.provider: mike` to `mkdocs.yml` and
-# replace the build step below with `mike deploy`.
 
 name: Docs
 
@@ -21,30 +31,38 @@ on:
   push:
     branches:
       - main
+    tags:
+      # Final releases only: the negative pattern excludes any pre-release tag
+      # (a `-` qualifier), so an RC never starts this workflow at all.
+      - "v*"
+      - "!v*-*"
   workflow_dispatch:
 
+# mike pushes commits to the gh-pages branch. No `pages: write` or
+# `id-token: write` any more -- nothing here talks to the Pages deployment API.
 permissions:
-  contents: read
-  pages: write
-  # Required by actions/deploy-pages: it exchanges this for a deployment token
-  # rather than using a stored secret.
-  id-token: write
+  contents: write
 
-# One deploy at a time, and do not cancel one that is already publishing --
-# an interrupted deployment can leave Pages serving a half-uploaded site.
+# Serialize deploys so two runs never race on pushing gh-pages. Not cancelled
+# in progress: an interrupted mike run can leave the branch with a site
+# committed and its `versions.json` not yet updated.
 concurrency:
-  group: pages
+  group: docs-deploy
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build the site
+  deploy:
+    name: Build and deploy versioned docs
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          # mike reads and rewrites the gh-pages branch, so it needs history
+          # rather than the default shallow clone of one ref.
+          fetch-depth: 0
 
       # Pinned to an exact release, unlike every other action here. astral-sh
       # publishes `v9.0.0` but stopped publishing the sliding major tag after
@@ -52,26 +70,43 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v9.0.0
 
-      - name: Build the site (strict)
-        run: uv run --with-requirements docs/requirements.txt mkdocs build --strict
+      - name: Configure git identity for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Upload the site as a Pages artifact
-        uses: actions/upload-pages-artifact@v5
-        with:
-          # `site/` is what mkdocs writes and what .gitignore excludes.
-          path: site
+      # `|| true`: the branch does not exist before the first deploy, and mike
+      # creates it. A missing branch is not a failure here.
+      - name: Make the gh-pages branch available to mike
+        run: git fetch origin gh-pages --depth=1 || true
 
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
       - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v5
+        run: |
+          set -euo pipefail
+          mike() {
+            uv run --with-requirements docs/requirements.txt mike "$@"
+          }
+
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "Publishing development docs (alias: dev)"
+            mike deploy --push --update-aliases dev
+            exit 0
+          fi
+
+          version="${GITHUB_REF_NAME#v}"
+          # The tag filter above already keeps pre-releases out, but
+          # workflow_dispatch can be pointed at any ref -- so refuse here too
+          # rather than trusting the trigger alone.
+          case "${version}" in
+            *-*)
+              echo "${version} is a pre-release; skipping docs publication."
+              exit 0
+              ;;
+          esac
+
+          echo "Publishing release docs ${version} (alias: latest)"
+          mike deploy --push --update-aliases "${version}" latest
+          # Idempotent, and cheap enough to repeat: it writes the redirect at the
+          # site root. Doing it on every release means a gh-pages branch that was
+          # ever rebuilt by hand does not need this done separately.
+          mike set-default --push latest

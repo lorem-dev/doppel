@@ -90,6 +90,38 @@ licence.
 
 `--strict` turns a broken internal link into a build failure.
 
+### How it is published
+
+The site is versioned with [`mike`](https://github.com/jimporter/mike), which
+keeps one built copy per release on the `gh-pages` branch alongside the
+`versions.json` that fills the switcher in the header. GitHub Pages serves that
+branch; nothing here uses the Pages deployment API.
+
+`.github/workflows/docs.yml` decides what is published from the ref it ran on:
+
+| Ref | Published as |
+|---|---|
+| a push to `main` | the `dev` alias |
+| a final tag `v1.2.3` | `1.2.3`, and the `latest` alias moves to it |
+| a pre-release tag `v1.2.3-rc.1` | nothing |
+
+The site root redirects to `latest`, so the bare URL always lands on the newest
+release rather than on unreleased documentation.
+
+A pre-release publishes nothing on purpose. Release candidates exist to exercise
+the release pipeline, their documentation is in-progress documentation that
+`dev` already carries, and publishing it would only add entries to the switcher
+that someone has to delete by hand afterwards.
+
+Nothing needs doing by hand for a normal release. To rebuild one version -- after
+fixing a typo in already-released documentation, say -- check that tag out and
+run mike against it:
+
+```bash
+uv run --with-requirements docs/requirements.txt mike deploy --push 1.2.3
+uv run --with-requirements docs/requirements.txt mike list
+```
+
 ## Dependencies
 
 Prefer the standard library and the existing set. Every direct dependency must

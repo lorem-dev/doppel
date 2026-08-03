@@ -66,6 +66,14 @@ nav:
 extra_css:
   - stylesheets/theme.css
 
+# The version switcher in the header is populated from mike's `versions.json` on
+# the deployed `gh-pages` branch, not from anything in this file -- so it is
+# empty until the Docs workflow has published at least one version. See
+# .github/workflows/docs.yml.
+extra:
+  version:
+    provider: mike
+
 markdown_extensions:
   - admonition
   - pymdownx.details

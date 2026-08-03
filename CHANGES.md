@@ -8,6 +8,15 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+### Changed
+
+- The documentation site is versioned with `mike`: one built copy per release on
+  the `gh-pages` branch, a switcher in the header, and the site root redirecting
+  to the newest release. It was a single unversioned site, so a reader on 0.1.0
+  had no way to reach the documentation for the release they were running, and
+  publishing 0.2.0 silently replaced it. Pre-release tags publish nothing; a push
+  to `main` publishes `dev`.
+
 ## 0.2.0 -- 2026-08-03
 
 ### Changed
