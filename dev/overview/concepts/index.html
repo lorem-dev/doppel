@@ -1223,9 +1223,10 @@ default it is refused with <code>404</code> and <code>PROXY_NOT_RESOLVED</code>.
 <p>See <a href="../../usage/multiple-backends/">Several backends behind one port</a>.</p>
 <h2 id="fault">Fault<a class="headerlink" href="#fault" title="Permanent link">&para;</a></h2>
 <p>A <strong>fault</strong> is a deliberate degradation: <code>loss</code> drops a share of requests with
-a chosen status, <code>latency</code> delays a share of them by a random time in a range.
-Both are properties of the proxy, so they apply before Doppel decides what will
-answer the request.</p>
+a chosen status, <code>latency</code> makes a share of them take a random time in a range.</p>
+<p>Both are declared on the proxy, and a mock may declare its own. Which applies to
+a given request depends on what answered it -- see
+<a href="#how-a-request-is-handled">How a request is handled</a> below.</p>
 <p>Shares are written as fractions. <code>0.1</code> is one request in ten; <code>50</code> is not fifty
 percent, it is refused.</p>
 <p>See <a href="../../usage/faults/">Injecting faults</a>.</p>

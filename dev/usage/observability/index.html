@@ -1238,14 +1238,25 @@ is far more often an accident than an instruction.</p>
 <td>Present only when it was</td>
 </tr>
 <tr>
-<td><code>loss_injected</code>, <code>latency_injected_ms</code></td>
-<td>Which faults fired</td>
+<td><code>loss_injected</code></td>
+<td>Whether the loss roll dropped this request</td>
+</tr>
+<tr>
+<td><code>latency_injected_ms</code></td>
+<td>How long the request was actually made to wait</td>
 </tr>
 </tbody>
 </table>
 <p><code>upstream_contacted</code> is a boolean rather than a null status because a null
 still invites a consumer to plot it, where a boolean says what happened. A
 dropped request, an unresolved one and a mocked one all report <code>false</code>.</p>
+<p><code>latency_injected_ms</code> is the wait taken, not the delay drawn. An injected
+latency is a target for the whole response, so an upstream that already spent
+longer than the target leaves nothing to wait for and this reads <code>0</code> even though
+the roll fired. <code>doppel_latency_injected_total</code> counts the roll, so the two
+disagree in exactly that case -- deliberately, since "how often latency was in
+play" and "how much of it this request felt" are different questions. See
+<a href="../faults/#the-delay-is-a-target-not-an-addition">Injecting faults</a>.</p>
 <p><code>duration_ms</code> and <code>upstream_duration_ms</code> both stop at the response headers, not
 at the end of the body. A large download is not reflected in either.</p>
 <p>Paths are logged in full. The prohibition on path labels applies to metrics,

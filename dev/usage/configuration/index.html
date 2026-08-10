@@ -922,6 +922,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#mocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mocks[]
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -1416,6 +1427,17 @@
     <span class="md-ellipsis">
       
         body_limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mocks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        mocks[]
       
     </span>
   </a>
@@ -1919,6 +1941,153 @@ non-negative, with <code>min &lt;= max</code>.</p>
 <p>A mock that extracts variables from the request body has to buffer it, which
 the proxy otherwise avoids -- bodies stream through. This bounds that buffer.
 Exceeding it is <code>413</code>. See <a href="../mocks/#bodies-and-the-size-limit">Mocks and templating</a>.</p>
+<h3 id="mocks"><code>mocks[]</code><a class="headerlink" href="#mocks" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="w">    </span><span class="nt">mocks</span><span class="p">:</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pricing</span>
+<span class="w">        </span><span class="nt">request</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GET</span>
+<span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;^/pricing/(?P&lt;id&gt;[0-9]+)/$&quot;</span>
+<span class="w">          </span><span class="nt">headers</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">who</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-User</span>
+<span class="w">          </span><span class="nt">query</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">page</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.page</span>
+<span class="w">          </span><span class="nt">body</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">items</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.content.items</span>
+<span class="w">        </span><span class="nt">response</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<span class="w">          </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;id&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">id</span><span class="nv"> </span><span class="s">}}&quot;,</span><span class="nv"> </span><span class="s">&quot;page&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">page</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
+<span class="w">          </span><span class="nt">headers</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">X-Served-By</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;mock</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">id</span><span class="nv"> </span><span class="s">}}&quot;</span>
+<span class="w">        </span><span class="nt">proxy</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">replace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.5</span>
+</code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>string</td>
+<td>required</td>
+<td>Unique within the proxy</td>
+</tr>
+<tr>
+<td><code>request</code></td>
+<td>see below</td>
+<td>required</td>
+<td>What the mock matches</td>
+</tr>
+<tr>
+<td><code>response</code></td>
+<td>see below</td>
+<td>required</td>
+<td>What it answers</td>
+</tr>
+<tr>
+<td><code>proxy</code></td>
+<td>see below</td>
+<td>none</td>
+<td>Per-mock overrides</td>
+</tr>
+</tbody>
+</table>
+<p><code>request</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>method</code></td>
+<td>upper-case method</td>
+<td>required</td>
+<td>Matched exactly; <code>get</code> is rejected at load</td>
+</tr>
+<tr>
+<td><code>url</code></td>
+<td>regex</td>
+<td>required</td>
+<td>Matched against the path, unanchored. Named groups become variables</td>
+</tr>
+<tr>
+<td><code>headers</code></td>
+<td>variable → header name</td>
+<td>none</td>
+<td></td>
+</tr>
+<tr>
+<td><code>query</code></td>
+<td>variable → selector</td>
+<td>none</td>
+<td></td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>variable → selector</td>
+<td>none</td>
+<td>Buying the buffer bounded by <code>body_limit</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>response</code> -- exactly one of <code>body</code>, <code>json</code> or <code>template</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Default</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>status</code></td>
+<td>100..599</td>
+<td>required</td>
+<td></td>
+</tr>
+<tr>
+<td><code>body</code></td>
+<td>template</td>
+<td>none</td>
+<td>Sent as <code>text/plain</code></td>
+</tr>
+<tr>
+<td><code>json</code></td>
+<td>template</td>
+<td>none</td>
+<td>Sent as <code>application/json</code>; must render to valid JSON</td>
+</tr>
+<tr>
+<td><code>template</code></td>
+<td>file name</td>
+<td>none</td>
+<td>A file under this proxy's template directory</td>
+</tr>
+<tr>
+<td><code>headers</code></td>
+<td>header name → template</td>
+<td>none</td>
+<td>The value is a template, rendered per request</td>
+</tr>
+</tbody>
+</table>
+<p><code>proxy</code> accepts <code>replace</code>, <code>loss</code> and <code>latency</code>, with the same types and bounds
+as on the proxy. What is inherited and what is not is in
+<a href="../faults/#faults-on-one-endpoint-only">Injecting faults</a>.</p>
+<p>Every variable a template names has to be bound, or the render fails with
+<code>500</code> -- see <a href="../mocks/#rendering-is-strict">Mocks and templating</a>.</p>
 <h2 id="validation">Validation<a class="headerlink" href="#validation" title="Permanent link">&para;</a></h2>
 <p>The rule set runs identically at startup, on reload, and under
 <code>doppel config validate</code>. Every violation is reported together with the others,
