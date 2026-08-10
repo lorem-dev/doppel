@@ -35,6 +35,11 @@ proxies:
   - name: alpha
     type: http
     url: "https://alpha.example.com/api/"
+    # Present, and deliberately `false` rather than `true`: a store that
+    # dropped the column, or materialised the default instead of the absence,
+    # would round-trip a different document and `load_returns_what_save_wrote`
+    # would catch it. `true` would have been indistinguishable from the default.
+    rewrite_redirects: false
 "#;
 
 fn base() -> Config {

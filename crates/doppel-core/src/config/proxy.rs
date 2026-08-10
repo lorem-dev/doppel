@@ -80,6 +80,18 @@ pub struct ProxyConfig {
     pub latency: Option<LatencyConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replace: Option<super::Ratio>,
+    /// Whether a redirect whose `Location` points back into the space this
+    /// proxy forwards is rewritten to point at Doppel instead. Absent means
+    /// enabled.
+    ///
+    /// On by default because the alternative is a silent failure: `Host` is
+    /// replaced with the upstream's authority, so the upstream's `Location`
+    /// names the upstream, and a client following it leaves Doppel -- along with
+    /// every fault and every mock -- with nothing reported. Turn it off to have
+    /// the response relayed byte for byte, which is what a client being tested
+    /// *against redirect handling itself* needs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_redirects: Option<bool>,
     /// Bounds the request body a matched mock is allowed to buffer in order
     /// to extract from it; phase 1 streams bodies deliberately, and reading
     /// `.content.items` needs the whole thing in hand. See rule V33.

@@ -202,6 +202,7 @@ proxies:
 | `loss` | see below | none | |
 | `latency` | see below | none | |
 | `replace` | 0.0..1.0 | 1.0 | Probability a matching mock actually answers |
+| `rewrite_redirects` | boolean | `true` | Point a redirect back at Doppel when its target is under this proxy's base. See [Redirects](proxying.md#redirects) |
 | `mocks` | list | none | See [Mocks and templating](mocks.md) |
 
 ### `resolve`

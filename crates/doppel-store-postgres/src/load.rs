@@ -158,6 +158,7 @@ impl PostgresStore {
                 loss: loss_from(row)?,
                 latency: latency_from(row)?,
                 replace: optional_ratio(row, "replace_ratio")?,
+                rewrite_redirects: row.try_get("rewrite_redirects").map_err(query_failed)?,
                 body_limit: byte_size(row, "body_limit")?,
             });
         }

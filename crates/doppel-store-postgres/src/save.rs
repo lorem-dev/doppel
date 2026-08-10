@@ -173,9 +173,10 @@ impl PostgresStore {
     ) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO proxies (config, name, ordinal, kind, url, timeout_seconds, body_limit, \
-             replace_ratio, resolve_kind, resolve_header, loss_percentage, loss_status, \
-             latency_percentage, latency_min, latency_max, headers, access) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+             replace_ratio, rewrite_redirects, resolve_kind, resolve_header, loss_percentage, \
+             loss_status, latency_percentage, latency_min, latency_max, headers, access) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
+             $18)",
         )
         .bind(&self.config_name)
         .bind(proxy.name.as_str())
@@ -189,6 +190,7 @@ impl PostgresStore {
         )
         .bind(i64::try_from(proxy.body_limit.get()).unwrap_or(i64::MAX))
         .bind(proxy.replace.map(doppel_core::config::Ratio::get))
+        .bind(proxy.rewrite_redirects)
         .bind(as_text(&proxy.resolve.kind)?)
         .bind(
             proxy

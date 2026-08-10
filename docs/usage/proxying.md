@@ -62,8 +62,24 @@ Headers configured on the proxy are injected into the outbound request and
 override anything the client sent by the same name. The resolution headers are
 stripped, so the upstream does not learn Doppel's routing vocabulary.
 
-`X-Forwarded-For` is appended to rather than replaced, preserving any chain
-that arrived.
+Because `Host` is replaced, what the client asked for is sent on instead:
+
+| Header | Value |
+|---|---|
+| `X-Forwarded-Host` | the authority the client used |
+| `X-Forwarded-Proto` | `http` -- Doppel terminates no TLS, so `https` would name a hop that does not exist |
+| `X-Forwarded-For` | the chain that arrived, with the peer appended |
+
+The first two are only set when the request did not already carry them, and
+`X-Forwarded-For` is appended to rather than replaced. All three preserve what
+arrived, so Doppel behind another proxy keeps the authority the client really
+used rather than substituting an internal one. The flip side is that a client
+talking to Doppel directly can put whatever it likes in them -- true of any proxy
+that preserves a chain, and the reason these headers are only ever as
+trustworthy as the hop that set them.
+
+`X-Forwarded-Port` and RFC 7239 `Forwarded` are not generated. One arriving from
+a client is relayed untouched.
 
 `X-Request-ID` is reused if the client sent one and generated otherwise, sent
 upstream, and returned on the response, so one request can be followed across
@@ -71,9 +87,50 @@ services.
 
 ## Redirects
 
-A `3xx` from the upstream is relayed to the caller with its `Location` intact,
-not followed. The redirect target is the client's decision, and a streamed
-request body could not be replayed to it anyway.
+A `3xx` from the upstream is relayed to the caller, not followed. The redirect
+target is the client's decision, and a streamed request body could not be
+replayed to it anyway.
+
+Its `Location` is rewritten to keep the client behind the proxy:
+
+```yaml
+proxies:
+  - name: backend
+    url: "https://api.example.com/v2/"
+    rewrite_redirects: true    # the default
+```
+
+With a base of `https://api.example.com/v2/`, an upstream answering
+`Location: https://api.example.com/v2/orders/7` produces `Location: /orders/7`
+to the client. Query and fragment survive.
+
+Relative rather than absolute, so Doppel never has to guess its own public
+name: the client resolves it against the URL it used, which is Doppel's.
+
+!!! warning "Why this is on by default"
+    `Host` is not relayed, so the upstream answers with its *own* authority in
+    `Location`. Relayed untouched, a client following it talks to the backend
+    directly from then on -- past every injected fault and every mock, with
+    nothing logged and nothing failing. The test still passes; it has just
+    stopped testing anything.
+
+    `nginx` has `proxy_redirect` for this and Apache `ProxyPassReverse`, both on
+    by default, for the same reason.
+
+A target that is **not** under the proxy's base is genuinely elsewhere and is
+left pointing there, stated as an absolute URL. That covers a subtler case too:
+an upstream answering `Location: /login` under a base of `/v2/` means its own
+root, so relaying the header as-is would have the client come back asking for
+`/v2/login` -- a different resource nobody named.
+
+Set `rewrite_redirects: false` to relay the header byte for byte. That is what a
+client being tested *for its redirect handling* needs; it is not what a client
+being tested against a degraded backend needs.
+
+Only `Location` is rewritten. `Content-Location` names where a payload lives
+rather than where to go next, `Refresh` is not a standard header, and the
+`Domain` attribute of a `Set-Cookie` needs its own rule -- none of the three is
+touched.
 
 ## Faults
 
