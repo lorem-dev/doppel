@@ -239,6 +239,63 @@ A mock that extracts variables from the request body has to buffer it, which
 the proxy otherwise avoids -- bodies stream through. This bounds that buffer.
 Exceeding it is `413`. See [Mocks and templating](mocks.md#bodies-and-the-size-limit).
 
+### `mocks[]`
+
+```yaml
+    mocks:
+      - name: pricing
+        request:
+          method: GET
+          url: "^/pricing/(?P<id>[0-9]+)/$"
+          headers:
+            who: X-User
+          query:
+            page: .page
+          body:
+            items: .content.items
+        response:
+          status: 200
+          json: '{"id": "{{ id }}", "page": "{{ page }}"}'
+          headers:
+            X-Served-By: "mock {{ id }}"
+        proxy:
+          replace: 0.5
+```
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `name` | string | required | Unique within the proxy |
+| `request` | see below | required | What the mock matches |
+| `response` | see below | required | What it answers |
+| `proxy` | see below | none | Per-mock overrides |
+
+`request`:
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `method` | upper-case method | required | Matched exactly; `get` is rejected at load |
+| `url` | regex | required | Matched against the path, unanchored. Named groups become variables |
+| `headers` | variable → header name | none | |
+| `query` | variable → selector | none | |
+| `body` | variable → selector | none | Buying the buffer bounded by `body_limit` |
+
+`response` -- exactly one of `body`, `json` or `template`:
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `status` | 100..599 | required | |
+| `body` | template | none | Sent as `text/plain` |
+| `json` | template | none | Sent as `application/json`; must render to valid JSON |
+| `template` | file name | none | A file under this proxy's template directory |
+| `headers` | header name → template | none | The value is a template, rendered per request |
+
+`proxy` accepts `replace`, `loss` and `latency`, with the same types and bounds
+as on the proxy. What is inherited and what is not is in
+[Injecting faults](faults.md#faults-on-one-endpoint-only).
+
+Every variable a template names has to be bound, or the render fails with
+`500` -- see [Mocks and templating](mocks.md#rendering-is-strict).
+
 ## Validation
 
 The rule set runs identically at startup, on reload, and under

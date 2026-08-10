@@ -66,6 +66,10 @@ proxies:
       min: 0.05         # seconds
       max: 0.2
     replace: 1.0  # serve mocks for 100 percent of matching requests
+    # Rewrite a redirect whose target is under this proxy's base so it points
+    # back here instead of at the upstream; on by default. Set it to false to
+    # relay Location byte for byte.
+    rewrite_redirects: true
     body_limit: 1Mi  # bounds the body buffered for mocks that extract from it (mock2, mock6 below); default 1Mi
     # Order matters. Patterns are matched as unanchored regexes, so a general
     # pattern placed first shadows every more specific one below it: with

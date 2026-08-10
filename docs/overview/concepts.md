@@ -24,9 +24,11 @@ See [Several backends behind one port](../usage/multiple-backends.md).
 ## Fault
 
 A **fault** is a deliberate degradation: `loss` drops a share of requests with
-a chosen status, `latency` delays a share of them by a random time in a range.
-Both are properties of the proxy, so they apply before Doppel decides what will
-answer the request.
+a chosen status, `latency` makes a share of them take a random time in a range.
+
+Both are declared on the proxy, and a mock may declare its own. Which applies to
+a given request depends on what answered it -- see
+[How a request is handled](#how-a-request-is-handled) below.
 
 Shares are written as fractions. `0.1` is one request in ten; `50` is not fifty
 percent, it is refused.
