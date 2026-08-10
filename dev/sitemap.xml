@@ -2,74 +2,74 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/development/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/development/architecture/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/overview/concepts/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/admin-api/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/cli/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/configuration/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/docker/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/faults/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/getting-started/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/installation/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/mocks/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/multiple-backends/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/observability/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/proxying/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/runtime-changes/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/storage/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
     <url>
          <loc>https://lorem-dev.github.io/doppel/dev/usage/troubleshooting/</loc>
-         <lastmod>2026-08-03</lastmod>
+         <lastmod>2026-08-10</lastmod>
     </url>
 </urlset>
