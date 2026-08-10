@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 0.3.0 -- 2026-08-10
+
 ### Added
 
 - `X-Forwarded-Host` and `X-Forwarded-Proto` are now sent upstream.
