@@ -200,9 +200,12 @@ async fn a_rewrite_leaves_no_rows_from_the_previous_version() {
         .expect("shrink");
 
     assert_eq!(schema.count("proxies").await, 1);
-    assert_eq!(schema.count("mocks").await, 1);
     let (loaded, _) = store.load_config().await.expect("load");
     assert_eq!(loaded, one_proxy);
+    // A dropped proxy's mocks used to be a `mocks` row count; they now live
+    // inside the proxy's own document, so deleting the row takes them with it and
+    // what is left to check is that the surviving document kept its own.
+    assert_eq!(loaded.proxies[0].mocks.len(), 1);
 
     schema.drop().await;
 }
