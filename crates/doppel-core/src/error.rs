@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     ProxyNotResolved,
+    /// The configuration names no proxies at all, so there was never
+    /// anything for the request to resolve to.
+    NoProxiesConfigured,
     TemplateRenderError,
     TemplateNotFound,
     BodyExtractionError,
@@ -32,6 +35,7 @@ impl ErrorCode {
     pub fn status(self) -> u16 {
         match self {
             Self::ProxyNotResolved | Self::NotFound => 404,
+            Self::NoProxiesConfigured => 503,
             Self::TemplateRenderError
             | Self::TemplateNotFound
             | Self::BodyExtractionError
@@ -77,6 +81,7 @@ impl ErrorCode {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ProxyNotResolved => "PROXY_NOT_RESOLVED",
+            Self::NoProxiesConfigured => "NO_PROXIES_CONFIGURED",
             Self::TemplateRenderError => "TEMPLATE_RENDER_ERROR",
             Self::TemplateNotFound => "TEMPLATE_NOT_FOUND",
             Self::BodyExtractionError => "BODY_EXTRACTION_ERROR",
@@ -113,6 +118,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
         let value = String::deserialize(d)?;
         match value.as_str() {
             "PROXY_NOT_RESOLVED" => Ok(Self::ProxyNotResolved),
+            "NO_PROXIES_CONFIGURED" => Ok(Self::NoProxiesConfigured),
             "TEMPLATE_RENDER_ERROR" => Ok(Self::TemplateRenderError),
             "TEMPLATE_NOT_FOUND" => Ok(Self::TemplateNotFound),
             "BODY_EXTRACTION_ERROR" => Ok(Self::BodyExtractionError),
@@ -200,6 +206,7 @@ mod tests {
     /// (rather than never added) still fails, at test time.
     const ALL_CODES: &[(ErrorCode, &str, u16)] = &[
         (ErrorCode::ProxyNotResolved, "PROXY_NOT_RESOLVED", 404),
+        (ErrorCode::NoProxiesConfigured, "NO_PROXIES_CONFIGURED", 503),
         (ErrorCode::TemplateRenderError, "TEMPLATE_RENDER_ERROR", 500),
         (ErrorCode::TemplateNotFound, "TEMPLATE_NOT_FOUND", 500),
         (ErrorCode::BodyExtractionError, "BODY_EXTRACTION_ERROR", 500),
@@ -225,6 +232,7 @@ mod tests {
     fn assert_listed_exactly_once(code: ErrorCode) {
         match code {
             ErrorCode::ProxyNotResolved
+            | ErrorCode::NoProxiesConfigured
             | ErrorCode::TemplateRenderError
             | ErrorCode::TemplateNotFound
             | ErrorCode::BodyExtractionError

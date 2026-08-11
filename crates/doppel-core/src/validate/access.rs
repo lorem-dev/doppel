@@ -1,4 +1,4 @@
-//! Rules V26, V27 and V34. V28 is enforced by `ProxyAccessConfig`, and V29
+//! Rules V26, V27, V34 and V36. V28 is enforced by `ProxyAccessConfig`, and V29
 //! by `ByteSize`, which refuses a limit of zero for every field that uses
 //! it rather than once per field.
 
@@ -9,10 +9,6 @@ use crate::config::{Config, Subjects};
 
 /// Groups that always exist, whether or not a token carries them.
 const PREDEFINED_GROUPS: [&str; 2] = ["admin", "user"];
-
-fn access_of(config: &Config) -> &crate::config::AccessConfig {
-    &config.admin.access
-}
 
 pub(super) fn check(config: &Config, v: &mut Violations) {
     // V26
@@ -34,11 +30,12 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
     // rewrite the proxy set. That is far more often a mistake than an intent,
     // and startup is the last cheap moment to catch it. Reads stay allowed to
     // be public -- `/status` and a proxy listing give nothing away.
+    let access = &config.admin.access;
     for (action, subjects) in [
-        ("create", &access_of(config).create),
-        ("update", &access_of(config).update),
-        ("delete", &access_of(config).delete),
-        ("upload", &access_of(config).upload),
+        ("create", &access.create),
+        ("update", &access.update),
+        ("delete", &access.delete),
+        ("upload", &access.upload),
     ] {
         if matches!(subjects, Subjects::Public) {
             v.push(
@@ -51,19 +48,35 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
         }
     }
 
-    // V27
+    // V27 and V36 read the same places, so the walk happens once and both
+    // rules run per site. They used to be one loop each, which is how a rule
+    // added later ends up covering the admin block and quietly forgetting the
+    // per-proxy overrides.
     let known = known_subjects(config);
+    for (path, subjects) in access_sites(config) {
+        // V27
+        check_subjects(subjects, &known, &path, v);
+        // V36
+        check_allowed_groups(subjects, config.admin.allowed_groups(), &path, v);
+    }
+}
+
+/// Every place a configuration names who may do something, with the path to
+/// report it under: the admin block's six actions, then each proxy's four
+/// overrides.
+fn access_sites(config: &Config) -> Vec<(String, &Subjects)> {
     let access = &config.admin.access;
-    for (action, subjects) in [
+    let mut sites: Vec<(String, &Subjects)> = [
         ("list", &access.list),
         ("read", &access.read),
         ("create", &access.create),
         ("update", &access.update),
         ("delete", &access.delete),
         ("upload", &access.upload),
-    ] {
-        check_subjects(subjects, &known, &format!("admin.access.{action}"), v);
-    }
+    ]
+    .into_iter()
+    .map(|(action, subjects)| (format!("admin.access.{action}"), subjects))
+    .collect();
 
     for (i, proxy) in config.proxies.iter().enumerate() {
         let Some(overrides) = &proxy.access else {
@@ -76,14 +89,51 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             ("upload", &overrides.upload),
         ] {
             if let Some(subjects) = subjects {
-                check_subjects(
-                    subjects,
-                    &known,
-                    &format!("proxies[{i}].access.{action}"),
-                    v,
-                );
+                sites.push((format!("proxies[{i}].access.{action}"), subjects));
             }
         }
+    }
+    sites
+}
+
+/// V36: a name `access` references has to be one `admin.groups` allows.
+///
+/// `Subjects::Public` is never checked. `public` is the absence of a subject
+/// rather than a name, so an allow-list has nothing to say about it -- and a
+/// configuration reduced to `groups: []` still has to be able to express "anyone
+/// may read this".
+fn check_allowed_groups(
+    subjects: &Subjects,
+    allowed: &[crate::config::AllowedGroup],
+    path: &str,
+    v: &mut Violations,
+) {
+    let Subjects::Names(names) = subjects else {
+        return;
+    };
+    for name in names {
+        if allowed.iter().any(|entry| entry.permits(name.as_str())) {
+            continue;
+        }
+        // The message names the list rather than only the rejection: the reader
+        // has to decide whether to change the reference or widen the list, and
+        // cannot do either without seeing what is currently permitted.
+        let permitted = if allowed.is_empty() {
+            "`admin.groups` is empty, so only `public` may be used".to_owned()
+        } else {
+            format!(
+                "`admin.groups` allows only {}",
+                allowed
+                    .iter()
+                    .map(|entry| format!("`{entry}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        v.push(
+            path,
+            format!("`{name}` is not an allowed group: {permitted}"),
+        );
     }
 }
 

@@ -1,0 +1,15 @@
+-- `ProxyConfig::rewrite_redirects`: whether a redirect pointing back into the
+-- space a proxy forwards is rewritten to point at Doppel.
+--
+-- Nullable, and deliberately not `DEFAULT TRUE`. The field is `Option<bool>`,
+-- where absent means "use the default" and is a different document from `true`
+-- written out: the revision is derived from the document's content, so a store
+-- that materialised the default would hand back a configuration with a
+-- different revision from the one that was saved. Every other optional column
+-- in this table is nullable for the same reason -- see `replace_ratio`.
+--
+-- A separate migration rather than an edit to 0001: sqlx records a checksum per
+-- migration, so editing one already applied is reported as tampering by
+-- `config migrate --status`, which is the property that bookkeeping was chosen
+-- for.
+ALTER TABLE proxies ADD COLUMN rewrite_redirects BOOLEAN;

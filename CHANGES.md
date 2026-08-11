@@ -8,58 +8,50 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 0.4.0 -- 2026-08-11
+
+### Added
+
+- A JSON Schema for the configuration, checked in and attached to each release.
+- `doppel config schema` prints it; every field carries a description.
+
 ### Changed
 
-- The documentation site is versioned with `mike`: one built copy per release on
-  the `gh-pages` branch, a switcher in the header, and the site root redirecting
-  to the newest release. It was a single unversioned site, so a reader on 0.1.0
-  had no way to reach the documentation for the release they were running, and
-  publishing 0.2.0 silently replaced it. Pre-release tags publish nothing; a push
-  to `main` publishes `dev`.
+- An empty or absent `proxies` list is accepted; requests get `503
+  NO_PROXIES_CONFIGURED`.
+- `type: tcp` is now refused while parsing rather than by a validation rule.
+- `admin.groups` bounds which names `access` may reference; rule V36 checks it.
+- Names may no longer contain `.`, and are capped at 64 characters, 32 for a
+  proxy.
+
+## 0.3.0 -- 2026-08-10
+
+### Added
+
+- `X-Forwarded-Host` and `X-Forwarded-Proto` are now sent upstream.
+- `proxies[].rewrite_redirects`, default `true`.
+
+### Changed
+
+- A redirect into the proxied space now points back at Doppel, not the upstream.
+- The documentation site is versioned with `mike`, one built copy per release.
 
 ## 0.2.0 -- 2026-08-03
 
 ### Changed
 
-- A matching mock is now decided before `loss` and `latency`, not after, so
-  `replace` is the share of matching requests a mock answers rather than the
-  share of those that survived a loss roll. Previously `loss: 0.5` halved every
-  `replace` in the proxy, and no configuration could ask a mock to answer half
-  of its matching requests while any loss was set. The proxy's `loss` and
-  `latency` no longer apply to a request a mock answered: they describe the real
-  backend, and a mock replaces it.
-- A run of slashes at the start of a request path is collapsed to one before
-  mocks are matched, so `//api/v1/index/` matches a mock declared
-  `^/api/v1/index/$`. Clients produce the doubled form by joining a base URL
-  ending in `/` to a path beginning with `/`; it is legal HTTP, nothing rejected
-  it, and the only symptom was an anchored mock silently not firing. Empty
-  segments elsewhere in the path are left alone.
-- An injected `latency` is now a target for the whole response rather than an
-  addition to it: the time the upstream really took is subtracted, and only the
-  remainder is waited out. A 500ms latency in front of a backend answering in
-  120ms delays by 380ms, where before it delayed by 500 and produced 620ms
-  total -- so the number written in the configuration was unreachable by
-  construction, and moved with whatever the upstream happened to be doing. An
-  upstream slower than the target leaves no remainder and is passed straight
-  through; the setting is a floor, never a ceiling. `latency_injected_ms` in the
-  log line is the wait actually taken and reads `0` in that case, while
-  `doppel_latency_injected_total` still counts the request.
+- A matching mock is decided before `loss` and `latency`, so `replace` no longer
+  shrinks with loss.
+- The proxy's `loss` no longer applies to a request a mock answered; its
+  `latency` still does.
+- Leading slashes in a request path are collapsed before mocks are matched.
+- An injected `latency` is a target for the whole response: the upstream's real
+  time is subtracted.
 
 ### Fixed
 
-- A mock's `proxy.loss` and `proxy.latency` are applied. They were parsed,
-  validated and compiled into the runtime, and then never read, so a mock
-  declaring either was silently answering every request it matched. They now
-  apply to the requests the mock answers, after it has won its `replace` roll,
-  and go through the same `decide` as the proxy's -- so loss short-circuits
-  latency there too.
-- What a mock inherits from its proxy is now settled per setting rather than by
-  accident: `replace` and `latency` fall back to the proxy's, `loss` does not.
-  `latency` describes how slow the proxy is to answer, which holds whatever
-  answers, so a mocked response is delayed like any other and a mock's own value
-  overrides rather than adds to it. `loss` is excluded because a mock inheriting
-  it would be dropped by the proxy's loss, which is the coupling between `loss`
-  and `replace` the ordering above exists to remove.
+- A mock's own `proxy.loss` and `proxy.latency` are applied; they were parsed and
+  then ignored.
 
 ## 0.1.0 -- 2026-08-02
 

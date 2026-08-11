@@ -24,6 +24,10 @@ pub struct CompiledProxy {
     pub loss: Option<LossConfig>,
     pub latency: Option<LatencyConfig>,
     pub replace: f64,
+    /// Whether a redirect pointing back into this proxy's space is rewritten to
+    /// point at Doppel. The `Option` in the configuration resolves to its
+    /// default here, so the hot path never has to know what that default was.
+    pub rewrite_redirects: bool,
     pub resolve_header: Option<String>,
     /// Mocks in configuration order. Matching is first-wins, so this order
     /// is load-bearing, not incidental.
@@ -185,6 +189,7 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
         loss: proxy.loss,
         latency: proxy.latency,
         replace: proxy.replace.map_or(1.0, crate::config::Ratio::get),
+        rewrite_redirects: proxy.rewrite_redirects.unwrap_or(true),
         resolve_header: match proxy.resolve.kind {
             ResolveKind::Header => proxy
                 .resolve
@@ -332,6 +337,39 @@ proxies:
         let rt = compile(TWO_PROXIES);
         assert_eq!(rt.proxies[0].name, "p1");
         assert_eq!(rt.proxies[1].name, "p2");
+    }
+
+    /// Neither proxy in the fixture mentions `rewrite_redirects`, so this is the
+    /// default being resolved, not a value being carried through.
+    ///
+    /// It exists because the default was once quietly flipped to `false` and the
+    /// whole suite stayed green: every other test builds a `CompiledProxy`
+    /// literal with the field set explicitly, so nothing went through
+    /// `compile_proxy` to notice. A default nothing asserts is a comment.
+    #[test]
+    fn a_proxy_that_says_nothing_rewrites_redirects() {
+        let rt = compile(TWO_PROXIES);
+        assert!(
+            rt.proxies.iter().all(|p| p.rewrite_redirects),
+            "rewrite_redirects defaults to true; got {:?}",
+            rt.proxies
+                .iter()
+                .map(|p| (p.name.as_str(), p.rewrite_redirects))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// And the setting is carried through when it *is* written down, so the test
+    /// above cannot pass by the field being hardcoded.
+    #[test]
+    fn a_proxy_can_turn_redirect_rewriting_off() {
+        let text = TWO_PROXIES.replace(
+            "    url: \"https://two.example.com/\"",
+            "    url: \"https://two.example.com/\"\n    rewrite_redirects: false",
+        );
+        let rt = compile(&text);
+        assert!(rt.proxy_by_name("p1").unwrap().rewrite_redirects);
+        assert!(!rt.proxy_by_name("p2").unwrap().rewrite_redirects);
     }
 
     #[test]

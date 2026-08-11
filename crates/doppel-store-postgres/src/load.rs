@@ -114,6 +114,7 @@ impl PostgresStore {
             },
             tokens,
             access: json_column::<AccessConfig>(row, "admin_access")?,
+            groups: optional_json::<Vec<doppel_core::config::AllowedGroup>>(row, "admin_groups")?,
             upload: UploadConfig {
                 limit: byte_size(row, "admin_upload_limit")?,
             },
@@ -138,7 +139,10 @@ impl PostgresStore {
                 name,
                 kind: match text(row, "kind")?.as_str() {
                     "http" => ProxyKind::Http,
-                    "tcp" => ProxyKind::Tcp,
+                    // Including `tcp`, which earlier versions of this schema
+                    // could store: the variant is gone, so a row holding it is
+                    // a configuration this binary cannot serve, reported rather
+                    // than silently coerced to `http`.
                     other => return Err(corrupt("proxies.kind", &format!("is `{other}`"))),
                 },
                 url: url(row, "url")?,
@@ -158,6 +162,7 @@ impl PostgresStore {
                 loss: loss_from(row)?,
                 latency: latency_from(row)?,
                 replace: optional_ratio(row, "replace_ratio")?,
+                rewrite_redirects: row.try_get("rewrite_redirects").map_err(query_failed)?,
                 body_limit: byte_size(row, "body_limit")?,
             });
         }
@@ -289,7 +294,13 @@ fn text(row: &PgRow, column: &str) -> Result<String, StoreError> {
 /// by hand can hold one the configuration format would refuse. Parsing here
 /// means a `Config` this store produces is subject to the same rule as one
 /// read from YAML, rather than a second, laxer standard nobody wrote down.
-fn name(row: &PgRow, column: &str) -> Result<doppel_core::config::Name, StoreError> {
+/// Generic over the cap so one function serves both a `Name` and the tighter
+/// `ProxyName`, and the column is checked against the limit that type actually
+/// carries rather than against whichever one this helper happened to name.
+fn name<const MAX_LEN: usize>(
+    row: &PgRow,
+    column: &str,
+) -> Result<doppel_core::config::Name<MAX_LEN>, StoreError> {
     let raw: String = row.try_get(column).map_err(query_failed)?;
     doppel_core::config::Name::parse(raw).map_err(|err| corrupt(column, &err.to_string()))
 }

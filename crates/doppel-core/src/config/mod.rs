@@ -10,6 +10,7 @@ pub mod pattern;
 pub mod port;
 pub mod proxy;
 pub mod ratio;
+pub mod schema;
 pub mod selector;
 pub mod server;
 pub mod size;
@@ -24,13 +25,14 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::method::{HttpMethod, MethodError};
 pub use admin::{
-    AccessConfig, AdminConfig, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig, UploadConfig,
+    AccessConfig, AdminConfig, AllowedGroup, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig,
+    UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
 pub use env::{EnvTokens, EnvTokensError};
 pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
-pub use name::{Name, NameError};
+pub use name::{MAX_PROXY, Name, NameError, ProxyName};
 pub use pattern::{Pattern, PatternError};
 pub use port::{Port, PortError};
 pub use proxy::{LatencyConfig, LossConfig, ProxyConfig, ProxyKind, ResolveConfig, ResolveKind};
@@ -45,19 +47,30 @@ pub use template::{TemplateName, TemplateNameError};
 pub use token::{Token, TokenError};
 pub use url::{UpstreamUrl, UrlError};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// Where the proxy listens for the traffic being forwarded or mocked.
     pub server: ServerConfig,
+    /// Log level and output format.
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// The Unix socket `doppel config reload` talks to.
     #[serde(default)]
     pub control: ControlConfig,
+    /// Where mock template files are read from and uploaded to.
     #[serde(default)]
     pub templates: TemplatesConfig,
+    /// Optional error reporting. Absent, or an empty DSN, disables it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sentry: Option<SentryConfig>,
+    /// The admin API's listener, its tokens, and who may do what.
     pub admin: AdminConfig,
+    /// The proxies this instance serves, in the order they are tried.
+    ///
+    /// May be empty or left out: Doppel then starts and serves the admin API,
+    /// and a request is answered `503 NO_PROXIES_CONFIGURED` until a proxy is
+    /// added by reload or over that API.
     #[serde(default)]
     pub proxies: Vec<ProxyConfig>,
 }
@@ -227,11 +240,24 @@ proxies:
         assert_eq!(parse_subjects("[]"), Subjects::Public);
     }
 
+    /// `tcp` is refused while the document is read, not by a rule afterwards.
+    /// The message has to say it is unimplemented rather than only that the
+    /// value was not accepted -- someone writing `type: tcp` has a plan, not a
+    /// typo, and deserves to be told the plan will not work.
     #[test]
-    fn tcp_type_deserializes_so_validation_can_reject_it_with_a_good_message() {
+    fn tcp_type_is_refused_while_parsing_and_says_why() {
         let text = MINIMAL.replace("type: http", "type: tcp");
-        let config = load_from_str(&text).unwrap();
-        assert_eq!(config.proxies[0].kind, ProxyKind::Tcp);
+        let err = load_from_str(&text).unwrap_err().to_string();
+        assert!(err.contains("not implemented"), "got {err}");
+        assert!(err.contains("tcp"), "got {err}");
+    }
+
+    #[test]
+    fn an_unknown_proxy_type_names_the_only_accepted_one() {
+        let text = MINIMAL.replace("type: http", "type: grpc");
+        let err = load_from_str(&text).unwrap_err().to_string();
+        assert!(err.contains("grpc"), "got {err}");
+        assert!(err.contains("http"), "got {err}");
     }
 
     #[test]

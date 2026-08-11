@@ -153,12 +153,26 @@ pub async fn forward(
 
     let mut headers = sanitize_headers(&parts.headers);
     // reqwest derives Host from the URL; relaying the client's would send the
-    // wrong authority upstream.
+    // wrong authority upstream. What the client asked for is not thrown away
+    // though -- it goes on as `X-Forwarded-Host` below.
+    //
+    // Read before the removal, and from `parts.headers` rather than from the
+    // sanitized copy. HTTP/2 carries the authority in `:authority` rather than
+    // in a `Host` header, which `axum` surfaces on the URI, so both are tried.
+    let client_authority = parts
+        .headers
+        .get("host")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .or_else(|| parts.uri.authority().map(ToString::to_string));
     headers.remove("host");
     for name in resolve_headers {
         headers.remove(name.as_str());
     }
     apply_forwarded_for(&mut headers, &parts.headers, peer);
+    if let Some(authority) = client_authority.as_deref() {
+        apply_forwarded_host_and_proto(&mut headers, &parts.headers, authority);
+    }
     if let Ok(value) = HeaderValue::from_str(request_id) {
         headers.insert("x-request-id", value);
     }
@@ -178,7 +192,10 @@ pub async fn forward(
 
     let started = Instant::now();
     let response = client
-        .request(parts.method, url)
+        // Cloned because the redirect rewriting below resolves the upstream's
+        // `Location` against the URL that was actually requested, and reqwest
+        // takes ownership here.
+        .request(parts.method, url.clone())
         .headers(headers)
         .timeout(proxy.timeout)
         .body(upstream_body)
@@ -192,7 +209,12 @@ pub async fn forward(
     let duration = started.elapsed();
 
     let status = response.status();
-    let relayed = sanitize_headers(response.headers());
+    let mut relayed = sanitize_headers(response.headers());
+    if proxy.rewrite_redirects
+        && let Some(rewritten) = rewritten_location(&relayed, &url, &proxy.base_url)
+    {
+        relayed.insert("location", rewritten);
+    }
     let stream = response.bytes_stream();
 
     let mut builder = Response::builder().status(status);
@@ -264,6 +286,104 @@ fn apply_forwarded_for(target: &mut HeaderMap, original: &HeaderMap, peer: Optio
     };
     if let Ok(value) = HeaderValue::from_str(&chain) {
         target.insert("x-forwarded-for", value);
+    }
+}
+
+/// A `Location` the client can follow without leaving Doppel, or `None` when
+/// the header should be relayed exactly as it arrived.
+///
+/// The problem this solves is a consequence of not relaying `Host`: the upstream
+/// answers a redirect with its *own* authority in `Location`, and a client that
+/// follows it talks to the backend directly from then on -- past every injected
+/// fault and every mock, with nothing logged and nothing failing. `nginx` has
+/// `proxy_redirect` and Apache `ProxyPassReverse` for exactly this, both on by
+/// default, because forgetting it is so easy.
+///
+/// The value is resolved against the URL that was actually requested upstream,
+/// which is what the upstream meant by it, and then judged:
+///
+/// - Under `base` -- same origin, and a path below its path prefix -- it is
+///   returned as a root-relative path plus query and fragment. Relative rather
+///   than absolute so Doppel never has to guess its own public name: a client
+///   resolves it against the URL it used, which is Doppel's. RFC 9110 has
+///   allowed a relative `Location` since 7231 superseded 2616.
+/// - Anywhere else it is returned in absolute form. That target is genuinely
+///   elsewhere and rewriting it would be a lie, but stating it absolutely
+///   removes a second, quieter bug: a root-relative `Location` meant against the
+///   upstream's root (`/login` under a base of `/api/v1/`) would otherwise be
+///   re-resolved against Doppel and forwarded back as `/api/v1/login`, which is
+///   a different resource nobody asked for.
+///
+/// Not covered: `Content-Location` names where a payload lives rather than where
+/// to go next, `Refresh` is not a standard header, and `Set-Cookie`'s `Domain`
+/// needs its own rewriting rule. Each would be its own decision.
+fn rewritten_location(
+    relayed: &HeaderMap,
+    requested: &reqwest::Url,
+    base: &reqwest::Url,
+) -> Option<HeaderValue> {
+    let location = relayed.get("location")?.to_str().ok()?;
+    let resolved = requested.join(location).ok()?;
+
+    let base_path = base.path();
+    let under_base = resolved.origin() == base.origin()
+        && resolved.path().starts_with(base_path)
+        // A base path is a directory prefix, so `/api/v1x` must not count as
+        // being under `/api/v1/`. `join_upstream` treats the base the same way.
+        && (base_path.ends_with('/') || resolved.path().len() == base_path.len());
+
+    let value = if under_base {
+        let mut tail = String::from("/");
+        tail.push_str(
+            resolved
+                .path()
+                .trim_start_matches(base_path)
+                .trim_start_matches('/'),
+        );
+        if let Some(query) = resolved.query() {
+            tail.push('?');
+            tail.push_str(query);
+        }
+        if let Some(fragment) = resolved.fragment() {
+            tail.push('#');
+            tail.push_str(fragment);
+        }
+        tail
+    } else {
+        resolved.to_string()
+    };
+
+    // Nothing to say if the header already reads that way -- returning `None`
+    // keeps the original bytes rather than a re-serialized equivalent.
+    if value == location {
+        return None;
+    }
+    HeaderValue::from_str(&value).ok()
+}
+
+/// Records what the client asked for, since `Host` is not relayed: without
+/// these the upstream cannot tell a request through Doppel from a direct one,
+/// and cannot build a URL that points back here.
+///
+/// An incoming value is left alone rather than overwritten. That is the same
+/// treatment `X-Forwarded-For` gets above, and for the same reason: with Doppel
+/// behind another proxy, the value that arrived names the authority the client
+/// really used, and this hop's own `Host` is an internal detail. The cost is
+/// that a client talking to Doppel directly can put whatever it likes in them --
+/// which is true of every proxy that preserves the chain, and is why these
+/// headers are only ever as trustworthy as the hop that set them.
+///
+/// `X-Forwarded-Proto` is `http` when Doppel sets it: its listeners are plain
+/// TCP and it terminates no TLS, so `https` would be a claim about a hop that
+/// does not exist here.
+fn apply_forwarded_host_and_proto(target: &mut HeaderMap, original: &HeaderMap, authority: &str) {
+    if !original.contains_key("x-forwarded-host")
+        && let Ok(value) = HeaderValue::from_str(authority)
+    {
+        target.insert("x-forwarded-host", value);
+    }
+    if !original.contains_key("x-forwarded-proto") {
+        target.insert("x-forwarded-proto", HeaderValue::from_static("http"));
     }
 }
 
@@ -576,6 +696,37 @@ mod tests {
                     )
                 }),
             )
+            // Three redirects that differ only in how the upstream spelled
+            // `Location`, which is what decides whether it can be rewritten:
+            // its own absolute URL, a path relative to its root, and a path
+            // relative to the current one.
+            .route(
+                "/redirect/self",
+                // The authority is read off the request rather than taken from
+                // an extractor: `axum::extract::Host` moved to `axum-extra` in
+                // axum 0.8, and this workspace does not depend on it.
+                any(|req: axum::extract::Request| async move {
+                    let host = req
+                        .headers()
+                        .get("host")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("127.0.0.1")
+                        .to_owned();
+                    (
+                        StatusCode::FOUND,
+                        [("location", format!("http://{host}/moved?keep=1#frag"))],
+                        "",
+                    )
+                }),
+            )
+            .route(
+                "/redirect/rooted",
+                any(|| async { (StatusCode::FOUND, [("location", "/moved")], "") }),
+            )
+            .route(
+                "/redirect/relative",
+                any(|| async { (StatusCode::FOUND, [("location", "sibling")], "") }),
+            )
             // The 8 MiB streaming test below exceeds axum's default 2 MiB
             // whole-body extractor limit; this is a property of this mock
             // upstream's route, not of `forward`, so raise it here only.
@@ -613,10 +764,30 @@ mod tests {
             loss: None,
             latency: None,
             replace: 1.0,
+            rewrite_redirects: true,
             resolve_header: None,
             mocks: Vec::new(),
             body_limit: 1024 * 1024,
         }
+    }
+
+    /// The same proxy with redirect rewriting turned off, for the tests that
+    /// pin what `rewrite_redirects: false` relays.
+    fn proxy_relaying_redirects(base: &str) -> doppel_core::CompiledProxy {
+        doppel_core::CompiledProxy {
+            rewrite_redirects: false,
+            ..proxy(base)
+        }
+    }
+
+    async fn location_of(response: axum::response::Response) -> String {
+        response
+            .headers()
+            .get("location")
+            .expect("a redirect must carry a Location")
+            .to_str()
+            .unwrap()
+            .to_owned()
     }
 
     fn request(method: Method, uri: &str) -> axum::extract::Request {
@@ -747,6 +918,73 @@ mod tests {
         );
     }
 
+    /// `Host` is replaced by the upstream's own authority, so without these the
+    /// upstream has no way to learn what the client actually asked for and
+    /// cannot build a URL pointing back at Doppel.
+    #[tokio::test]
+    async fn sends_the_clients_authority_as_x_forwarded_host_and_http_as_the_proto() {
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+        let mut req = request(Method::GET, "/thing");
+        req.headers_mut()
+            .insert("host", HeaderValue::from_static("public.example.com"));
+
+        let (response, _) = fwd(&client, &proxy(&base), req, None).await.unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            headers
+                .iter()
+                .any(|h| h == "x-forwarded-host=public.example.com"),
+            "got {headers:?}"
+        );
+        // `http`, not `https`: Doppel terminates no TLS, so claiming otherwise
+        // would describe a hop that does not exist.
+        assert!(
+            headers.iter().any(|h| h == "x-forwarded-proto=http"),
+            "got {headers:?}"
+        );
+    }
+
+    /// Behind another proxy, the value that arrived names the authority the
+    /// client really used; this hop's own `Host` is an internal detail. Same
+    /// treatment `X-Forwarded-For` gets, and the reason the two tests sit
+    /// together.
+    #[tokio::test]
+    async fn an_incoming_forwarded_host_and_proto_are_left_as_they_arrived() {
+        let base = upstream().await;
+        let client = reqwest::Client::new();
+        let mut req = request(Method::GET, "/thing");
+        req.headers_mut()
+            .insert("host", HeaderValue::from_static("inner.internal"));
+        req.headers_mut().insert(
+            "x-forwarded-host",
+            HeaderValue::from_static("edge.example.com"),
+        );
+        req.headers_mut()
+            .insert("x-forwarded-proto", HeaderValue::from_static("https"));
+
+        let (response, _) = fwd(&client, &proxy(&base), req, None).await.unwrap();
+        let body: serde_json::Value = serde_json::from_str(&body_string(response).await).unwrap();
+        let headers = body["headers"].as_array().unwrap();
+        assert!(
+            headers
+                .iter()
+                .any(|h| h == "x-forwarded-host=edge.example.com"),
+            "the outermost authority must survive: {headers:?}"
+        );
+        assert!(
+            headers.iter().any(|h| h == "x-forwarded-proto=https"),
+            "an upstream TLS terminator's proto must survive: {headers:?}"
+        );
+        assert!(
+            !headers
+                .iter()
+                .any(|h| h == "x-forwarded-host=inner.internal"),
+            "this hop's own Host must not replace it: {headers:?}"
+        );
+    }
+
     #[tokio::test]
     async fn appends_to_x_forwarded_for_rather_than_replacing_it() {
         let base = upstream().await;
@@ -856,11 +1094,118 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(response.status(), StatusCode::FOUND);
+        // Untouched even with rewriting on: `example.invalid` is not under this
+        // proxy's base, so the target really is elsewhere and claiming otherwise
+        // would be a lie. See `rewritten_location`.
         assert_eq!(
             response.headers().get("location").unwrap(),
             "http://example.invalid/target"
         );
         assert_eq!(outcome.status, 302);
+    }
+
+    /// The default, and the whole reason it is the default: `Host` is replaced
+    /// with the upstream's authority, so the upstream answers with its own name
+    /// in `Location`, and a client following that leaves Doppel -- past every
+    /// injected fault and every mock, with nothing logged.
+    ///
+    /// Rewritten to a root-relative path rather than an absolute URL so Doppel
+    /// never has to guess its own public name; the client resolves it against
+    /// the URL it used. Query and fragment survive.
+    #[tokio::test]
+    async fn a_redirect_into_the_proxied_space_is_rewritten_to_point_back_at_doppel() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect/self"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(location_of(response).await, "/moved?keep=1#frag");
+    }
+
+    /// `rewrite_redirects: false` relays the header byte for byte, which is what
+    /// a client under test *for its redirect handling* needs to see.
+    #[tokio::test]
+    async fn rewrite_redirects_false_relays_the_upstreams_own_authority() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd(
+            &client,
+            &proxy_relaying_redirects(&base),
+            request(Method::GET, "/redirect/self"),
+            None,
+        )
+        .await
+        .unwrap();
+        let location = location_of(response).await;
+        assert!(
+            location.starts_with("http://127.0.0.1:") && location.ends_with("/moved?keep=1#frag"),
+            "expected the upstream's own absolute URL, got {location}"
+        );
+    }
+
+    /// A base with a path prefix is where the quieter bug lives. The upstream
+    /// means `/moved` against its own root, which is *outside* the `/api/v1/`
+    /// prefix; relayed as-is, the client would resolve it against Doppel and
+    /// come back asking for `/api/v1/moved` -- a different resource nobody named.
+    /// Stated absolutely, the escape is at least honest.
+    #[tokio::test]
+    async fn a_root_relative_redirect_outside_the_base_path_is_made_absolute() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let mut with_prefix = proxy(&base);
+        with_prefix.base_url = url(&format!("{base}redirect/"));
+
+        // `/rooted` under the base `…/redirect/` reaches the upstream's
+        // `/redirect/rooted` route, which answers `Location: /moved`.
+        let (response, _) = fwd(&client, &with_prefix, request(Method::GET, "/rooted"), None)
+            .await
+            .unwrap();
+        let location = location_of(response).await;
+        assert_eq!(location, format!("{base}moved"));
+        assert!(
+            !location.starts_with('/'),
+            "a target outside the base cannot be expressed relative to Doppel: {location}"
+        );
+    }
+
+    /// A `Location` relative to the current path resolves inside the base, so it
+    /// comes back relative -- and correctly, which relaying would not have been:
+    /// the upstream meant `sibling` next to `/redirect/relative`.
+    #[tokio::test]
+    async fn a_path_relative_redirect_inside_the_base_stays_relative() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect/relative"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(location_of(response).await, "/redirect/sibling");
     }
 
     #[tokio::test]

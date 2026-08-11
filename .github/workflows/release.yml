@@ -326,13 +326,25 @@ jobs:
           # flatten them into one directory.
           merge-multiple: true
 
+      # Attached so a configuration can be validated against the exact release
+      # it will run under, rather than against whatever `main` says today. The
+      # checked-in file is taken as-is: CI has already refused a stale one
+      # (`scripts/config_schema.py --check`), so regenerating here would only
+      # add a Rust build to a job that otherwise needs none.
+      - name: Stage the configuration schema
+        run: cp doppel-config.schema.json dist/
+
       - name: Write checksums
         run: |
           set -euo pipefail
           cd dist
           # Relative names, so `shasum -c` works from whatever directory the
           # verifier downloaded into.
-          sha256sum -- *.tar.gz > checksums.txt
+          #
+          # The schema is signed alongside the archives: it is a release asset
+          # people will fetch over the network, and one that could be swapped
+          # without anyone noticing is worth as little as an unsigned binary.
+          sha256sum -- *.tar.gz doppel-config.schema.json > checksums.txt
           cat checksums.txt
 
       - name: Import the release key

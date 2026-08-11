@@ -173,9 +173,10 @@ impl PostgresStore {
     ) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO proxies (config, name, ordinal, kind, url, timeout_seconds, body_limit, \
-             replace_ratio, resolve_kind, resolve_header, loss_percentage, loss_status, \
-             latency_percentage, latency_min, latency_max, headers, access) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)",
+             replace_ratio, rewrite_redirects, resolve_kind, resolve_header, loss_percentage, \
+             loss_status, latency_percentage, latency_min, latency_max, headers, access) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
+             $18)",
         )
         .bind(&self.config_name)
         .bind(proxy.name.as_str())
@@ -189,6 +190,7 @@ impl PostgresStore {
         )
         .bind(i64::try_from(proxy.body_limit.get()).unwrap_or(i64::MAX))
         .bind(proxy.replace.map(doppel_core::config::Ratio::get))
+        .bind(proxy.rewrite_redirects)
         .bind(as_text(&proxy.resolve.kind)?)
         .bind(
             proxy
@@ -266,19 +268,21 @@ const UPDATE_HEADER: &str = "UPDATE configurations SET revision = $1, \
      admin_enable = $4, server_host = $5, server_port = $6, log_level = $7, \
      log_format = $8, control_socket = $9, templates_dir = $10, sentry_dsn = $11, \
      admin_host = $12, admin_port = $13, admin_auth_header = $14, \
-     admin_upload_limit = $15, admin_access = $16, updated_at = now() \
+     admin_upload_limit = $15, admin_access = $16, admin_groups = $17, \
+     updated_at = now() \
      WHERE name = $2 AND revision = $3";
 
 const UPSERT_HEADER: &str = "INSERT INTO configurations \
      (name, revision, admin_enable, server_host, server_port, log_level, log_format, \
       control_socket, templates_dir, sentry_dsn, admin_host, admin_port, \
-      admin_auth_header, admin_upload_limit, admin_access) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) \
+      admin_auth_header, admin_upload_limit, admin_access, admin_groups) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
      ON CONFLICT (name) DO UPDATE SET revision = $2, \
      admin_enable = $3, server_host = $4, server_port = $5, log_level = $6, \
      log_format = $7, control_socket = $8, templates_dir = $9, sentry_dsn = $10, \
      admin_host = $11, admin_port = $12, admin_auth_header = $13, \
-     admin_upload_limit = $14, admin_access = $15, updated_at = now()";
+     admin_upload_limit = $14, admin_access = $15, admin_groups = $16, \
+     updated_at = now()";
 
 /// Bind the header values in `HEADER_COLUMNS` order.
 ///
@@ -305,6 +309,16 @@ impl<'q> BindHeader<'q> for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgA
             .bind(config.admin.auth.header.as_str())
             .bind(i64::try_from(config.admin.upload.limit.get()).unwrap_or(i64::MAX))
             .bind(serde_json::to_value(&config.admin.access).unwrap_or(serde_json::Value::Null))
+            // `None` binds SQL NULL, which is what an absent `groups` has to
+            // round-trip as: see the 0003 migration for why materialising the
+            // default would break every pre-existing configuration's revision.
+            .bind(
+                config
+                    .admin
+                    .groups
+                    .as_ref()
+                    .map(|groups| serde_json::to_value(groups).unwrap_or(serde_json::Value::Null)),
+            )
     }
 }
 
@@ -375,6 +389,7 @@ mod tests {
         "admin_auth_header",
         "admin_upload_limit",
         "admin_access",
+        "admin_groups",
     ];
 
     /// Every `column = $n` assignment in a statement.

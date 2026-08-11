@@ -1,5 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/doppel/main/doppel-config.schema.json
+#
 # Doppel reference configuration.
 # Copy to main.yaml and adjust; main.yaml is git-ignored.
+#
+# The line above is what editors read: VS Code's YAML extension and any
+# yaml-language-server client will complete field names, show each field's
+# description and mark a bad value as you type. Keep it at the top of your own
+# main.yaml. The schema is generated from the code -- see
+# `doppel config schema` -- and every release also attaches it as an asset for
+# anyone who would rather pin a version than follow `main`.
 
 server:
   host: "0.0.0.0"
@@ -22,6 +31,12 @@ admin:
   enable: true
   host: "0.0.0.0"
   port: 8081
+  # Which names `access` may reference, here and per proxy. "*" is any;
+  # ["admin", "ci"] allows exactly those. Never governs `public` itself.
+  # [] allows no name at all -- and since every action defaults to `admin`,
+  # that makes the defaults violations too, so all six would have to be
+  # written out as `public`. Rule V36.
+  groups: ["*"]
   auth:
     header: X-Proxy-Authorization  # expects "Bearer {token}"
   tokens:
@@ -66,6 +81,10 @@ proxies:
       min: 0.05         # seconds
       max: 0.2
     replace: 1.0  # serve mocks for 100 percent of matching requests
+    # Rewrite a redirect whose target is under this proxy's base so it points
+    # back here instead of at the upstream; on by default. Set it to false to
+    # relay Location byte for byte.
+    rewrite_redirects: true
     body_limit: 1Mi  # bounds the body buffered for mocks that extract from it (mock2, mock6 below); default 1Mi
     # Order matters. Patterns are matched as unanchored regexes, so a general
     # pattern placed first shadows every more specific one below it: with

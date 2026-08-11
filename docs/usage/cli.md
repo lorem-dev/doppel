@@ -132,6 +132,29 @@ so it answers the same on a developer's machine as in production. Checks that
 depend on the machine, such as whether the templates directory can be created,
 belong to `serve`.
 
+## `config schema`
+
+Prints the configuration's JSON Schema on stdout.
+
+```bash
+doppel config schema > doppel-config.schema.json
+```
+
+Takes no flags and reads nothing -- not even `--config`. The schema describes
+what a configuration *may* contain, which is a property of the binary rather
+than of any file, so accepting a path would only raise the question of whether
+the answer depended on it.
+
+The same document is checked into the repository at
+[`doppel-config.schema.json`](https://github.com/lorem-dev/doppel/blob/main/doppel-config.schema.json)
+and attached to every release. See
+[Editor support](configuration.md#editor-support) for pointing an editor at it.
+
+It is generated from the same types the admin API's OpenAPI document is built
+from, so it cannot describe a field that does not exist. `scripts/config_schema.py`
+regenerates the checked-in copy and `--check` fails when it is stale; CI runs
+the check.
+
 ## `config reload`
 
 Connects to the control socket and asks a running server to reload.

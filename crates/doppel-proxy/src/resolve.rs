@@ -22,12 +22,35 @@ pub fn resolve<'a>(runtime: &'a Runtime, headers: &HeaderMap) -> Result<&'a Comp
         }
     }
 
-    runtime.default().ok_or_else(|| {
-        Error::new(
-            ErrorCode::ProxyNotResolved,
-            "no proxy matched the request and no default proxy is configured",
-        )
-    })
+    if let Some(proxy) = runtime.default() {
+        return Ok(proxy);
+    }
+
+    // Two different failures, told apart because they are somebody else's
+    // problem in each case.
+    //
+    // An empty proxy list is a configuration that has not been finished. It is
+    // legal -- Doppel starts, binds, serves the admin API and waits for a proxy
+    // to be added over it or by reload -- so this is the only place it can be
+    // reported, and the client did nothing wrong. `503` says the service is not
+    // in a position to answer and invites a retry, which is exactly right: the
+    // operator adds a proxy, reloads, and the next attempt works, with no
+    // restart. A `404` here would tell the caller their path was wrong and send
+    // whoever is debugging the client into the client.
+    if runtime.proxies.is_empty() {
+        return Err(Error::new(
+            ErrorCode::NoProxiesConfigured,
+            "no proxies are configured; add one and reload",
+        ));
+    }
+
+    // Proxies exist and none of them wanted this request: either its resolution
+    // header named nothing, or it carried none and there is no default. That is
+    // about this request, so it stays a `404`.
+    Err(Error::new(
+        ErrorCode::ProxyNotResolved,
+        "no proxy matched the request and no default proxy is configured",
+    ))
 }
 
 #[cfg(test)]
@@ -162,5 +185,41 @@ proxies:
             HeaderValue::from_bytes(&[0xff, 0xfe]).unwrap(),
         );
         assert_eq!(resolve(&rt, &map).unwrap().name, "fallback");
+    }
+
+    /// The configuration is unfinished rather than the request being wrong, so
+    /// `503` and its own code. A `404` here would send whoever is debugging the
+    /// client into the client.
+    #[test]
+    fn no_proxies_at_all_is_a_503_of_its_own() {
+        let text = CONFIG.split("proxies:").next().unwrap().to_owned() + "proxies: []\n";
+        let err = resolve(&runtime(&text), &HeaderMap::new()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NoProxiesConfigured);
+        assert_eq!(err.status(), 503);
+    }
+
+    /// And an absent list, which is a different document from an empty one and
+    /// reaches the same place.
+    #[test]
+    fn an_absent_proxy_list_resolves_the_same_way_as_an_empty_one() {
+        let text = CONFIG.split("proxies:").next().unwrap().to_owned();
+        let err = resolve(&runtime(&text), &HeaderMap::new()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::NoProxiesConfigured);
+    }
+
+    /// The distinction the two codes exist for: proxies are configured, and none
+    /// of them wanted this request. That is about the request, so it stays a
+    /// `404`.
+    #[test]
+    fn proxies_that_none_match_stays_proxy_not_resolved() {
+        // Every proxy in this fixture resolves by header, so a request carrying
+        // none has nothing to fall back to.
+        let text = CONFIG.replace(
+            "      type: default",
+            "      type: header\n      header: X-Other",
+        );
+        let err = resolve(&runtime(&text), &HeaderMap::new()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::ProxyNotResolved);
+        assert_eq!(err.status(), 404);
     }
 }

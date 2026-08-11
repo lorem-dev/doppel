@@ -30,9 +30,30 @@ of three buckets it falls into:
 
 ## What a good entry says
 
+**Twenty-five words at most per entry.** Count them, and count wrapped lines
+too -- a bullet spilling over three lines is over the limit however it looks in
+the file. An entry that needs more is either two entries or an explanation that
+belongs elsewhere.
+
 Say what changed for the reader, not what was edited. "Rejects a request path
 containing `..`" tells an operator something; "hardened `join_upstream`" does
-not. Where a behaviour changed rather than appeared, say what it was before.
+not.
+
+Add as few entries as the change honestly needs. A changelog is scanned, not
+read: every line that could have been left out costs the reader attention on the
+lines that could not.
+
+Where to put what the fifteen words cannot hold:
+
+| The reasoning, the measurements, the rejected alternative | the commit message |
+| How the thing works and how to configure it | `docs/` |
+| Why the code is shaped that way | a comment next to it |
+
+None of that belongs in `CHANGES.md`. A reader wanting it has `git log` and the
+documentation; a reader wanting to know whether to care has one line.
+
+Where a behaviour changed rather than appeared, one clause on what it was before
+is worth the words -- inside the fifteen, not in addition to them.
 
 Keep the existing Added / Changed / Fixed / Notes grouping. Entries are written
 as part of the change that caused them; if you are adding several at once
@@ -47,3 +68,7 @@ diff when the subject is not enough.
 
 Do not treat a green checklist as the goal. If the Development section is
 accurate and short because little user-visible changed, say so.
+
+Do not restore length that was cut. An entry trimmed to fifteen words has not
+lost anything a reader of a changelog wanted: check that what was cut is
+recorded in the commit message or the documentation, and leave the entry short.

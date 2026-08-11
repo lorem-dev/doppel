@@ -30,11 +30,20 @@ Every request logs once, on completion, with the same key set on every branch:
 | `duration_ms` | Time to the response headers |
 | `upstream_contacted` | Whether an upstream was reached at all |
 | `upstream_status`, `upstream_duration_ms` | Present only when it was |
-| `loss_injected`, `latency_injected_ms` | Which faults fired |
+| `loss_injected` | Whether the loss roll dropped this request |
+| `latency_injected_ms` | How long the request was actually made to wait |
 
 `upstream_contacted` is a boolean rather than a null status because a null
 still invites a consumer to plot it, where a boolean says what happened. A
 dropped request, an unresolved one and a mocked one all report `false`.
+
+`latency_injected_ms` is the wait taken, not the delay drawn. An injected
+latency is a target for the whole response, so an upstream that already spent
+longer than the target leaves nothing to wait for and this reads `0` even though
+the roll fired. `doppel_latency_injected_total` counts the roll, so the two
+disagree in exactly that case -- deliberately, since "how often latency was in
+play" and "how much of it this request felt" are different questions. See
+[Injecting faults](faults.md#the-delay-is-a-target-not-an-addition).
 
 `duration_ms` and `upstream_duration_ms` both stop at the response headers, not
 at the end of the body. A large download is not reflected in either.

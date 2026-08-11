@@ -6,13 +6,40 @@ a mistyped field name fails at load rather than doing nothing at runtime.
 `main.example.yaml` in the repository is this reference made concrete, and is
 asserted against by the test suite.
 
+## Editor support
+
+The configuration has a JSON Schema, so an editor can complete field names, show
+what each field is for and mark a bad value as you type -- before Doppel is run
+at all. Put this line at the top of your `main.yaml`:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/doppel/main/doppel-config.schema.json
+```
+
+VS Code's YAML extension reads it, as does any other `yaml-language-server`
+client. `main.example.yaml` already carries it.
+
+That URL follows `main`. Every release also attaches the schema as an asset, so
+a deployment that pins a version can validate against the schema for exactly
+that version rather than for whatever is current.
+
+The schema is generated from the same Rust types this page documents -- see
+[`doppel config schema`](cli.md#config-schema) -- so it cannot describe a field
+that does not exist, and CI fails if the checked-in copy falls behind.
+
+What it catches: an unknown key, `percentage: 45` where a fraction was meant,
+`method: get` in lower case, a port of `0`, a missing `url`. What it cannot
+catch: anything needing more than one field, such as `min <= max`. Those are the
+[validation rules](#validation) below, and they run when the configuration is
+loaded.
+
 ## Top level
 
 | Key | Required | Purpose |
 |---|---|---|
 | `server` | yes | Where the proxy listens |
 | `admin` | yes | Admin API settings |
-| `proxies` | yes | At least one proxy |
+| `proxies` | no | Empty or absent is legal; requests then get `503` |
 | `logging` | no | Level and format; defaults to `info` and `json` |
 | `control` | no | Control socket path; defaults to `/tmp/doppel.sock` |
 | `templates` | no | Template directory; defaults to `./templates` |
@@ -90,6 +117,7 @@ admin:
   enable: true
   host: "0.0.0.0"
   port: 8081
+  groups: ["*"]
   auth:
     header: X-Proxy-Authorization
   tokens:
@@ -131,6 +159,70 @@ action out entirely, which is far more often a typo than an intent.
 `access` maps each action to `public`, a single name, or a list of names. An
 empty list means public. Names are token names or group names.
 
+### `groups`: which names `access` may reference
+
+```yaml
+admin:
+  groups: ["*"]        # the default: any name may be referenced
+```
+
+`groups` bounds the vocabulary `access` may draw on -- both here and in a
+proxy's `access` overrides. It is checked by rule **V36**.
+
+| `groups` | What `access` may reference |
+|---|---|
+| absent | any name. This is the default |
+| `["*"]` | any name. The same thing, written down |
+| `["admin", "ci"]` | `admin` and `ci`, and nothing else. `user` is refused |
+| `[]` | no name at all: every one of the six actions has to be spelled `public` |
+
+`public` is **never** governed by `groups`. It is the absence of a subject rather
+than a name, so an allow-list has nothing to say about it -- and a deployment
+locked down to `groups: []` still has to be able to say "anyone may read this".
+
+!!! warning "`groups: []` is not a small change"
+    Every action defaults to the `admin` group, and `groups: []` forbids naming
+    `admin`. So the defaults themselves become violations, and a configuration
+    with `groups: []` is only valid if **all six** actions are written out as
+    `public`:
+
+    ```
+    admin.access.list: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+    admin.access.create: `admin` is not an allowed group: ...
+    admin.access.update: `admin` is not an allowed group: ...
+    ```
+
+    That is what an empty allow-list means, taken literally, and it is reported
+    per action rather than once, so nothing is missed on the way to fixing it.
+    If the intent was "no *custom* groups", name the ones you do want --
+    `["admin"]` -- rather than emptying the list.
+
+The default is permissive, which is the opposite of how `access` itself
+defaults, on purpose. `access` defaults to `admin` because the cost of getting it
+wrong is unauthenticated writes. `groups` defaults to `*` because the cost of
+getting it wrong is an operator unable to name their own groups, and an
+allow-list nobody asked for only ever surprises.
+
+The violation names what is permitted, not just what was refused:
+
+```
+admin.access.read: `user` is not an allowed group: `admin.groups` allows only `admin`, `ci`
+proxies[0].access.update: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+```
+
+That matters because the reader has to choose between changing the reference and
+widening the list, and cannot do either without seeing the list.
+
+Two things `groups` does not do. It does not create groups -- a name still has to
+be a predefined group or one carried by a token, which is rule V27, and the two
+rules are reported separately because widening `groups` and adding a token are
+different fixes. And it is not authorisation: it constrains what a
+*configuration* may say, so a caller's rights come from `access` as before.
+
+Since it applies to proxy overrides too, `POST` and `PUT /api/v1/proxies` refuse
+a document whose `access` names something outside the list, with `400` and
+`CONFIG_INVALID`.
+
 Every action defaults to the `admin` group, reads included. The most common
 configuration is the one nobody wrote, so the default has to be the safe one.
 
@@ -163,7 +255,8 @@ the choice is the operator's.
 
 ## `proxies`
 
-At least one. Names must be unique.
+Names must be unique. The list may be empty or left out -- see
+[No proxies configured](proxying.md#no-proxies-configured).
 
 ```yaml
 proxies:
@@ -192,7 +285,7 @@ proxies:
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `name` | string | required | Unique; also used as the template subdirectory |
-| `type` | `http` | required | `tcp` is rejected with a message saying it is not implemented |
+| `type` | `http` | required | The only value. `tcp` is refused while parsing, with a message saying it is not implemented |
 | `url` | absolute URL | required | `http` or `https`, no query or fragment |
 | `timeout` | seconds > 0 | 30 | Bounds the whole upstream exchange |
 | `body_limit` | byte size > 0 | 1 MiB | Only used when a matched mock extracts from the body |
@@ -202,6 +295,7 @@ proxies:
 | `loss` | see below | none | |
 | `latency` | see below | none | |
 | `replace` | 0.0..1.0 | 1.0 | Probability a matching mock actually answers |
+| `rewrite_redirects` | boolean | `true` | Point a redirect back at Doppel when its target is under this proxy's base. See [Redirects](proxying.md#redirects) |
 | `mocks` | list | none | See [Mocks and templating](mocks.md) |
 
 ### `resolve`
@@ -238,6 +332,63 @@ A mock that extracts variables from the request body has to buffer it, which
 the proxy otherwise avoids -- bodies stream through. This bounds that buffer.
 Exceeding it is `413`. See [Mocks and templating](mocks.md#bodies-and-the-size-limit).
 
+### `mocks[]`
+
+```yaml
+    mocks:
+      - name: pricing
+        request:
+          method: GET
+          url: "^/pricing/(?P<id>[0-9]+)/$"
+          headers:
+            who: X-User
+          query:
+            page: .page
+          body:
+            items: .content.items
+        response:
+          status: 200
+          json: '{"id": "{{ id }}", "page": "{{ page }}"}'
+          headers:
+            X-Served-By: "mock {{ id }}"
+        proxy:
+          replace: 0.5
+```
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `name` | string | required | Unique within the proxy |
+| `request` | see below | required | What the mock matches |
+| `response` | see below | required | What it answers |
+| `proxy` | see below | none | Per-mock overrides |
+
+`request`:
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `method` | upper-case method | required | Matched exactly; `get` is rejected at load |
+| `url` | regex | required | Matched against the path, unanchored. Named groups become variables |
+| `headers` | variable → header name | none | |
+| `query` | variable → selector | none | |
+| `body` | variable → selector | none | Buying the buffer bounded by `body_limit` |
+
+`response` -- exactly one of `body`, `json` or `template`:
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `status` | 100..599 | required | |
+| `body` | template | none | Sent as `text/plain` |
+| `json` | template | none | Sent as `application/json`; must render to valid JSON |
+| `template` | file name | none | A file under this proxy's template directory |
+| `headers` | header name → template | none | The value is a template, rendered per request |
+
+`proxy` accepts `replace`, `loss` and `latency`, with the same types and bounds
+as on the proxy. What is inherited and what is not is in
+[Injecting faults](faults.md#faults-on-one-endpoint-only).
+
+Every variable a template names has to be bound, or the render fails with
+`500` -- see [Mocks and templating](mocks.md#rendering-is-strict).
+
 ## Validation
 
 The rule set runs identically at startup, on reload, and under
@@ -273,6 +424,8 @@ parsed. A message quoted in an old issue can be looked up here.
 | V2 | `server.host` is an IP | `IpAddr` |
 | V3 | `server.workers` is positive | the field is `--workers` |
 | V4 | log level and format are known | `LogLevel`, `LogFormat` |
+| V5 | at least one proxy is configured | nothing -- an empty list is legal, see [No proxies configured](proxying.md#no-proxies-configured) |
+| V7 | `type: tcp` is refused | `ProxyKind`, while the document is parsed |
 | V8, V32 | upstream url is absolute http(s), no query | [`UpstreamUrl`](#upstream-urls) |
 | V9 | timeout is positive | [`TimeoutSeconds`](#numbers-with-units) |
 | V12, V13 | probability in 0..=1, status in 100..=599 | [`Ratio`](#numbers-with-units), [`HttpStatus`](#methods-and-statuses) |
@@ -289,15 +442,26 @@ parsed. A message quoted in an old issue can be looked up here.
 
 A retired number is never reused.
 
-Sixteen rules remain: V1, V5, V6, V7, V10, V11, V14, V16, V19, V20, V21, V25,
-V26, V27, V30 and V34. Each needs more than one field to decide, which is
-exactly why none of them could become a type.
+Fifteen rules remain: V1, V6, V10, V11, V14, V16, V19, V20, V21, V25, V26, V27,
+V30, V34 and V36. Each needs more than one field to decide, which is exactly why
+none of them could become a type -- V36, the newest, compares `access` against
+`admin.groups`.
 
 ## Names
 
 A proxy name, a mock name, a token name and a group name follow one rule:
-letters, digits, `.`, `-` and `_`, between 2 and 128 characters, not starting
-with a dot and not containing `..`.
+letters, digits, `-` and `_`, between 2 and 64 characters. A **proxy** name is
+capped at 32 instead.
+
+`.` is not allowed. It was until 0.3.0, and the reference configuration taught
+names like `Billing.API.v2`; write `Billing-API-v2`. Dropping it removed two
+further rules with it -- a name becomes a directory component, so `.hidden` and
+`..` each had to be refused separately, and neither can now be written at all.
+
+A proxy name is capped shorter because it travels further than any other: a
+directory under `templates.dir`, a `proxy` label on every metric, a field in
+every log line, and the value a client puts in a resolution header on every
+request.
 
 The rule is enforced by the type, while the document is being parsed, rather
 than by a validation rule afterwards. A name becomes a directory component, a

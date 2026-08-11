@@ -5,7 +5,93 @@ use std::net::IpAddr;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A name `access` is allowed to reference, or `*` for any of them.
+///
+/// Its own type rather than a `String`, because `*` and a name are different
+/// things and that difference is the whole content of the setting. Not a `Name`
+/// either: `*` is not a legal name and should never become one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AllowedGroup {
+    /// `*`: any group or token name may be referenced.
+    Any,
+    /// Exactly this name may be referenced.
+    Named(super::Name),
+}
+
+impl AllowedGroup {
+    /// Whether this entry permits `name`.
+    #[must_use]
+    pub fn permits(&self, name: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Named(allowed) => allowed == name,
+        }
+    }
+}
+
+impl std::fmt::Display for AllowedGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Any => f.write_str("*"),
+            Self::Named(name) => f.write_str(name.as_str()),
+        }
+    }
+}
+
+impl Serialize for AllowedGroup {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Any => s.serialize_str("*"),
+            Self::Named(name) => s.serialize_str(name.as_str()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AllowedGroup {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(d)?;
+        if value == "*" {
+            return Ok(Self::Any);
+        }
+        super::Name::parse(value)
+            .map(Self::Named)
+            .map_err(de::Error::custom)
+    }
+}
+
+impl utoipa::PartialSchema for AllowedGroup {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::schema::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::Type::String)
+            // `*` or a name, built from the name rules rather than restating
+            // them: without a pattern here the schema accepts `"not a name!"`,
+            // and an editor's whole job is to say so before Doppel is run.
+            .pattern(Some(format!(
+                r"^(\*|{}{{{},{}}})$",
+                super::name::CHARACTERS,
+                super::name::MIN,
+                super::name::MAX
+            )))
+            .description(Some(
+                "A token or group name `access` may reference, or `*` for any of them.",
+            ))
+            .examples([serde_json::json!("*"), serde_json::json!("admin")])
+            .into()
+    }
+}
+
+impl utoipa::ToSchema for AllowedGroup {}
+
+/// What an absent `admin.groups` means: any name may be referenced.
+///
+/// The permissive default is the opposite choice from `access` itself, on
+/// purpose. `access` defaults to `admin` because the cost of getting it wrong is
+/// unauthenticated writes. This defaults to `*` because the cost of getting it
+/// wrong is an operator locked out of naming their own groups -- an allow-list
+/// nobody asked for only ever surprises.
+const ANY_GROUP: [AllowedGroup; 1] = [AllowedGroup::Any];
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AdminConfig {
     /// Whether to run the admin listener at all.
@@ -19,20 +105,73 @@ pub struct AdminConfig {
     /// listener on later, and they will not re-read the rules first.
     #[serde(default = "enabled")]
     pub enable: bool,
+    /// An IP address, not a hostname: a name would have to be resolved,
+    /// and which address it resolves to is not the configuration's to
+    /// decide. `utoipa` has no schema for `IpAddr`, so it is described
+    /// here as the string it is written as.
+    #[schema(value_type = String, examples("127.0.0.1"))]
     pub host: IpAddr,
+    /// The TCP port the admin API listens on. Must differ from
+    /// `server.port`.
     pub port: super::Port,
+    /// Which header carries the bearer token.
     #[serde(default)]
     pub auth: AuthConfig,
+    /// The tokens that may call the admin API. Names and token values are
+    /// each unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.
     #[serde(default)]
     pub tokens: Vec<TokenConfig>,
+    /// Which names `access` may reference, here and in a proxy's overrides.
+    ///
+    /// `["*"]`, the default, allows any. A concrete list allows exactly those:
+    /// `["admin", "ci"]` permits `admin` and `ci` and refuses `user`.
+    ///
+    /// `[]` allows none, and that is stronger than it looks: every action
+    /// defaults to the `admin` group, so an empty list makes the defaults
+    /// themselves violations and every one of the six actions has to be written
+    /// out as `public`.
+    ///
+    /// `public` is never governed by this. It is the absence of a subject rather
+    /// than a name, so an allow-list has nothing to say about it.
+    ///
+    /// Checked by rule V36, not by this type: it compares one field against
+    /// another, which is what is left for the rule set once the types have taken
+    /// everything they can decide alone.
+    ///
+    /// An `Option` rather than a `Vec` defaulting to `["*"]`, and skipped when
+    /// absent, so that adding this field did not change the canonical YAML of
+    /// every configuration written before it existed. The revision is derived
+    /// from that YAML, so a materialised default would have made every stored
+    /// configuration fail its own revision check on the first load after the
+    /// upgrade. Read it through [`AdminConfig::allowed_groups`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub groups: Option<Vec<AllowedGroup>>,
+    /// Who may perform each admin action. Every action defaults to the
+    /// `admin` group, reads included.
     #[serde(default)]
     pub access: AccessConfig,
+    /// Bounds an uploaded template file.
     pub upload: UploadConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+impl AdminConfig {
+    /// The names `access` may reference, with an absent `groups` resolved to its
+    /// default.
+    ///
+    /// One place resolves it, so no caller has to remember that absent and
+    /// `["*"]` mean the same thing while `[]` means the opposite -- which is
+    /// exactly the confusion an `Option<Vec<_>>` invites.
+    #[must_use]
+    pub fn allowed_groups(&self) -> &[AllowedGroup] {
+        self.groups.as_deref().unwrap_or(&ANY_GROUP)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
+    /// The header a caller presents its token in, as `Bearer <token>`.
+    /// Defaults to `X-Proxy-Authorization`.
     #[serde(default = "default_auth_header")]
     pub header: super::HeaderName,
 }
@@ -49,11 +188,17 @@ impl Default for AuthConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TokenConfig {
+    /// What to call this token in `access` lists and in logs. Never the
+    /// secret itself.
     pub name: super::Name,
+    /// The group it belongs to. `admin` and `user` are predefined; any other
+    /// name must be carried by at least one token.
     pub group: super::Name,
+    /// The secret the caller sends. A version 4 UUID is the recommended
+    /// shape.
     pub token: super::Token,
 }
 
@@ -133,19 +278,25 @@ impl<'de> Deserialize<'de> for Subjects {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AccessConfig {
+    /// List the proxies. A listing exposes upstream URLs and injected headers.
     #[serde(default = "admin_only")]
     pub list: Subjects,
+    /// Read one proxy document, credentials in its `url` included.
     #[serde(default = "admin_only")]
     pub read: Subjects,
+    /// Add a proxy. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub create: Subjects,
+    /// Replace a proxy. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub update: Subjects,
+    /// Remove a proxy. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub delete: Subjects,
+    /// Upload or delete a template file. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub upload: Subjects,
 }
@@ -192,19 +343,25 @@ impl Default for AccessConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProxyAccessConfig {
+    /// Who may read this proxy's document. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read: Option<Subjects>,
+    /// Who may replace this proxy. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update: Option<Subjects>,
+    /// Who may remove this proxy. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delete: Option<Subjects>,
+    /// Who may upload templates for this proxy. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<Subjects>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UploadConfig {
+    /// Largest template file the admin API accepts. A larger upload is
+    /// refused with `413`.
     pub limit: super::ByteSize,
 }
 

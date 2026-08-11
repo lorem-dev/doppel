@@ -49,11 +49,22 @@ async fn a_migrated_database_reports_its_version_and_exits_zero() {
 
     let (code, text) = status(&schema.url());
     assert_eq!(code, 0, "{text}");
-    assert!(text.contains("schema version 1"), "{text}");
     assert!(text.contains("up to date"), "{text}");
-    // The version, not the row count, is what identifies the schema. Both
-    // happen to be 1 today, so the assertion has to name the word.
-    assert!(text.contains("schema version"), "{text}");
+
+    // Read from the embedded migrations rather than written down. Hardcoding
+    // `1` here meant the first migration ever added broke this test for no
+    // reason -- it is about `--status` reporting the version it found, not about
+    // which version that happens to be today.
+    //
+    // The version, not the count, is what identifies the schema. They were the
+    // same number while there was one migration, so the assertion names the
+    // word to stay honest once they diverge.
+    let newest = doppel_store_postgres::MIGRATOR
+        .iter()
+        .map(|m| m.version)
+        .max()
+        .expect("the crate embeds at least one migration");
+    assert!(text.contains(&format!("schema version {newest}")), "{text}");
 
     schema.drop().await;
 }

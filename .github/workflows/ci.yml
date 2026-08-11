@@ -91,6 +91,25 @@ jobs:
       - name: Test workspace
         run: cargo test --workspace
 
+      # Pinned to an exact release: astral-sh publishes `v9.0.0` but stopped
+      # publishing the sliding major tag after `v7`, so `@v9` resolves to
+      # nothing and the job fails before it runs.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+
+      # After the tests, so the workspace is already compiled and this only has
+      # to run the binary. A stale schema is worse than none -- editors report
+      # mistakes that are not mistakes and accept fields that no longer exist --
+      # and it is generated, so nothing but a check catches a forgotten
+      # regeneration.
+      #
+      # `cargo test` covers the same ground through a drift test in
+      # `config::schema`, deliberately: that one fails for whoever runs the
+      # suite locally, this one names the fix in a step whose title says what
+      # broke.
+      - name: Configuration schema is up to date
+        run: uv run scripts/config_schema.py --check
+
   docs:
     name: Documentation builds
     runs-on: ubuntu-latest

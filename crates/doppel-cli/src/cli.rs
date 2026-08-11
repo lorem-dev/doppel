@@ -83,6 +83,13 @@ pub enum ConfigCommand {
     /// alters a shared schema when it boots turns a rollback into data loss,
     /// and the operator who rolled back is the one least expecting it.
     Migrate(MigrateArgs),
+    /// Print the configuration's JSON Schema on stdout.
+    ///
+    /// Takes no arguments and reads nothing: the schema describes the shape a
+    /// configuration may have, which is a property of this binary rather than
+    /// of any file, so pointing it at a `--config` would only invite the
+    /// question of whether the answer depended on it.
+    Schema,
 }
 
 #[derive(Args)]
