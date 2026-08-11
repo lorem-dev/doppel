@@ -890,6 +890,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#public-serve-the-admin-api-unauthenticated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        public: serve the admin API unauthenticated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#groups-which-names-access-may-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1429,6 +1440,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#public-serve-the-admin-api-unauthenticated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        public: serve the admin API unauthenticated
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#groups-which-names-access-may-reference" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1821,6 +1843,7 @@ absent.</p>
 <span class="w">  </span><span class="nt">enable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0&quot;</span>
 <span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8081</span>
+<span class="w">  </span><span class="nt">public</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
 <span class="w">  </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Proxy-Authorization</span>
@@ -1856,75 +1879,68 @@ carried by at least one token -- referencing a group nobody belongs to locks the
 action out entirely, which is far more often a typo than an intent.</p>
 <p><code>access</code> maps each action to <code>public</code>, a single name, or a list of names. An
 empty list means public. Names are token names or group names.</p>
+<h3 id="public-serve-the-admin-api-unauthenticated"><code>public</code>: serve the admin API unauthenticated<a class="headerlink" href="#public-serve-the-admin-api-unauthenticated" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">public</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</code></pre></div>
+<p>Every action answers as <code>public</code>, for anyone, with no token. <code>false</code> by default.</p>
+<p>This overrides rule V34, which otherwise refuses a public write action. V34 is
+there so an unauthenticated writable proxy set cannot happen by <em>omission</em>; a
+field called <code>public</code> set to <code>true</code> is not an omission.</p>
+<p>Anything <code>access</code>, <code>groups</code> or a proxy's overrides still say is ignored, and
+startup says so rather than refusing the document -- so a configuration can be
+made public temporarily without being gutted first:</p>
+<div class="highlight"><pre><span></span><code>admin.public is true: the whole admin API is served unauthenticated, including
+the actions that rewrite the proxy set
+admin.access, admin.groups are ignored while the admin API is public; every
+action answers as `public` regardless
+</code></pre></div>
 <h3 id="groups-which-names-access-may-reference"><code>groups</code>: which names <code>access</code> may reference<a class="headerlink" href="#groups-which-names-access-may-reference" title="Permanent link">&para;</a></h3>
 <div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span><span class="w">        </span><span class="c1"># the default: any name may be referenced</span>
+<span class="w">  </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span><span class="w">     </span><span class="c1"># the default</span>
 </code></pre></div>
-<p><code>groups</code> bounds the vocabulary <code>access</code> may draw on -- both here and in a
-proxy's <code>access</code> overrides. It is checked by rule <strong>V36</strong>.</p>
+<p>Bounds the vocabulary <code>access</code> may draw on, here and in a proxy's overrides.
+Rule <strong>V36</strong>.</p>
 <table>
 <thead>
 <tr>
 <th><code>groups</code></th>
-<th>What <code>access</code> may reference</th>
+<th><code>access</code> may name</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>absent</td>
-<td>any name. This is the default</td>
-</tr>
-<tr>
-<td><code>["*"]</code></td>
-<td>any name. The same thing, written down</td>
+<td>absent, or <code>["*"]</code></td>
+<td>anything. The default</td>
 </tr>
 <tr>
 <td><code>["admin", "ci"]</code></td>
-<td><code>admin</code> and <code>ci</code>, and nothing else. <code>user</code> is refused</td>
+<td><code>admin</code>, <code>ci</code>, and nothing else -- <code>user</code> is refused</td>
 </tr>
 <tr>
 <td><code>[]</code></td>
-<td>no name at all: every one of the six actions has to be spelled <code>public</code></td>
+<td>nobody, which is the same as <code>public: true</code>. See below</td>
 </tr>
 </tbody>
 </table>
-<p><code>public</code> is <strong>never</strong> governed by <code>groups</code>. It is the absence of a subject rather
-than a name, so an allow-list has nothing to say about it -- and a deployment
-locked down to <code>groups: []</code> still has to be able to say "anyone may read this".</p>
-<div class="admonition warning">
-<p class="admonition-title"><code>groups: []</code> is not a small change</p>
-<p>Every action defaults to the <code>admin</code> group, and <code>groups: []</code> forbids naming
-<code>admin</code>. So the defaults themselves become violations, and a configuration
-with <code>groups: []</code> is only valid if <strong>all six</strong> actions are written out as
-<code>public</code>:</p>
-<div class="highlight"><pre><span></span><code>admin.access.list: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
-admin.access.create: `admin` is not an allowed group: ...
-admin.access.update: `admin` is not an allowed group: ...
+<p><code>public</code> and <code>admin</code> are always available whatever the list says. <code>public</code> is the
+absence of a subject rather than a name; <code>admin</code> is the fallback every action
+already has, and a list that revoked it would leave the four write actions with
+no legal value at all.</p>
+<p><code>groups: []</code> names nobody, so nothing can be granted to anyone -- which leaves
+all-public as the only reading of it that describes a configuration that runs. It
+is treated as <code>public: true</code>, and startup says which of the two you wrote.</p>
+<p>The violation names everything permitted, because the reader has to choose
+between changing the reference and widening the list:</p>
+<div class="highlight"><pre><span></span><code>admin.access.read: `user` is not an allowed group; `admin.access` may name only `admin`, `ci`, `public`
 </code></pre></div>
-<p>That is what an empty allow-list means, taken literally, and it is reported
-per action rather than once, so nothing is missed on the way to fixing it.
-If the intent was "no <em>custom</em> groups", name the ones you do want --
-<code>["admin"]</code> -- rather than emptying the list.</p>
-</div>
-<p>The default is permissive, which is the opposite of how <code>access</code> itself
-defaults, on purpose. <code>access</code> defaults to <code>admin</code> because the cost of getting it
-wrong is unauthenticated writes. <code>groups</code> defaults to <code>*</code> because the cost of
-getting it wrong is an operator unable to name their own groups, and an
-allow-list nobody asked for only ever surprises.</p>
-<p>The violation names what is permitted, not just what was refused:</p>
-<div class="highlight"><pre><span></span><code>admin.access.read: `user` is not an allowed group: `admin.groups` allows only `admin`, `ci`
-proxies[0].access.update: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
-</code></pre></div>
-<p>That matters because the reader has to choose between changing the reference and
-widening the list, and cannot do either without seeing the list.</p>
 <p>Two things <code>groups</code> does not do. It does not create groups -- a name still has to
-be a predefined group or one carried by a token, which is rule V27, and the two
-rules are reported separately because widening <code>groups</code> and adding a token are
-different fixes. And it is not authorisation: it constrains what a
-<em>configuration</em> may say, so a caller's rights come from <code>access</code> as before.</p>
-<p>Since it applies to proxy overrides too, <code>POST</code> and <code>PUT /api/v1/proxies</code> refuse
-a document whose <code>access</code> names something outside the list, with <code>400</code> and
-<code>CONFIG_INVALID</code>.</p>
+be predefined or carried by a token, which is rule V27, reported separately
+because widening the list and adding a token are different fixes. And it is not
+authorisation: it bounds what a <em>configuration</em> may say, and a caller's rights
+still come from <code>access</code>.</p>
+<p><code>POST</code> and <code>PUT /api/v1/proxies</code> refuse a document whose <code>access</code> names something
+outside the list, with <code>400</code> and <code>CONFIG_INVALID</code>.</p>
 <p>Every action defaults to the <code>admin</code> group, reads included. The most common
 configuration is the one nobody wrote, so the default has to be the safe one.</p>
 <p>Reads are not exempt: a proxy document carries the <code>headers</code> that proxy
