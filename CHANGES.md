@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 0.4.1 -- 2026-08-11
+
 ### Added
 
 - `admin.public` serves the whole admin API unauthenticated; off by default.
