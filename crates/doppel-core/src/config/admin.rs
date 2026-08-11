@@ -174,6 +174,27 @@ pub struct AdminConfig {
     pub access: AccessConfig,
     /// Bounds an uploaded template file.
     pub upload: UploadConfig,
+    /// Serve the browser dashboard from the admin listener's root.
+    ///
+    /// On by default. Off means `/`, `/static/*` and `/robots.txt` are not
+    /// routed at all and answer 404 like any other unknown path; the JSON API is
+    /// untouched either way.
+    ///
+    /// An `Option` and skipped when absent, for the reason given on `groups`:
+    /// adding it must not change the canonical YAML of configurations written
+    /// before it existed. Read it through
+    /// [`AdminConfig::is_dashboard_enabled`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashboard: Option<bool>,
+    /// The heading the dashboard shows, and the browser tab's title.
+    ///
+    /// Defaults to `Doppel`. Useful when several Doppels are open at once and
+    /// the tabs are otherwise identical.
+    ///
+    /// An `Option` and skipped when absent, for the same reason as `dashboard`.
+    /// Read it through [`AdminConfig::title`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<super::AdminTitle>,
 }
 
 impl AdminConfig {
@@ -201,6 +222,24 @@ impl AdminConfig {
     #[must_use]
     pub fn is_public(&self) -> bool {
         self.public.unwrap_or(false) || self.groups.as_deref().is_some_and(<[_]>::is_empty)
+    }
+
+    /// Whether the browser dashboard is served.
+    ///
+    /// One place resolves the absent case, so no caller has to remember which
+    /// way an unwritten field falls -- and the default is on, so an existing
+    /// configuration gains the dashboard on upgrade without being edited.
+    #[must_use]
+    pub fn is_dashboard_enabled(&self) -> bool {
+        self.dashboard.unwrap_or(true)
+    }
+
+    /// The dashboard's heading, with an absent `title` resolved to its default.
+    #[must_use]
+    pub fn title(&self) -> &str {
+        self.title
+            .as_ref()
+            .map_or(super::title::DEFAULT, super::AdminTitle::as_str)
     }
 
     /// What `access` amounts to once `is_public` is taken into account.

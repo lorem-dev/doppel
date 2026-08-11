@@ -41,6 +41,13 @@
           "$ref": "#/$defs/AuthConfig",
           "description": "Which header carries the bearer token."
         },
+        "dashboard": {
+          "description": "Serve the browser dashboard from the admin listener's root.\n\nOn by default. Off means `/`, `/static/*` and `/robots.txt` are not\nrouted at all and answer 404 like any other unknown path; the JSON API is\nuntouched either way.\n\nAn `Option` and skipped when absent, for the reason given on `groups`:\nadding it must not change the canonical YAML of configurations written\nbefore it existed. Read it through\n[`AdminConfig::is_dashboard_enabled`].",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "enable": {
           "description": "Whether to run the admin listener at all.\n\nDefaults to on. Off means the port is never bound and no admin task\nstarts; the proxy and the control socket are untouched, so\n`doppel config reload` still works and is then the only way in.\n\nThe validation rules do not consult this. A configuration that is only\nsafe because nothing serves it is a trap set for whoever turns the\nlistener on later, and they will not re-read the rules first.",
           "type": "boolean"
@@ -73,6 +80,17 @@
             "null"
           ]
         },
+        "title": {
+          "description": "The heading the dashboard shows, and the browser tab's title.\n\nDefaults to `Doppel`. Useful when several Doppels are open at once and\nthe tabs are otherwise identical.\n\nAn `Option` and skipped when absent, for the same reason as `dashboard`.\nRead it through [`AdminConfig::title`].",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/AdminTitle"
+            }
+          ]
+        },
         "tokens": {
           "description": "The tokens that may call the admin API. Names and token values are\neach unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.",
           "items": {
@@ -91,6 +109,12 @@
         "upload"
       ],
       "type": "object"
+    },
+    "AdminTitle": {
+      "description": "The heading the dashboard shows, at most 64 characters and free of control characters. Defaults to `Doppel`.",
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
     },
     "AllowedGroup": {
       "description": "A token or group name `access` may reference, or `*` for any of them.",

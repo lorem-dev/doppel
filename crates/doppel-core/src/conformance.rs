@@ -31,6 +31,13 @@ admin:
   access: {}
   upload:
     limit: 1Mi
+  # Both present and both non-default, for the same reason as
+  # `rewrite_redirects` below -- and with one more thing to say: since the
+  # PostgreSQL store keeps the document as JSON, these two arrived without a
+  # migration of their own. A store that had gone on needing a column per field
+  # would fail here rather than in production.
+  dashboard: false
+  title: "Doppel (conformance)"
 proxies:
   - name: alpha
     type: http

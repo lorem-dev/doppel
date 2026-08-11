@@ -40,6 +40,13 @@ admin:
   # `public` and `admin` are always available whatever the list says.
   # [] names nobody, which means the same as `public: true`. Rule V36.
   groups: ["*"]
+  # Serve the browser dashboard from this listener's root. On by default; false
+  # leaves `/`, `/static/*` and `/robots.txt` unrouted and the JSON API
+  # untouched. Takes effect on restart.
+  dashboard: true
+  # The heading the dashboard shows, and the browser tab's title. Defaults to
+  # "Doppel"; useful when several Doppels are open at once.
+  title: "Doppel"
   auth:
     header: X-Proxy-Authorization  # expects "Bearer {token}"
   tokens:
