@@ -243,6 +243,7 @@ and an oversized body all carry the envelope rather than an empty body.
 | `NOT_FOUND` | 404 | No such proxy, no such template file, or no such route |
 | `METHOD_NOT_ALLOWED` | 405 | The path exists and does not accept that verb; the response also carries `Allow` |
 | `PROXY_NOT_RESOLVED` | 404 | No proxy matched and there is no default |
+| `NO_PROXIES_CONFIGURED` | 503 | The configuration names no proxies at all. See [No proxies configured](proxying.md#no-proxies-configured) |
 | `CONFLICT` | 409 | The name exists, or the store is under sustained contention |
 | `REVISION_MISMATCH` | 409 | The proxy changed since it was read |
 | `UPLOAD_TOO_LARGE` | 413 | A template body over `admin.upload.limit`, or a configuration document over 1 MiB |

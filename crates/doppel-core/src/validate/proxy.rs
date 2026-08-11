@@ -20,16 +20,9 @@
 use std::collections::BTreeSet;
 
 use super::{Violations, mock};
-use crate::config::{Config, ProxyKind, ResolveKind};
+use crate::config::{Config, ResolveKind};
 
 pub(super) fn check(config: &Config, v: &mut Violations) {
-    // V5
-    v.require(
-        !config.proxies.is_empty(),
-        "proxies",
-        "at least one proxy is required",
-    );
-
     let mut seen_names = BTreeSet::new();
     let mut default_seen = false;
 
@@ -41,14 +34,6 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
             v.push(
                 format!("{path}.name"),
                 format!("duplicate proxy name `{}`", proxy.name),
-            );
-        }
-
-        // V7
-        if proxy.kind == ProxyKind::Tcp {
-            v.push(
-                format!("{path}.type"),
-                "TCP proxying is not implemented yet",
             );
         }
 
@@ -148,10 +133,21 @@ proxies:
         assert_eq!(validate(&load_from_str(&good()).unwrap()), Ok(()));
     }
 
+    /// V5 used to refuse this. It is legal now: Doppel starts, binds, serves the
+    /// admin API and waits for a proxy to arrive by reload or over that API. A
+    /// request meanwhile is answered `503 NO_PROXIES_CONFIGURED`, which is the
+    /// only place the state can be reported without blaming the client.
     #[test]
-    fn v5_proxies_must_not_be_empty() {
+    fn an_empty_proxy_list_is_accepted() {
         let text = good().split("proxies:").next().unwrap().to_owned() + "proxies: []\n";
-        assert_violation(&text, "proxies", "at least one proxy");
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
+    }
+
+    /// And an absent list, which is a different document from an empty one.
+    #[test]
+    fn an_absent_proxy_list_is_accepted() {
+        let text = good().split("proxies:").next().unwrap().to_owned();
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
     }
 
     #[test]
@@ -170,10 +166,17 @@ proxies:
         // document, not merely fail later at a template write.
         for (name, expected) in [
             ("a", "at least 2"),
-            ("..", "must not start with a dot"),
+            // Every dotted shape now fails on the dot itself. `..` and
+            // `.hidden` used to need a rule each; without the dot in the
+            // character set neither can be written at all.
+            ("..", "no longer contain `.`"),
             ("a/b", "contains"),
-            ("a..b", "must not contain `..`"),
-            (".hidden", "must not start with a dot"),
+            ("a..b", "no longer contain `.`"),
+            (".hidden", "no longer contain `.`"),
+            ("Billing.API.v2", "no longer contain `.`"),
+            // A proxy name is capped at 32, tighter than the 64 a token or a
+            // group gets.
+            (&"a".repeat(33), "at most 32"),
         ] {
             let text = good().replace("name: p1", &format!("name: '{name}'"));
             let err = load_from_str(&text)
@@ -185,7 +188,7 @@ proxies:
 
     #[test]
     fn the_names_people_actually_use_still_load() {
-        for name in ["p1", "ops", "billing-api", "billing_api", "Billing.API.v2"] {
+        for name in ["p1", "ops", "billing-api", "billing_api", "BillingAPIv2"] {
             let text = good().replace("name: p1", &format!("name: '{name}'"));
             assert_eq!(
                 validate(&load_from_str(&text).unwrap()),
@@ -193,15 +196,6 @@ proxies:
                 "`{name}` should be a legal proxy name"
             );
         }
-    }
-
-    #[test]
-    fn v7_tcp_is_rejected_with_a_specific_message() {
-        assert_violation(
-            &good().replace("type: http", "type: tcp"),
-            "proxies[0].type",
-            "TCP proxying is not implemented yet",
-        );
     }
 
     #[test]

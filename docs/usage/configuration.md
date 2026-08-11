@@ -6,13 +6,40 @@ a mistyped field name fails at load rather than doing nothing at runtime.
 `main.example.yaml` in the repository is this reference made concrete, and is
 asserted against by the test suite.
 
+## Editor support
+
+The configuration has a JSON Schema, so an editor can complete field names, show
+what each field is for and mark a bad value as you type -- before Doppel is run
+at all. Put this line at the top of your `main.yaml`:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/doppel/main/doppel-config.schema.json
+```
+
+VS Code's YAML extension reads it, as does any other `yaml-language-server`
+client. `main.example.yaml` already carries it.
+
+That URL follows `main`. Every release also attaches the schema as an asset, so
+a deployment that pins a version can validate against the schema for exactly
+that version rather than for whatever is current.
+
+The schema is generated from the same Rust types this page documents -- see
+[`doppel config schema`](cli.md#config-schema) -- so it cannot describe a field
+that does not exist, and CI fails if the checked-in copy falls behind.
+
+What it catches: an unknown key, `percentage: 45` where a fraction was meant,
+`method: get` in lower case, a port of `0`, a missing `url`. What it cannot
+catch: anything needing more than one field, such as `min <= max`. Those are the
+[validation rules](#validation) below, and they run when the configuration is
+loaded.
+
 ## Top level
 
 | Key | Required | Purpose |
 |---|---|---|
 | `server` | yes | Where the proxy listens |
 | `admin` | yes | Admin API settings |
-| `proxies` | yes | At least one proxy |
+| `proxies` | no | Empty or absent is legal; requests then get `503` |
 | `logging` | no | Level and format; defaults to `info` and `json` |
 | `control` | no | Control socket path; defaults to `/tmp/doppel.sock` |
 | `templates` | no | Template directory; defaults to `./templates` |
@@ -163,7 +190,8 @@ the choice is the operator's.
 
 ## `proxies`
 
-At least one. Names must be unique.
+Names must be unique. The list may be empty or left out -- see
+[No proxies configured](proxying.md#no-proxies-configured).
 
 ```yaml
 proxies:
@@ -192,7 +220,7 @@ proxies:
 | Key | Type | Default | Notes |
 |---|---|---|---|
 | `name` | string | required | Unique; also used as the template subdirectory |
-| `type` | `http` | required | `tcp` is rejected with a message saying it is not implemented |
+| `type` | `http` | required | The only value. `tcp` is refused while parsing, with a message saying it is not implemented |
 | `url` | absolute URL | required | `http` or `https`, no query or fragment |
 | `timeout` | seconds > 0 | 30 | Bounds the whole upstream exchange |
 | `body_limit` | byte size > 0 | 1 MiB | Only used when a matched mock extracts from the body |
@@ -331,6 +359,8 @@ parsed. A message quoted in an old issue can be looked up here.
 | V2 | `server.host` is an IP | `IpAddr` |
 | V3 | `server.workers` is positive | the field is `--workers` |
 | V4 | log level and format are known | `LogLevel`, `LogFormat` |
+| V5 | at least one proxy is configured | nothing -- an empty list is legal, see [No proxies configured](proxying.md#no-proxies-configured) |
+| V7 | `type: tcp` is refused | `ProxyKind`, while the document is parsed |
 | V8, V32 | upstream url is absolute http(s), no query | [`UpstreamUrl`](#upstream-urls) |
 | V9 | timeout is positive | [`TimeoutSeconds`](#numbers-with-units) |
 | V12, V13 | probability in 0..=1, status in 100..=599 | [`Ratio`](#numbers-with-units), [`HttpStatus`](#methods-and-statuses) |
@@ -347,15 +377,25 @@ parsed. A message quoted in an old issue can be looked up here.
 
 A retired number is never reused.
 
-Sixteen rules remain: V1, V5, V6, V7, V10, V11, V14, V16, V19, V20, V21, V25,
-V26, V27, V30 and V34. Each needs more than one field to decide, which is
-exactly why none of them could become a type.
+Fourteen rules remain: V1, V6, V10, V11, V14, V16, V19, V20, V21, V25, V26,
+V27, V30 and V34. Each needs more than one field to decide, which is exactly
+why none of them could become a type.
 
 ## Names
 
 A proxy name, a mock name, a token name and a group name follow one rule:
-letters, digits, `.`, `-` and `_`, between 2 and 128 characters, not starting
-with a dot and not containing `..`.
+letters, digits, `-` and `_`, between 2 and 64 characters. A **proxy** name is
+capped at 32 instead.
+
+`.` is not allowed. It was until 0.3.0, and the reference configuration taught
+names like `Billing.API.v2`; write `Billing-API-v2`. Dropping it removed two
+further rules with it -- a name becomes a directory component, so `.hidden` and
+`..` each had to be refused separately, and neither can now be written at all.
+
+A proxy name is capped shorter because it travels further than any other: a
+directory under `templates.dir`, a `proxy` label on every metric, a field in
+every log line, and the value a client puts in a resolution header on every
+request.
 
 The rule is enforced by the type, while the document is being parsed, rather
 than by a validation rule afterwards. A name becomes a directory component, a

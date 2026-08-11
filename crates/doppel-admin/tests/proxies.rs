@@ -435,25 +435,28 @@ async fn delete_drops_the_proxys_templates() {
     assert!(kept.exists(), "another proxy's templates must survive");
 }
 
+/// Rule V5 used to refuse this, so emptying a Doppel over the API meant
+/// deleting every proxy but one and then editing the file by hand. An empty
+/// proxy list is a legal configuration now: the delete goes through, and a
+/// request afterwards is answered `503 NO_PROXIES_CONFIGURED` rather than the
+/// deletion being blocked to keep that from happening.
 #[tokio::test]
-async fn deleting_the_last_proxy_is_refused_by_validation() {
+async fn deleting_the_last_proxy_is_allowed_and_leaves_none() {
     let (only_alpha, _) = common::BASE_CONFIG
         .split_once("  - name: beta")
         .expect("BASE_CONFIG defines beta");
     let harness = Harness::with_config(only_alpha);
+    harness.write_template("alpha", "body.json.j2", "{}");
+
     let reply = Call::delete("/api/v1/proxies/alpha")
         .token(ROOT)
         .send(harness.router())
         .await;
 
-    // The rule set runs on the result of every write, delete included: a
-    // configuration with no proxies is not one this process can serve.
-    assert_eq!(reply.status, 400, "{}", reply.body);
-    assert_eq!(reply.error_code(), "CONFIG_INVALID");
-    assert_eq!(harness.stored().proxies.len(), 1);
-    // The templates of a proxy whose deletion was refused must still be
-    // there: the config write is what authorises dropping them.
-    assert!(harness.templates_dir.exists());
+    assert_eq!(reply.status, 204, "{}", reply.body);
+    assert!(harness.stored().proxies.is_empty());
+    // The write authorises dropping them, and the write happened.
+    assert_absent(&harness.template_path("alpha", "body.json.j2"));
 }
 
 #[tokio::test]

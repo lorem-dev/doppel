@@ -5,7 +5,7 @@ use std::net::IpAddr;
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AdminConfig {
     /// Whether to run the admin listener at all.
@@ -19,20 +19,35 @@ pub struct AdminConfig {
     /// listener on later, and they will not re-read the rules first.
     #[serde(default = "enabled")]
     pub enable: bool,
+    /// An IP address, not a hostname: a name would have to be resolved,
+    /// and which address it resolves to is not the configuration's to
+    /// decide. `utoipa` has no schema for `IpAddr`, so it is described
+    /// here as the string it is written as.
+    #[schema(value_type = String, examples("127.0.0.1"))]
     pub host: IpAddr,
+    /// The TCP port the admin API listens on. Must differ from
+    /// `server.port`.
     pub port: super::Port,
+    /// Which header carries the bearer token.
     #[serde(default)]
     pub auth: AuthConfig,
+    /// The tokens that may call the admin API. Names and token values are
+    /// each unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.
     #[serde(default)]
     pub tokens: Vec<TokenConfig>,
+    /// Who may perform each admin action. Every action defaults to the
+    /// `admin` group, reads included.
     #[serde(default)]
     pub access: AccessConfig,
+    /// Bounds an uploaded template file.
     pub upload: UploadConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AuthConfig {
+    /// The header a caller presents its token in, as `Bearer <token>`.
+    /// Defaults to `X-Proxy-Authorization`.
     #[serde(default = "default_auth_header")]
     pub header: super::HeaderName,
 }
@@ -49,11 +64,17 @@ impl Default for AuthConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TokenConfig {
+    /// What to call this token in `access` lists and in logs. Never the
+    /// secret itself.
     pub name: super::Name,
+    /// The group it belongs to. `admin` and `user` are predefined; any other
+    /// name must be carried by at least one token.
     pub group: super::Name,
+    /// The secret the caller sends. A version 4 UUID is the recommended
+    /// shape.
     pub token: super::Token,
 }
 
@@ -133,19 +154,25 @@ impl<'de> Deserialize<'de> for Subjects {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AccessConfig {
+    /// List the proxies. A listing exposes upstream URLs and injected headers.
     #[serde(default = "admin_only")]
     pub list: Subjects,
+    /// Read one proxy document, credentials in its `url` included.
     #[serde(default = "admin_only")]
     pub read: Subjects,
+    /// Add a proxy. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub create: Subjects,
+    /// Replace a proxy. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub update: Subjects,
+    /// Remove a proxy. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub delete: Subjects,
+    /// Upload or delete a template file. Refused for `public` by rule V34.
     #[serde(default = "admin_only")]
     pub upload: Subjects,
 }
@@ -192,19 +219,25 @@ impl Default for AccessConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProxyAccessConfig {
+    /// Who may read this proxy's document. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read: Option<Subjects>,
+    /// Who may replace this proxy. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update: Option<Subjects>,
+    /// Who may remove this proxy. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delete: Option<Subjects>,
+    /// Who may upload templates for this proxy. Absent leaves the global rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub upload: Option<Subjects>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct UploadConfig {
+    /// Largest template file the admin API accepts. A larger upload is
+    /// refused with `413`.
     pub limit: super::ByteSize,
 }
 

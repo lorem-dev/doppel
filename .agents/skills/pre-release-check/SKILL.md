@@ -9,18 +9,23 @@ A gate, not a fixer. Anything it finds gets fixed in its own commit before the
 release proceeds; do not fold repairs into the release commit, which should
 stay a mechanical, reviewable change.
 
-## Run these four first
+## Run these five first
 
 In this order, because a later one is pointless if an earlier one fails:
 
 1. `run-tests-and-linters` -- the workspace is green, with captured output.
 2. `check-licenses` -- every direct dependency is compliant and justified.
-3. `check-changes` -- the Development section reflects what landed.
-4. `check-docs` -- the reference, CLI surface, error codes and rule table match
+3. `regenerate-config-schema` -- `doppel-config.schema.json` matches the types
+   and every field still describes itself. It is a release asset and is what
+   editors fetch, so a stale one ships.
+4. `check-changes` -- the Development section reflects what landed.
+5. `check-docs` -- the reference, CLI surface, error codes and rule table match
    the code.
 
 `bump-version` is deliberately not in this list. This skill checks; that one
-changes things.
+changes things. `regenerate-config-schema` is the one exception, and only
+because the thing it writes is generated: if it produces a diff, that diff is a
+commit of its own before the release, not part of the release commit.
 
 ## Then check the version
 

@@ -1,5 +1,14 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/doppel/main/doppel-config.schema.json
+#
 # Doppel reference configuration.
 # Copy to main.yaml and adjust; main.yaml is git-ignored.
+#
+# The line above is what editors read: VS Code's YAML extension and any
+# yaml-language-server client will complete field names, show each field's
+# description and mark a bad value as you type. Keep it at the top of your own
+# main.yaml. The schema is generated from the code -- see
+# `doppel config schema` -- and every release also attaches it as an asset for
+# anyone who would rather pin a version than follow `main`.
 
 server:
   host: "0.0.0.0"

@@ -1,5 +1,35 @@
 # Proxy behaviour
 
+## No proxies configured
+
+An empty `proxies` list, or no `proxies` key at all, is a valid configuration.
+Doppel starts, binds both listeners, serves the admin API, and waits.
+
+A request arriving meanwhile is answered:
+
+```json
+{
+  "status": 503,
+  "message": "no proxies are configured; add one and reload",
+  "code": "NO_PROXIES_CONFIGURED"
+}
+```
+
+`503`, not `404`. Nothing is wrong with the request -- the service is not in a
+position to answer one yet. A `404` would tell the caller their path was wrong
+and send whoever is debugging the client into the client. `503` also carries the
+right invitation: add a proxy, reload, and the next attempt works, with no
+restart.
+
+This is deliberately not a startup failure. Rule V5 used to refuse it, which
+meant a fresh deployment could not come up until its proxies were written --
+so the two ways of adding one, `doppel config reload` and the admin API, were
+both unreachable exactly when they were most useful. Provisioning an empty
+Doppel and filling it over the API is now a supported order of operations.
+
+`NO_PROXIES_CONFIGURED` is distinct from `PROXY_NOT_RESOLVED` (`404`), which
+means proxies exist and none of them wanted this particular request.
+
 ## Choosing a proxy
 
 Several proxies can sit behind one port. A proxy either declares itself the

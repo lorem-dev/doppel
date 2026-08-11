@@ -70,12 +70,17 @@ def main() -> None:
 
     binaries: list[tuple[int, str, str]] = []
     verification: list[tuple[int, str, str]] = []
+    schema: list[tuple[int, str, str]] = []
     other: list[tuple[int, str, str]] = []
 
     for path in sorted(dist.iterdir()):
         name = path.name
         if name in {"checksums.txt", "checksums.txt.asc"}:
             verification.append((0, name, name))
+            continue
+
+        if name == "doppel-config.schema.json":
+            schema.append((0, name, name))
             continue
 
         stem = name.removesuffix(".tar.gz")
@@ -87,7 +92,7 @@ def main() -> None:
 
         other.append((0, name, name))
 
-    if not binaries and not other:
+    if not binaries and not schema and not other:
         fail(f"no assets found in {dist}")
 
     def bullets(entries: list[tuple[int, str, str]]) -> str:
@@ -107,6 +112,22 @@ def main() -> None:
             "refuses to run it unsigned. The installer is not affected, but a "
             "manual download is -- see "
             f"[Troubleshooting](https://lorem-dev.github.io/doppel/usage/troubleshooting/)."
+        )
+
+    if schema:
+        sections.append(
+            f"### Configuration schema\n\n{bullets(schema)}\n\n"
+            "The JSON Schema for `main.yaml` as of this release. Point an editor "
+            "at it to get completion, per-field descriptions and errors as you "
+            "type:\n\n"
+            "```yaml\n"
+            f"# yaml-language-server: $schema=https://github.com/{repo}/releases/download/"
+            f"{quote(raw_tag)}/doppel-config.schema.json\n"
+            "```\n\n"
+            "Or follow `main` instead of pinning a release:\n\n"
+            "```yaml\n"
+            f"# yaml-language-server: $schema=https://raw.githubusercontent.com/{repo}/main/doppel-config.schema.json\n"
+            "```"
         )
 
     if other:

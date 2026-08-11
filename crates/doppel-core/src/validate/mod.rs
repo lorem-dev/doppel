@@ -342,11 +342,11 @@ proxies:
     ///
     /// Written out rather than counted, because it is the thing the tests
     /// below compare the source and the documentation against.
-    const LIVE: [u8; 16] = [1, 5, 6, 7, 10, 11, 14, 16, 19, 20, 21, 25, 26, 27, 30, 34];
+    const LIVE: [u8; 14] = [1, 6, 10, 11, 14, 16, 19, 20, 21, 25, 26, 27, 30, 34];
 
     /// Every rule that has been retired, and is therefore never reused.
-    const RETIRED: [u8; 19] = [
-        2, 3, 4, 8, 9, 12, 13, 15, 17, 18, 22, 23, 24, 28, 29, 31, 32, 33, 35,
+    const RETIRED: [u8; 21] = [
+        2, 3, 4, 5, 7, 8, 9, 12, 13, 15, 17, 18, 22, 23, 24, 28, 29, 31, 32, 33, 35,
     ];
 
     #[test]

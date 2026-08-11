@@ -8,6 +8,19 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+### Added
+
+- A JSON Schema for the configuration, checked in and attached to each release.
+- `doppel config schema` prints it; every field carries a description.
+
+### Changed
+
+- An empty or absent `proxies` list is accepted; requests get `503
+  NO_PROXIES_CONFIGURED`.
+- `type: tcp` is now refused while parsing rather than by a validation rule.
+- Names may no longer contain `.`, and are capped at 64 characters, 32 for a
+  proxy.
+
 ## 0.3.0 -- 2026-08-10
 
 ### Added

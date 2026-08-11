@@ -1,0 +1,815 @@
+{
+  "$defs": {
+    "AccessConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "create": {
+          "$ref": "#/$defs/Subjects",
+          "description": "Add a proxy. Refused for `public` by rule V34."
+        },
+        "delete": {
+          "$ref": "#/$defs/Subjects",
+          "description": "Remove a proxy. Refused for `public` by rule V34."
+        },
+        "list": {
+          "$ref": "#/$defs/Subjects",
+          "description": "List the proxies. A listing exposes upstream URLs and injected headers."
+        },
+        "read": {
+          "$ref": "#/$defs/Subjects",
+          "description": "Read one proxy document, credentials in its `url` included."
+        },
+        "update": {
+          "$ref": "#/$defs/Subjects",
+          "description": "Replace a proxy. Refused for `public` by rule V34."
+        },
+        "upload": {
+          "$ref": "#/$defs/Subjects",
+          "description": "Upload or delete a template file. Refused for `public` by rule V34."
+        }
+      },
+      "type": "object"
+    },
+    "AdminConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "$ref": "#/$defs/AccessConfig",
+          "description": "Who may perform each admin action. Every action defaults to the\n`admin` group, reads included."
+        },
+        "auth": {
+          "$ref": "#/$defs/AuthConfig",
+          "description": "Which header carries the bearer token."
+        },
+        "enable": {
+          "description": "Whether to run the admin listener at all.\n\nDefaults to on. Off means the port is never bound and no admin task\nstarts; the proxy and the control socket are untouched, so\n`doppel config reload` still works and is then the only way in.\n\nThe validation rules do not consult this. A configuration that is only\nsafe because nothing serves it is a trap set for whoever turns the\nlistener on later, and they will not re-read the rules first.",
+          "type": "boolean"
+        },
+        "host": {
+          "description": "An IP address, not a hostname: a name would have to be resolved,\nand which address it resolves to is not the configuration's to\ndecide. `utoipa` has no schema for `IpAddr`, so it is described\nhere as the string it is written as.",
+          "examples": [
+            "127.0.0.1"
+          ],
+          "type": "string"
+        },
+        "port": {
+          "$ref": "#/$defs/Port",
+          "description": "The TCP port the admin API listens on. Must differ from\n`server.port`."
+        },
+        "tokens": {
+          "description": "The tokens that may call the admin API. Names and token values are\neach unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.",
+          "items": {
+            "$ref": "#/$defs/TokenConfig"
+          },
+          "type": "array"
+        },
+        "upload": {
+          "$ref": "#/$defs/UploadConfig",
+          "description": "Bounds an uploaded template file."
+        }
+      },
+      "required": [
+        "host",
+        "port",
+        "upload"
+      ],
+      "type": "object"
+    },
+    "AuthConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "$ref": "#/$defs/HeaderName",
+          "description": "The header a caller presents its token in, as `Bearer <token>`.\nDefaults to `X-Proxy-Authorization`."
+        }
+      },
+      "type": "object"
+    },
+    "ByteSize": {
+      "description": "A byte count from 1 to 1073741824, as a plain integer or with a binary (`Ki`, `Mi`, `Gi`) or decimal (`kB`, `MB`, `GB`) suffix. Always serialized back as an integer.",
+      "oneOf": [
+        {
+          "examples": [
+            1048576
+          ],
+          "maximum": 1073741824,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "examples": [
+            "1Mi"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ControlConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "socket": {
+          "description": "Path to the control socket, created with mode 0600 and removed on\nshutdown. Its parent directory must already exist.\nA filesystem path. `utoipa` has no schema for `PathBuf`, so it is\ndescribed as the string it is written as.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HeaderName": {
+      "description": "An HTTP header name: a non-empty RFC 9110 token.",
+      "type": "string"
+    },
+    "HeaderValue": {
+      "description": "An HTTP header value: visible ASCII, space and tab, with no line breaks.",
+      "type": "string"
+    },
+    "HttpMethod": {
+      "description": "An HTTP method, upper case.",
+      "enum": [
+        "GET",
+        "HEAD",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+        "TRACE",
+        "CONNECT",
+        "QUERY",
+        "PROPFIND",
+        "PROPPATCH",
+        "MKCOL",
+        "COPY",
+        "MOVE",
+        "LOCK",
+        "UNLOCK"
+      ],
+      "type": "string"
+    },
+    "HttpStatus": {
+      "description": "An HTTP status code, 100 to 599.",
+      "maximum": 599,
+      "minimum": 100,
+      "type": "integer"
+    },
+    "LatencyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "max": {
+          "$ref": "#/$defs/Seconds",
+          "description": "Upper bound of the delay, in seconds. Must be at least `min`."
+        },
+        "min": {
+          "$ref": "#/$defs/Seconds",
+          "description": "Lower bound of the delay, in seconds. The delay is a target for the\nwhole response: time the upstream already spent is subtracted."
+        },
+        "percentage": {
+          "$ref": "#/$defs/Ratio",
+          "description": "The share of requests to delay, as a fraction."
+        }
+      },
+      "required": [
+        "percentage",
+        "min",
+        "max"
+      ],
+      "type": "object"
+    },
+    "LogFormat": {
+      "enum": [
+        "json",
+        "text"
+      ],
+      "type": "string"
+    },
+    "LogLevel": {
+      "enum": [
+        "trace",
+        "debug",
+        "info",
+        "warn",
+        "error"
+      ],
+      "type": "string"
+    },
+    "LoggingConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "$ref": "#/$defs/LogFormat",
+          "description": "`json` for machines, `text` for a terminal."
+        },
+        "level": {
+          "$ref": "#/$defs/LogLevel",
+          "description": "The lowest level that is logged. `RUST_LOG` overrides it when set and\nnon-empty."
+        }
+      },
+      "type": "object"
+    },
+    "LossConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "percentage": {
+          "$ref": "#/$defs/Ratio",
+          "description": "The share of requests to drop, as a fraction. `0.1` is one in ten."
+        },
+        "status": {
+          "$ref": "#/$defs/HttpStatus",
+          "description": "The status a dropped request is answered with, rather than being left\nto hang."
+        }
+      },
+      "required": [
+        "percentage",
+        "status"
+      ],
+      "type": "object"
+    },
+    "MockConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "Names this mock in the `mock` log field and the hit counter. Unique\nwithin the proxy."
+        },
+        "proxy": {
+          "description": "Per-mock overrides of the proxy's `replace`, `loss` and `latency`.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/MockProxyOverride"
+            }
+          ]
+        },
+        "request": {
+          "$ref": "#/$defs/MockRequest",
+          "description": "What this mock matches, and what it takes out of the request."
+        },
+        "response": {
+          "$ref": "#/$defs/MockResponse",
+          "description": "What it answers with."
+        }
+      },
+      "required": [
+        "name",
+        "request",
+        "response"
+      ],
+      "type": "object"
+    },
+    "MockProxyOverride": {
+      "additionalProperties": false,
+      "properties": {
+        "latency": {
+          "description": "Replaces the proxy's `latency` for this mock's responses, rather than\nadding to it.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/LatencyConfig"
+            }
+          ]
+        },
+        "loss": {
+          "description": "Drops a share of the requests this mock would have answered. Not\ninherited from the proxy: a mock without it is never dropped.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/LossConfig"
+            }
+          ]
+        },
+        "replace": {
+          "description": "Overrides the proxy's `replace` for requests this mock matches.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Ratio"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "MockRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Selector"
+          },
+          "description": "Variable name -> selector such as `.content.items`.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HeaderName"
+          },
+          "description": "Variable name -> request header name.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "method": {
+          "$ref": "#/$defs/HttpMethod",
+          "description": "The method this mock answers, matched exactly and upper case."
+        },
+        "query": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Selector"
+          },
+          "description": "Variable name -> selector such as `.filter`.",
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "url": {
+          "$ref": "#/$defs/Pattern",
+          "description": "A regex matched against the request path, unanchored. Named capture\ngroups become template variables."
+        }
+      },
+      "required": [
+        "method",
+        "url"
+      ],
+      "type": "object"
+    },
+    "MockResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "A template rendered and sent as `text/plain`. Exclusive with `json` and\n`template`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Header name -> template producing the value.\n\nThe value is a template, not a header value: what it renders to is\nonly a header value once a request has been served, which is checked\nthere. The name is a name now.",
+          "propertyNames": {
+            "description": "An HTTP header name: a non-empty RFC 9110 token.",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "json": {
+          "description": "A template whose rendered output must be valid JSON, sent as\n`application/json`. Exclusive with `body` and `template`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/HttpStatus",
+          "description": "The status to answer with."
+        },
+        "template": {
+          "description": "A template file under this proxy's template directory. Read per request,\nso it may be uploaded after the configuration was loaded. Exclusive with\n`body` and `json`.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/TemplateName"
+            }
+          ]
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "type": "object"
+    },
+    "Name": {
+      "description": "Letters, digits, `-` and `_`, between 2 and 64 characters.",
+      "maxLength": 64,
+      "minLength": 2,
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "type": "string"
+    },
+    "Pattern": {
+      "description": "A regular expression matched against the request path, unanchored. Named capture groups become template variables.",
+      "examples": [
+        "/api/(?P<id>\\d+)/"
+      ],
+      "type": "string"
+    },
+    "Port": {
+      "description": "A TCP port, 1 to 65535.",
+      "maximum": 65535,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "ProxyAccessConfig": {
+      "additionalProperties": false,
+      "description": "Per-proxy override. Only these four actions may be overridden (rule V28 is\nexpressed in the type, so a config overriding `create` fails at parse time).",
+      "properties": {
+        "delete": {
+          "description": "Who may remove this proxy. Absent leaves the global rule.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Subjects"
+            }
+          ]
+        },
+        "read": {
+          "description": "Who may read this proxy's document. Absent leaves the global rule.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Subjects"
+            }
+          ]
+        },
+        "update": {
+          "description": "Who may replace this proxy. Absent leaves the global rule.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Subjects"
+            }
+          ]
+        },
+        "upload": {
+          "description": "Who may upload templates for this proxy. Absent leaves the global rule.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Subjects"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "ProxyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "access": {
+          "description": "Overrides the admin `access` rules for this proxy alone.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ProxyAccessConfig"
+            }
+          ]
+        },
+        "body_limit": {
+          "$ref": "#/$defs/ByteSize",
+          "description": "Bounds the request body a matched mock is allowed to buffer in order\nto extract from it; phase 1 streams bodies deliberately, and reading\n`.content.items` needs the whole thing in hand. See rule V33."
+        },
+        "headers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HeaderValue"
+          },
+          "description": "Headers injected into every outbound request, overriding whatever the\nclient sent by the same name.",
+          "propertyNames": {
+            "description": "An HTTP header name: a non-empty RFC 9110 token.",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "latency": {
+          "description": "Makes a share of requests take a chosen time. Applies to mocked\nresponses too; a mock may override the figure.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/LatencyConfig"
+            }
+          ]
+        },
+        "loss": {
+          "description": "Drops a share of requests rather than forwarding them. Not applied to\na request a mock answered.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/LossConfig"
+            }
+          ]
+        },
+        "mocks": {
+          "description": "Mocks in the order they are tried. First match wins, and patterns are\nunanchored, so a general one placed first shadows the rest.",
+          "items": {
+            "$ref": "#/$defs/MockConfig"
+          },
+          "type": "array"
+        },
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "Names this proxy in `X-Proxy-Name`, in metrics labels, in log lines\nand as its template subdirectory. Unique within the document."
+        },
+        "replace": {
+          "description": "What share of requests a matching mock actually answers; the rest go\nupstream. Defaults to 1.0, so a matching mock answers.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/Ratio"
+            }
+          ]
+        },
+        "resolve": {
+          "$ref": "#/$defs/ResolveConfig",
+          "description": "How a request is matched to this proxy: by header, or as the default."
+        },
+        "rewrite_redirects": {
+          "description": "Whether a redirect whose `Location` points back into the space this\nproxy forwards is rewritten to point at Doppel instead. Absent means\nenabled.\n\nOn by default because the alternative is a silent failure: `Host` is\nreplaced with the upstream's authority, so the upstream's `Location`\nnames the upstream, and a client following it leaves Doppel -- along with\nevery fault and every mock -- with nothing reported. Turn it off to have\nthe response relayed byte for byte, which is what a client being tested\n*against redirect handling itself* needs.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "timeout": {
+          "description": "Bounds the whole upstream exchange, in seconds. Exceeding it is\n`504 UPSTREAM_TIMEOUT`. Defaults to 30.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/TimeoutSeconds"
+            }
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ProxyKind",
+          "description": "What it forwards. `http` is the only value."
+        },
+        "url": {
+          "$ref": "#/$defs/UpstreamUrl",
+          "description": "The upstream base. A request path is grafted underneath it, and the\nresult can never escape it -- so a base with a path confines the proxy\nto that subtree."
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "url"
+      ],
+      "type": "object"
+    },
+    "ProxyKind": {
+      "description": "What a proxy forwards. Only `http` exists.\n\nThere was a `Tcp` variant, admitted by the parser so that rule V7 could\nreject it afterwards with a message better than serde's. Both are gone: the\nvariant meant every layer downstream -- the runtime, the store, this schema --\nhad to carry a case that could never be reached, and the good message is\navailable without it. `Deserialize` below is written by hand for exactly that\nreason, so `type: tcp` still says *why* rather than only that the value is\nnot one of the accepted ones.",
+      "enum": [
+        "http"
+      ],
+      "type": "string"
+    },
+    "Ratio": {
+      "description": "A probability from 0.0 to 1.0. 50% is `0.5`.",
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "ResolveConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "description": "The header carrying the proxy name. Required when `type: header`, and\nmeaningless otherwise.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/HeaderName"
+            }
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/ResolveKind",
+          "description": "`default` takes anything unclaimed; `header` takes requests naming\nthis proxy in `header`."
+        }
+      },
+      "type": "object"
+    },
+    "ResolveKind": {
+      "enum": [
+        "default",
+        "header"
+      ],
+      "type": "string"
+    },
+    "Seconds": {
+      "description": "A latency in seconds, 0 to 300.",
+      "maximum": 300,
+      "minimum": 0,
+      "type": "number"
+    },
+    "Selector": {
+      "description": "A selector addressing object keys: a leading dot, then dot-separated field names, as in `.content.items`.",
+      "examples": [
+        ".content.items"
+      ],
+      "pattern": "^\\.[^.]+(\\.[^.]+)*$",
+      "type": "string"
+    },
+    "SentryConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "dsn": {
+          "description": "The Sentry DSN to report to. Empty disables reporting, so a deployment\ncan blank it without removing the section.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dsn"
+      ],
+      "type": "object"
+    },
+    "ServerConfig": {
+      "additionalProperties": false,
+      "description": "No `workers` here. It sizes the tokio runtime, and a database-backed\nstore cannot be opened before that runtime exists -- so the value has to\nbe known before the configuration is read, which puts it on the same side\nof the boundary as the connection settings. It is `--workers` /\n`DOPPEL_WORKERS`.",
+      "properties": {
+        "host": {
+          "description": "An IP address, not a hostname: a name would have to be resolved,\nand which address it resolves to is not the configuration's to\ndecide. `utoipa` has no schema for `IpAddr`, so it is described\nhere as the string it is written as.",
+          "examples": [
+            "127.0.0.1"
+          ],
+          "type": "string"
+        },
+        "port": {
+          "$ref": "#/$defs/Port",
+          "description": "The TCP port proxied traffic arrives on. Must differ from\n`admin.port`."
+        }
+      },
+      "required": [
+        "host",
+        "port"
+      ],
+      "type": "object"
+    },
+    "Subjects": {
+      "description": "Who may perform an action: `public`, one token or group name, or a list of them. An empty list means public.",
+      "oneOf": [
+        {
+          "examples": [
+            "public"
+          ],
+          "type": "string"
+        },
+        {
+          "examples": [
+            [
+              "admin",
+              "user1"
+            ]
+          ],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      ]
+    },
+    "TemplateName": {
+      "description": "A template file name: one path component, no separators, no leading dot, no `..`.",
+      "examples": [
+        "put.json.j2"
+      ],
+      "maxLength": 200,
+      "type": "string"
+    },
+    "TemplatesConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "description": "Directory holding mock templates, one subdirectory per proxy. Created\nat startup if absent.\nA filesystem path. `utoipa` has no schema for `PathBuf`, so it is\ndescribed as the string it is written as.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "TimeoutSeconds": {
+      "description": "An upstream timeout in whole seconds, 1 to 3600.",
+      "maximum": 3600,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "Token": {
+      "description": "An admin token: printable ASCII with no spaces, 32 to 255 characters. A version 4 UUID is the recommended shape.",
+      "maxLength": 255,
+      "minLength": 32,
+      "type": "string"
+    },
+    "TokenConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "group": {
+          "$ref": "#/$defs/Name",
+          "description": "The group it belongs to. `admin` and `user` are predefined; any other\nname must be carried by at least one token."
+        },
+        "name": {
+          "$ref": "#/$defs/Name",
+          "description": "What to call this token in `access` lists and in logs. Never the\nsecret itself."
+        },
+        "token": {
+          "$ref": "#/$defs/Token",
+          "description": "The secret the caller sends. A version 4 UUID is the recommended\nshape."
+        }
+      },
+      "required": [
+        "name",
+        "group",
+        "token"
+      ],
+      "type": "object"
+    },
+    "UploadConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/ByteSize",
+          "description": "Largest template file the admin API accepts. A larger upload is\nrefused with `413`."
+        }
+      },
+      "required": [
+        "limit"
+      ],
+      "type": "object"
+    },
+    "UpstreamUrl": {
+      "description": "An absolute http or https base url, with no query string or fragment.",
+      "examples": [
+        "https://example.com/api/"
+      ],
+      "type": "string"
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/lorem-dev/doppel/main/doppel-config.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The `main.yaml` Doppel reads. Generated from the Rust types by `doppel config schema`; do not edit by hand.",
+  "properties": {
+    "admin": {
+      "$ref": "#/$defs/AdminConfig",
+      "description": "The admin API's listener, its tokens, and who may do what."
+    },
+    "control": {
+      "$ref": "#/$defs/ControlConfig",
+      "description": "The Unix socket `doppel config reload` talks to."
+    },
+    "logging": {
+      "$ref": "#/$defs/LoggingConfig",
+      "description": "Log level and output format."
+    },
+    "proxies": {
+      "description": "The proxies this instance serves, in the order they are tried.\n\nMay be empty or left out: Doppel then starts and serves the admin API,\nand a request is answered `503 NO_PROXIES_CONFIGURED` until a proxy is\nadded by reload or over that API.",
+      "items": {
+        "$ref": "#/$defs/ProxyConfig"
+      },
+      "type": "array"
+    },
+    "sentry": {
+      "description": "Optional error reporting. Absent, or an empty DSN, disables it.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/SentryConfig"
+        }
+      ]
+    },
+    "server": {
+      "$ref": "#/$defs/ServerConfig",
+      "description": "Where the proxy listens for the traffic being forwarded or mocked."
+    },
+    "templates": {
+      "$ref": "#/$defs/TemplatesConfig",
+      "description": "Where mock template files are read from and uploaded to."
+    }
+  },
+  "required": [
+    "server",
+    "admin"
+  ],
+  "title": "Doppel configuration",
+  "type": "object"
+}

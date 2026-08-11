@@ -40,6 +40,14 @@ fn run(command: Command) -> u8 {
         Command::Config {
             command: ConfigCommand::Reload(args),
         } => run_on_light_runtime(async move { commands::reload::reload(&args).await }),
+        // No runtime: this reads no file, opens no socket and touches no
+        // database, so there is nothing to await.
+        Command::Config {
+            command: ConfigCommand::Schema,
+        } => {
+            print!("{}", doppel_core::config::schema::json_schema_document());
+            0
+        }
         Command::Config {
             command: ConfigCommand::Push(args),
         } => run_on_light_runtime(async move { report(commands::transfer::push(&args).await) }),
