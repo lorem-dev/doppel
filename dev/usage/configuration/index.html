@@ -801,6 +801,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#editor-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#top-level" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -874,6 +885,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="admin">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#groups-which-names-access-may-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        groups: which names access may reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1312,6 +1340,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#editor-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editor support
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#top-level" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1385,6 +1424,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="admin">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#groups-which-names-access-may-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        groups: which names access may reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1631,6 +1687,25 @@
 a mistyped field name fails at load rather than doing nothing at runtime.</p>
 <p><code>main.example.yaml</code> in the repository is this reference made concrete, and is
 asserted against by the test suite.</p>
+<h2 id="editor-support">Editor support<a class="headerlink" href="#editor-support" title="Permanent link">&para;</a></h2>
+<p>The configuration has a JSON Schema, so an editor can complete field names, show
+what each field is for and mark a bad value as you type -- before Doppel is run
+at all. Put this line at the top of your <code>main.yaml</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># yaml-language-server: $schema=https://raw.githubusercontent.com/lorem-dev/doppel/main/doppel-config.schema.json</span>
+</code></pre></div>
+<p>VS Code's YAML extension reads it, as does any other <code>yaml-language-server</code>
+client. <code>main.example.yaml</code> already carries it.</p>
+<p>That URL follows <code>main</code>. Every release also attaches the schema as an asset, so
+a deployment that pins a version can validate against the schema for exactly
+that version rather than for whatever is current.</p>
+<p>The schema is generated from the same Rust types this page documents -- see
+<a href="../cli/#config-schema"><code>doppel config schema</code></a> -- so it cannot describe a field
+that does not exist, and CI fails if the checked-in copy falls behind.</p>
+<p>What it catches: an unknown key, <code>percentage: 45</code> where a fraction was meant,
+<code>method: get</code> in lower case, a port of <code>0</code>, a missing <code>url</code>. What it cannot
+catch: anything needing more than one field, such as <code>min &lt;= max</code>. Those are the
+<a href="#validation">validation rules</a> below, and they run when the configuration is
+loaded.</p>
 <h2 id="top-level">Top level<a class="headerlink" href="#top-level" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1653,8 +1728,8 @@ asserted against by the test suite.</p>
 </tr>
 <tr>
 <td><code>proxies</code></td>
-<td>yes</td>
-<td>At least one proxy</td>
+<td>no</td>
+<td>Empty or absent is legal; requests then get <code>503</code></td>
 </tr>
 <tr>
 <td><code>logging</code></td>
@@ -1746,6 +1821,7 @@ absent.</p>
 <span class="w">  </span><span class="nt">enable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0&quot;</span>
 <span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8081</span>
+<span class="w">  </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">  </span><span class="nt">auth</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Proxy-Authorization</span>
 <span class="w">  </span><span class="nt">tokens</span><span class="p">:</span>
@@ -1780,6 +1856,75 @@ carried by at least one token -- referencing a group nobody belongs to locks the
 action out entirely, which is far more often a typo than an intent.</p>
 <p><code>access</code> maps each action to <code>public</code>, a single name, or a list of names. An
 empty list means public. Names are token names or group names.</p>
+<h3 id="groups-which-names-access-may-reference"><code>groups</code>: which names <code>access</code> may reference<a class="headerlink" href="#groups-which-names-access-may-reference" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">groups</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;*&quot;</span><span class="p p-Indicator">]</span><span class="w">        </span><span class="c1"># the default: any name may be referenced</span>
+</code></pre></div>
+<p><code>groups</code> bounds the vocabulary <code>access</code> may draw on -- both here and in a
+proxy's <code>access</code> overrides. It is checked by rule <strong>V36</strong>.</p>
+<table>
+<thead>
+<tr>
+<th><code>groups</code></th>
+<th>What <code>access</code> may reference</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>absent</td>
+<td>any name. This is the default</td>
+</tr>
+<tr>
+<td><code>["*"]</code></td>
+<td>any name. The same thing, written down</td>
+</tr>
+<tr>
+<td><code>["admin", "ci"]</code></td>
+<td><code>admin</code> and <code>ci</code>, and nothing else. <code>user</code> is refused</td>
+</tr>
+<tr>
+<td><code>[]</code></td>
+<td>no name at all: every one of the six actions has to be spelled <code>public</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>public</code> is <strong>never</strong> governed by <code>groups</code>. It is the absence of a subject rather
+than a name, so an allow-list has nothing to say about it -- and a deployment
+locked down to <code>groups: []</code> still has to be able to say "anyone may read this".</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>groups: []</code> is not a small change</p>
+<p>Every action defaults to the <code>admin</code> group, and <code>groups: []</code> forbids naming
+<code>admin</code>. So the defaults themselves become violations, and a configuration
+with <code>groups: []</code> is only valid if <strong>all six</strong> actions are written out as
+<code>public</code>:</p>
+<div class="highlight"><pre><span></span><code>admin.access.list: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+admin.access.create: `admin` is not an allowed group: ...
+admin.access.update: `admin` is not an allowed group: ...
+</code></pre></div>
+<p>That is what an empty allow-list means, taken literally, and it is reported
+per action rather than once, so nothing is missed on the way to fixing it.
+If the intent was "no <em>custom</em> groups", name the ones you do want --
+<code>["admin"]</code> -- rather than emptying the list.</p>
+</div>
+<p>The default is permissive, which is the opposite of how <code>access</code> itself
+defaults, on purpose. <code>access</code> defaults to <code>admin</code> because the cost of getting it
+wrong is unauthenticated writes. <code>groups</code> defaults to <code>*</code> because the cost of
+getting it wrong is an operator unable to name their own groups, and an
+allow-list nobody asked for only ever surprises.</p>
+<p>The violation names what is permitted, not just what was refused:</p>
+<div class="highlight"><pre><span></span><code>admin.access.read: `user` is not an allowed group: `admin.groups` allows only `admin`, `ci`
+proxies[0].access.update: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+</code></pre></div>
+<p>That matters because the reader has to choose between changing the reference and
+widening the list, and cannot do either without seeing the list.</p>
+<p>Two things <code>groups</code> does not do. It does not create groups -- a name still has to
+be a predefined group or one carried by a token, which is rule V27, and the two
+rules are reported separately because widening <code>groups</code> and adding a token are
+different fixes. And it is not authorisation: it constrains what a
+<em>configuration</em> may say, so a caller's rights come from <code>access</code> as before.</p>
+<p>Since it applies to proxy overrides too, <code>POST</code> and <code>PUT /api/v1/proxies</code> refuse
+a document whose <code>access</code> names something outside the list, with <code>400</code> and
+<code>CONFIG_INVALID</code>.</p>
 <p>Every action defaults to the <code>admin</code> group, reads included. The most common
 configuration is the one nobody wrote, so the default has to be the safe one.</p>
 <p>Reads are not exempt: a proxy document carries the <code>headers</code> that proxy
@@ -1804,7 +1949,8 @@ have shrunk every configured buffer by a few percent with nothing to show for
 it. The error names both replacements, so the fix is a one-character edit and
 the choice is the operator's.</p>
 <h2 id="proxies"><code>proxies</code><a class="headerlink" href="#proxies" title="Permanent link">&para;</a></h2>
-<p>At least one. Names must be unique.</p>
+<p>Names must be unique. The list may be empty or left out -- see
+<a href="../proxying/#no-proxies-configured">No proxies configured</a>.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">proxies</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">proxy1</span>
 <span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
@@ -1847,7 +1993,7 @@ the choice is the operator's.</p>
 <td><code>type</code></td>
 <td><code>http</code></td>
 <td>required</td>
-<td><code>tcp</code> is rejected with a message saying it is not implemented</td>
+<td>The only value. <code>tcp</code> is refused while parsing, with a message saying it is not implemented</td>
 </tr>
 <tr>
 <td><code>url</code></td>
@@ -2135,6 +2281,16 @@ parsed. A message quoted in an old issue can be looked up here.</p>
 <td><code>LogLevel</code>, <code>LogFormat</code></td>
 </tr>
 <tr>
+<td>V5</td>
+<td>at least one proxy is configured</td>
+<td>nothing -- an empty list is legal, see <a href="../proxying/#no-proxies-configured">No proxies configured</a></td>
+</tr>
+<tr>
+<td>V7</td>
+<td><code>type: tcp</code> is refused</td>
+<td><code>ProxyKind</code>, while the document is parsed</td>
+</tr>
+<tr>
 <td>V8, V32</td>
 <td>upstream url is absolute http(s), no query</td>
 <td><a href="#upstream-urls"><code>UpstreamUrl</code></a></td>
@@ -2202,13 +2358,22 @@ parsed. A message quoted in an old issue can be looked up here.</p>
 </tbody>
 </table>
 <p>A retired number is never reused.</p>
-<p>Sixteen rules remain: V1, V5, V6, V7, V10, V11, V14, V16, V19, V20, V21, V25,
-V26, V27, V30 and V34. Each needs more than one field to decide, which is
-exactly why none of them could become a type.</p>
+<p>Fifteen rules remain: V1, V6, V10, V11, V14, V16, V19, V20, V21, V25, V26, V27,
+V30, V34 and V36. Each needs more than one field to decide, which is exactly why
+none of them could become a type -- V36, the newest, compares <code>access</code> against
+<code>admin.groups</code>.</p>
 <h2 id="names">Names<a class="headerlink" href="#names" title="Permanent link">&para;</a></h2>
 <p>A proxy name, a mock name, a token name and a group name follow one rule:
-letters, digits, <code>.</code>, <code>-</code> and <code>_</code>, between 2 and 128 characters, not starting
-with a dot and not containing <code>..</code>.</p>
+letters, digits, <code>-</code> and <code>_</code>, between 2 and 64 characters. A <strong>proxy</strong> name is
+capped at 32 instead.</p>
+<p><code>.</code> is not allowed. It was until 0.3.0, and the reference configuration taught
+names like <code>Billing.API.v2</code>; write <code>Billing-API-v2</code>. Dropping it removed two
+further rules with it -- a name becomes a directory component, so <code>.hidden</code> and
+<code>..</code> each had to be refused separately, and neither can now be written at all.</p>
+<p>A proxy name is capped shorter because it travels further than any other: a
+directory under <code>templates.dir</code>, a <code>proxy</code> label on every metric, a field in
+every log line, and the value a client puts in a resolution header on every
+request.</p>
 <p>The rule is enforced by the type, while the document is being parsed, rather
 than by a validation rule afterwards. A name becomes a directory component, a
 metric label, a log field and part of a URL, so the moment it comes into

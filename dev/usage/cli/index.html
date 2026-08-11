@@ -923,6 +923,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#config-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        config schema
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#config-reload" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1235,6 +1246,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#config-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        config schema
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#config-reload" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1423,6 +1445,22 @@ configuration. Prints them on stdout and exits <code>1</code> if there were any.
 so it answers the same on a developer's machine as in production. Checks that
 depend on the machine, such as whether the templates directory can be created,
 belong to <code>serve</code>.</p>
+<h2 id="config-schema"><code>config schema</code><a class="headerlink" href="#config-schema" title="Permanent link">&para;</a></h2>
+<p>Prints the configuration's JSON Schema on stdout.</p>
+<div class="highlight"><pre><span></span><code>doppel<span class="w"> </span>config<span class="w"> </span>schema<span class="w"> </span>&gt;<span class="w"> </span>doppel-config.schema.json
+</code></pre></div>
+<p>Takes no flags and reads nothing -- not even <code>--config</code>. The schema describes
+what a configuration <em>may</em> contain, which is a property of the binary rather
+than of any file, so accepting a path would only raise the question of whether
+the answer depended on it.</p>
+<p>The same document is checked into the repository at
+<a href="https://github.com/lorem-dev/doppel/blob/main/doppel-config.schema.json"><code>doppel-config.schema.json</code></a>
+and attached to every release. See
+<a href="../configuration/#editor-support">Editor support</a> for pointing an editor at it.</p>
+<p>It is generated from the same types the admin API's OpenAPI document is built
+from, so it cannot describe a field that does not exist. <code>scripts/config_schema.py</code>
+regenerates the checked-in copy and <code>--check</code> fails when it is stale; CI runs
+the check.</p>
 <h2 id="config-reload"><code>config reload</code><a class="headerlink" href="#config-reload" title="Permanent link">&para;</a></h2>
 <p>Connects to the control socket and asks a running server to reload.</p>
 <div class="highlight"><pre><span></span><code>doppel<span class="w"> </span>config<span class="w"> </span>reload<span class="w"> </span>--socket<span class="w"> </span>/tmp/doppel.sock
