@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 0.4.0 -- 2026-08-11
+
 ### Added
 
 - A JSON Schema for the configuration, checked in and attached to each release.
