@@ -120,6 +120,14 @@ compiles fine and answers 503 at `/`, which keeps
 sets `DOPPEL_REQUIRE_DASHBOARD_ASSETS` so that concession cannot silently apply
 there, and the release refuses to publish a binary that lacks the page.
 
+**The image builds either way.** `docker build .` uses a binary staged in `dist/`
+when there is one and compiles inside its own builder stage when there is not --
+which is what lets `make image` work on a machine that cannot link musl. The
+release stages binaries built on native runners and points the builder stage at a
+base with no toolchain, so it never pulls a Rust image to run a `cp`. The compile
+branch refuses to run without `frontend/dist`, because a binary built without it
+answers 503 at its own root.
+
 **Settings reach the page through the HTML, not an endpoint.** The listener
 substitutes `{title, public, version, authHeader, refreshMs}` into a
 `application/json` script element per request. Every one of those is known when

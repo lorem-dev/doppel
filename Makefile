@@ -16,16 +16,15 @@ FRONTEND ?= frontend
 # The image's tag. Override for a real publish: `make image IMAGE=loremdev/doppel:1.2.3-alpine`.
 IMAGE ?= doppel:dev
 
-# The musl target the image needs. The Dockerfile is explicit that a glibc build
-# does not run there, and that the failure is a bare "not found" from the shell
-# rather than anything that says why.
+# Nothing here sets a target for an ordinary build: `cargo build` produces a binary
+# for the machine it runs on, which is what `build` and `release` mean on any
+# platform.
 #
-# `uname -m` says `arm64` on Apple Silicon where rustc says `aarch64`, so the
-# name is translated rather than interpolated: `rustup target add
-# arm64-unknown-linux-musl` fails with "does not support target", which reads as
-# a broken toolchain rather than a wrong string.
-MUSL_ARCH ?= $(shell uname -m | sed 's/^arm64$$/aarch64/')
-MUSL_TARGET ?= $(MUSL_ARCH)-unknown-linux-musl
+# The image needs a Linux one, and that is the Dockerfile's problem rather than
+# this file's: it uses a binary staged in `dist/` when there is one and compiles
+# inside its own builder stage when there is not. Which is what makes `make image`
+# work on a Mac, where `ring` cannot be linked against musl without a cross
+# toolchain nobody has installed.
 
 # A database for the store suites. The port is deliberately not 5432; see
 # docker-compose.yml.
@@ -139,24 +138,18 @@ docs-serve: ## Serve the documentation with live reload
 
 # The Dockerfile takes an already-built binary rather than compiling inside a
 # multi-architecture build, where the non-native half runs under emulation and
-# turns a two-minute compile into most of an hour. So the binary is built here,
+# turns a two-minute compile into most of an hour. So the binary is built first,
 # for this machine's architecture, and staged where the default BIN points.
 image: frontend ## Build the container image for this architecture
-	rustup target add $(MUSL_TARGET)
-	$(CARGO) build --release --target $(MUSL_TARGET) -p doppel-cli
-	mkdir -p dist
-	cp target/$(MUSL_TARGET)/release/doppel dist/doppel
-	docker build --build-arg BIN=dist/doppel -t $(IMAGE) .
+	docker build -t $(IMAGE) .
 
-image-rebuild: clean-frontend ## Build the image from scratch: no npm, cargo or docker cache
+# `rm -rf dist` as well as `--no-cache`: a binary left there from an earlier build
+# is what the image would use, and "from scratch" has to mean the compile happens.
+image-rebuild: clean-frontend ## Build the image from scratch: no npm or docker cache
 	$(NPM) --prefix $(FRONTEND) ci
 	$(NPM) --prefix $(FRONTEND) run build
-	rustup target add $(MUSL_TARGET)
-	$(CARGO) clean -p doppel-cli -p doppel-admin
-	$(CARGO) build --release --target $(MUSL_TARGET) -p doppel-cli
-	mkdir -p dist
-	cp target/$(MUSL_TARGET)/release/doppel dist/doppel
-	docker build --no-cache --build-arg BIN=dist/doppel -t $(IMAGE) .
+	rm -rf dist
+	docker build --no-cache -t $(IMAGE) .
 
 image-run: ## Run the built image against ./main.yaml
 	docker run --rm -p 8080:8080 -p 8081:8081 \
@@ -198,4 +191,7 @@ help: ## Print this list
 	@printf 'Doppel. Targets:\n\n'
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN { FS = ":.*?## " } { printf "  \033[1m%-16s\033[0m %s\n", $$1, $$2 }'
-	@printf '\nVariables: IMAGE=%s MUSL_TARGET=%s\n' '$(IMAGE)' '$(MUSL_TARGET)'
+	@printf '\nThis machine: %s. An ordinary build targets it. The image needs a\n' \
+		'$(shell uname -s -m)'
+	@printf 'Linux binary, which the Dockerfile compiles inside unless dist/ holds one.\n'
+	@printf '\nVariables: IMAGE=%s\n' '$(IMAGE)'

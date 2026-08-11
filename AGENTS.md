@@ -182,6 +182,14 @@ Four things that will otherwise cost you an hour each:
 
 Commands: `make frontend`, `make test-frontend`, `make size`, `make e2e`.
 
+`npm ci` prints deprecation warnings for `inflight`, `glob@7`, `glob@10` and
+`whatwg-encoding`. All four are inside jest's own tree -- `@jest/transform` and
+`@jest/reporters` pull the globs, jsdom pulls the encoder -- so nothing there
+ships: the redistributed set is the ten packages in `THIRD-PARTY.md`, none of them
+these. They are deliberately not silenced with `overrides`, which would pin
+versions jest was not tested against to quieten a message about a package the
+project does not distribute.
+
 `frontend/package.json` carries no `version`: the page shows the *binary's*
 version, taken from the configuration the listener injects, and a second version
 in a second file is a second thing to forget at release time.

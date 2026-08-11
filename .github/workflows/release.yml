@@ -295,6 +295,12 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          # The Dockerfile compiles a binary when none is staged, and this job
+          # always stages one -- so it points the builder stage at a base with no
+          # toolchain in it. Without this the build pulls a Rust image, for both
+          # platforms, to run a `cp`.
+          build-args: |
+            BUILDER=alpine:3.24
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

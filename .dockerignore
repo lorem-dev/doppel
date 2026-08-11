@@ -1,9 +1,32 @@
-# The image copies one already-built binary in; nothing else in the repository
-# belongs in the build context. Keeping it small matters more than usual here:
-# `target/` alone is tens of gigabytes on a working checkout, and every byte of
-# the context is sent to the daemon before the first instruction runs.
+# The image prefers an already-built binary and only compiles one when none was
+# staged, so the context is what those two paths need and nothing else. Keeping it
+# small matters more than usual here: `target/` alone is tens of gigabytes on a
+# working checkout, and every byte of the context is sent to the daemon before the
+# first instruction runs.
 *
 
-# The staged binary, which the `docker` release job puts here and the local
-# build instructions in the Dockerfile copy here too.
+# This file itself, because the Dockerfile copies it. That is not decoration:
+# `COPY .dockerignore dist/<platform>/doppel* /staged/` is how "copy the binary if
+# it is there" is expressed, and it needs one source that always matches or the
+# COPY fails when no binary was staged.
+!.dockerignore
+
+# The staged binary, which the `docker` release job puts here and the local build
+# instructions in the Dockerfile copy here too. When it is present nothing below
+# is compiled.
 !dist/
+
+# What the fallback build needs: the workspace, and the built dashboard it embeds.
+# `frontend/dist` is generated, so it is listed explicitly -- without it a
+# compiled-inside binary would answer 503 at its own root, and the Dockerfile
+# refuses to build one rather than shipping it.
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+!frontend/dist/
+
+# Nothing inside the workspace that the build does not read. `target/` is the one
+# that matters; the rest keeps the context honest.
+crates/**/target/
+**/*.rs.bk

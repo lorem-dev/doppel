@@ -170,23 +170,53 @@ an `https` upstream, and every request fails with `UPSTREAM_ERROR`.
 
 ## Building it yourself
 
-The binary is built outside the Dockerfile and copied in. Building Rust inside
-a multi-architecture `buildx` means QEMU for the non-native architecture, which
-turns a two-minute compile into most of an hour. Releases build each
-architecture on a runner of that architecture instead.
+```bash
+make image
+```
+
+That builds the dashboard, then the image. Nothing else is needed and no Rust
+toolchain has to be able to target Linux: when `dist/` holds no binary the
+Dockerfile compiles one in its own builder stage, for the platform being built,
+and the builder stage is discarded -- the published image is Alpine plus the
+binary, around 65 MB.
+
+`make image-rebuild` does the same with no npm or docker cache, and with `dist/`
+emptied first so the compile definitely happens.
+
+### Why it prefers a staged binary
+
+`docker build .` uses `dist/<platform>/doppel`, or `dist/doppel`, if either is
+there, and compiles only when neither is. That preference is what keeps releases
+fast: building Rust inside a multi-architecture `buildx` means QEMU for the
+non-native architecture, which turns a two-minute compile into most of an hour.
+The release workflow builds each architecture on a runner of that architecture,
+stages the two binaries, and points the builder stage at a base with no toolchain
+in it -- so the release never pulls a Rust image to run a `cp`.
+
+To stage one by hand, on Linux with `musl-tools` installed:
 
 ```bash
-# On Linux, with musl-tools installed:
 CC_x86_64_unknown_linux_musl=musl-gcc \
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
   cargo build --release --target x86_64-unknown-linux-musl -p doppel-cli
 mkdir -p dist && cp target/x86_64-unknown-linux-musl/release/doppel dist/
-docker build --build-arg BIN=dist/doppel -t doppel:dev .
+docker build -t doppel:dev .
 ```
 
-On macOS there is no musl toolchain to install; `cargo zigbuild` or `cross`
-will produce the binary if you want to build the image locally from there.
+It has to be a musl build. A glibc binary does not run on Alpine, and the failure
+is a bare `not found` from the shell rather than anything that says why. On macOS
+there is no musl toolchain to install, which is the reason the Dockerfile compiles
+inside: `ring` builds C, so a musl target needs a musl C compiler and not only the
+Rust standard library for it.
 
-It has to be a musl build. A glibc binary does not run on Alpine, and the
-failure is a bare `not found` from the shell rather than anything that says
-why.
+### When it refuses to build
+
+Two refusals, both deliberate:
+
+- **"frontend/dist is missing"** -- the compile branch will not produce a binary
+  without the dashboard, because the admin crate embeds whatever is in that
+  directory and an empty one yields a binary that answers 503 at its own root.
+  Run `make frontend`, or stage a binary.
+- **"this builder image has no Rust toolchain"** -- something passed
+  `--build-arg BUILDER=` naming an image without cargo, and there was no staged
+  binary to copy. Stage one, or drop the argument.
