@@ -22,7 +22,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// nothing legitimate is shorter than `p1` or `ci`. Not four, which was the
 /// first proposal -- it refuses `ops`, and a group nobody can name for being
 /// three letters long is a rule getting in the way of its own purpose.
-const MIN: usize = 2;
+pub const MIN: usize = 2;
 
 /// The longest name accepted by default.
 ///
@@ -40,6 +40,13 @@ pub const MAX: usize = 64;
 /// header on every request. Each of those is somewhere a long name is paid for
 /// repeatedly rather than once.
 pub const MAX_PROXY: usize = 32;
+
+/// The character class a name is built from, as a regex fragment.
+///
+/// Public so `AllowedGroup`'s schema can compose its own pattern from it rather
+/// than restating the class -- two spellings of one rule drift, and the schema is
+/// the copy nobody compiles.
+pub const CHARACTERS: &str = "[A-Za-z0-9_-]";
 
 /// A validated name.
 ///
@@ -189,7 +196,7 @@ impl<const MAX_LEN: usize> utoipa::PartialSchema for Name<MAX_LEN> {
     fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
         utoipa::openapi::schema::ObjectBuilder::new()
             .schema_type(utoipa::openapi::schema::Type::String)
-            .pattern(Some(r"^[A-Za-z0-9_-]+$"))
+            .pattern(Some(format!("^{CHARACTERS}{{{MIN},{MAX_LEN}}}$")))
             .min_length(Some(MIN))
             // The cap that actually applies, so a proxy name's schema says 32
             // and every other name's says 64 rather than both restating one
@@ -202,7 +209,24 @@ impl<const MAX_LEN: usize> utoipa::PartialSchema for Name<MAX_LEN> {
     }
 }
 
-impl<const MAX_LEN: usize> utoipa::ToSchema for Name<MAX_LEN> {}
+impl<const MAX_LEN: usize> utoipa::ToSchema for Name<MAX_LEN> {
+    /// One schema name per cap.
+    ///
+    /// `utoipa` derives a component name from the type name alone, so
+    /// `Name<64>` and `Name<32>` would both be `Name` and the second would
+    /// silently overwrite the first -- leaving the generated schema claiming a
+    /// proxy name may be 64 characters when the type refuses 33. `utoipa`'s own
+    /// documentation warns about exactly this for generic types.
+    fn name() -> std::borrow::Cow<'static, str> {
+        match MAX_LEN {
+            MAX_PROXY => std::borrow::Cow::Borrowed("ProxyName"),
+            MAX => std::borrow::Cow::Borrowed("Name"),
+            // No other cap exists today; if one is added it gets a name of its
+            // own rather than colliding with these two.
+            _ => std::borrow::Cow::Owned(format!("Name{MAX_LEN}")),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

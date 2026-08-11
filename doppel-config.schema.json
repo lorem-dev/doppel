@@ -45,6 +45,16 @@
           "description": "Whether to run the admin listener at all.\n\nDefaults to on. Off means the port is never bound and no admin task\nstarts; the proxy and the control socket are untouched, so\n`doppel config reload` still works and is then the only way in.\n\nThe validation rules do not consult this. A configuration that is only\nsafe because nothing serves it is a trap set for whoever turns the\nlistener on later, and they will not re-read the rules first.",
           "type": "boolean"
         },
+        "groups": {
+          "description": "Which names `access` may reference, here and in a proxy's overrides.\n\n`[\"*\"]`, the default, allows any. A concrete list allows exactly those:\n`[\"admin\", \"ci\"]` permits `admin` and `ci` and refuses `user`.\n\n`[]` allows none, and that is stronger than it looks: every action\ndefaults to the `admin` group, so an empty list makes the defaults\nthemselves violations and every one of the six actions has to be written\nout as `public`.\n\n`public` is never governed by this. It is the absence of a subject rather\nthan a name, so an allow-list has nothing to say about it.\n\nChecked by rule V36, not by this type: it compares one field against\nanother, which is what is left for the rule set once the types have taken\neverything they can decide alone.\n\nAn `Option` rather than a `Vec` defaulting to `[\"*\"]`, and skipped when\nabsent, so that adding this field did not change the canonical YAML of\nevery configuration written before it existed. The revision is derived\nfrom that YAML, so a materialised default would have made every stored\nconfiguration fail its own revision check on the first load after the\nupgrade. Read it through [`AdminConfig::allowed_groups`].",
+          "items": {
+            "$ref": "#/$defs/AllowedGroup"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "host": {
           "description": "An IP address, not a hostname: a name would have to be resolved,\nand which address it resolves to is not the configuration's to\ndecide. `utoipa` has no schema for `IpAddr`, so it is described\nhere as the string it is written as.",
           "examples": [
@@ -74,6 +84,15 @@
         "upload"
       ],
       "type": "object"
+    },
+    "AllowedGroup": {
+      "description": "A token or group name `access` may reference, or `*` for any of them.",
+      "examples": [
+        "*",
+        "admin"
+      ],
+      "pattern": "^(\\*|[A-Za-z0-9_-]{2,64})$",
+      "type": "string"
     },
     "AuthConfig": {
       "additionalProperties": false,
@@ -397,7 +416,7 @@
       "description": "Letters, digits, `-` and `_`, between 2 and 64 characters.",
       "maxLength": 64,
       "minLength": 2,
-      "pattern": "^[A-Za-z0-9_-]+$",
+      "pattern": "^[A-Za-z0-9_-]{2,64}$",
       "type": "string"
     },
     "Pattern": {
@@ -523,7 +542,7 @@
           "type": "array"
         },
         "name": {
-          "$ref": "#/$defs/Name",
+          "$ref": "#/$defs/ProxyName",
           "description": "Names this proxy in `X-Proxy-Name`, in metrics labels, in log lines\nand as its template subdirectory. Unique within the document."
         },
         "replace": {
@@ -580,6 +599,13 @@
       "enum": [
         "http"
       ],
+      "type": "string"
+    },
+    "ProxyName": {
+      "description": "Letters, digits, `-` and `_`, between 2 and 32 characters.",
+      "maxLength": 32,
+      "minLength": 2,
+      "pattern": "^[A-Za-z0-9_-]{2,32}$",
       "type": "string"
     },
     "Ratio": {

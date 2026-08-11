@@ -117,6 +117,7 @@ admin:
   enable: true
   host: "0.0.0.0"
   port: 8081
+  groups: ["*"]
   auth:
     header: X-Proxy-Authorization
   tokens:
@@ -157,6 +158,70 @@ action out entirely, which is far more often a typo than an intent.
 
 `access` maps each action to `public`, a single name, or a list of names. An
 empty list means public. Names are token names or group names.
+
+### `groups`: which names `access` may reference
+
+```yaml
+admin:
+  groups: ["*"]        # the default: any name may be referenced
+```
+
+`groups` bounds the vocabulary `access` may draw on -- both here and in a
+proxy's `access` overrides. It is checked by rule **V36**.
+
+| `groups` | What `access` may reference |
+|---|---|
+| absent | any name. This is the default |
+| `["*"]` | any name. The same thing, written down |
+| `["admin", "ci"]` | `admin` and `ci`, and nothing else. `user` is refused |
+| `[]` | no name at all: every one of the six actions has to be spelled `public` |
+
+`public` is **never** governed by `groups`. It is the absence of a subject rather
+than a name, so an allow-list has nothing to say about it -- and a deployment
+locked down to `groups: []` still has to be able to say "anyone may read this".
+
+!!! warning "`groups: []` is not a small change"
+    Every action defaults to the `admin` group, and `groups: []` forbids naming
+    `admin`. So the defaults themselves become violations, and a configuration
+    with `groups: []` is only valid if **all six** actions are written out as
+    `public`:
+
+    ```
+    admin.access.list: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+    admin.access.create: `admin` is not an allowed group: ...
+    admin.access.update: `admin` is not an allowed group: ...
+    ```
+
+    That is what an empty allow-list means, taken literally, and it is reported
+    per action rather than once, so nothing is missed on the way to fixing it.
+    If the intent was "no *custom* groups", name the ones you do want --
+    `["admin"]` -- rather than emptying the list.
+
+The default is permissive, which is the opposite of how `access` itself
+defaults, on purpose. `access` defaults to `admin` because the cost of getting it
+wrong is unauthenticated writes. `groups` defaults to `*` because the cost of
+getting it wrong is an operator unable to name their own groups, and an
+allow-list nobody asked for only ever surprises.
+
+The violation names what is permitted, not just what was refused:
+
+```
+admin.access.read: `user` is not an allowed group: `admin.groups` allows only `admin`, `ci`
+proxies[0].access.update: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+```
+
+That matters because the reader has to choose between changing the reference and
+widening the list, and cannot do either without seeing the list.
+
+Two things `groups` does not do. It does not create groups -- a name still has to
+be a predefined group or one carried by a token, which is rule V27, and the two
+rules are reported separately because widening `groups` and adding a token are
+different fixes. And it is not authorisation: it constrains what a
+*configuration* may say, so a caller's rights come from `access` as before.
+
+Since it applies to proxy overrides too, `POST` and `PUT /api/v1/proxies` refuse
+a document whose `access` names something outside the list, with `400` and
+`CONFIG_INVALID`.
 
 Every action defaults to the `admin` group, reads included. The most common
 configuration is the one nobody wrote, so the default has to be the safe one.
@@ -377,9 +442,10 @@ parsed. A message quoted in an old issue can be looked up here.
 
 A retired number is never reused.
 
-Fourteen rules remain: V1, V6, V10, V11, V14, V16, V19, V20, V21, V25, V26,
-V27, V30 and V34. Each needs more than one field to decide, which is exactly
-why none of them could become a type.
+Fifteen rules remain: V1, V6, V10, V11, V14, V16, V19, V20, V21, V25, V26, V27,
+V30, V34 and V36. Each needs more than one field to decide, which is exactly why
+none of them could become a type -- V36, the newest, compares `access` against
+`admin.groups`.
 
 ## Names
 

@@ -18,6 +18,7 @@ release promotes it to a version heading; the `bump-version` skill does that.
 - An empty or absent `proxies` list is accepted; requests get `503
   NO_PROXIES_CONFIGURED`.
 - `type: tcp` is now refused while parsing rather than by a validation rule.
+- `admin.groups` bounds which names `access` may reference; rule V36 checks it.
 - Names may no longer contain `.`, and are capped at 64 characters, 32 for a
   proxy.
 

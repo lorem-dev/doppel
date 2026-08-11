@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 
 pub use crate::method::{HttpMethod, MethodError};
 pub use admin::{
-    AccessConfig, AdminConfig, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig, UploadConfig,
+    AccessConfig, AdminConfig, AllowedGroup, AuthConfig, ProxyAccessConfig, Subjects, TokenConfig,
+    UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
 pub use env::{EnvTokens, EnvTokensError};

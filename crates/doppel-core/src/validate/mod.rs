@@ -186,6 +186,85 @@ proxies:
         );
     }
 
+    /// The default is `["*"]`, and an allow-list nobody asked for would only
+    /// surprise -- so a configuration that never mentions `groups` is unaffected.
+    #[test]
+    fn v36_an_absent_groups_list_allows_anything() {
+        let text = good().replace("read: public", r#"read: ["admin", "user"]"#);
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
+    }
+
+    #[test]
+    fn v36_a_concrete_list_refuses_a_name_it_does_not_carry() {
+        let text = good()
+            .replace("  access:", "  groups: [\"admin\", \"user1\"]\n  access:")
+            .replace("read: public", r#"read: ["admin", "user"]"#);
+        assert_violation(&text, "admin.access.read", "`user` is not an allowed group");
+    }
+
+    /// The message has to name what *is* permitted: the reader has to choose
+    /// between changing the reference and widening the list, and cannot do
+    /// either without seeing the list.
+    #[test]
+    fn v36_the_message_names_the_permitted_entries() {
+        let text = good()
+            .replace("  access:", "  groups: [\"admin\", \"ci\"]\n  access:")
+            .replace("read: public", "read: user");
+        assert_violation(&text, "admin.access.read", "allows only `admin`, `ci`");
+    }
+
+    /// `[]` is the deliberate lockdown: no name may be referenced at all, and
+    /// the message says so rather than listing nothing.
+    #[test]
+    fn v36_an_empty_list_permits_no_name_and_says_why() {
+        let text = good()
+            .replace("  access:", "  groups: []\n  access:")
+            .replace("update: user1", "update: admin");
+        assert_violation(
+            &text,
+            "admin.access.update",
+            "`admin.groups` is empty, so only `public` may be used",
+        );
+    }
+
+    /// `public` is the absence of a subject rather than a name, so an
+    /// allow-list has nothing to say about it -- and a configuration locked down
+    /// to `groups: []` still has to be able to express "anyone may read this".
+    #[test]
+    fn v36_public_is_never_governed_by_the_list() {
+        let text = good()
+            .replace("  access:", "  groups: []\n  access:")
+            .replace("update: user1", "update: public\n    create: public");
+        let config = load_from_str(&text).unwrap();
+        // V34 refuses a public *write*, which is a different rule and still
+        // applies; `read: public` is what is being asserted here.
+        let violations = validate(&config).unwrap_err();
+        assert!(
+            violations
+                .iter()
+                .all(|violation| violation.path != "admin.access.read"),
+            "`read: public` must not be a V36 violation: {violations:?}"
+        );
+    }
+
+    /// A proxy's overrides are checked too. V27 and V36 walk one shared list of
+    /// access sites precisely so a rule cannot cover the admin block and forget
+    /// these.
+    #[test]
+    fn v36_governs_a_proxys_overrides_as_well() {
+        let text = good()
+            .replace("  access:", "  groups: [\"admin\"]\n  access:")
+            .replace(
+                "    url: \"https://example.com/\"",
+                "    url: \"https://example.com/\"\n    access:\n      read: user",
+            );
+        assert_violation(
+            &text,
+            "proxies[0].access.read",
+            "`user` is not an allowed group",
+        );
+    }
+
     #[test]
     fn v27_predefined_groups_are_always_valid() {
         let text = good().replace("read: public", r#"read: ["admin", "user"]"#);
@@ -342,7 +421,7 @@ proxies:
     ///
     /// Written out rather than counted, because it is the thing the tests
     /// below compare the source and the documentation against.
-    const LIVE: [u8; 14] = [1, 6, 10, 11, 14, 16, 19, 20, 21, 25, 26, 27, 30, 34];
+    const LIVE: [u8; 15] = [1, 6, 10, 11, 14, 16, 19, 20, 21, 25, 26, 27, 30, 34, 36];
 
     /// Every rule that has been retired, and is therefore never reused.
     const RETIRED: [u8; 21] = [
@@ -350,14 +429,20 @@ proxies:
     ];
 
     #[test]
-    fn every_number_from_v1_to_v35_is_accounted_for() {
+    fn every_number_up_to_the_highest_is_accounted_for() {
         // The two lists are the map. If a rule is retired and dropped from
         // `LIVE` without being added to `RETIRED`, its number silently
         // becomes available for reuse -- and a message quoted in an old
         // issue would then mean two different things.
+        //
+        // The range runs to whichever number is highest rather than to a
+        // literal: this asserted `1..=35` and had to be edited to add V36,
+        // which is one more thing to remember at exactly the moment a rule
+        // number is being chosen. A gap still fails, which is the point.
         let mut all: Vec<u8> = LIVE.iter().chain(RETIRED.iter()).copied().collect();
         all.sort_unstable();
-        assert_eq!(all, (1..=35).collect::<Vec<u8>>());
+        let highest = *all.last().expect("there is at least one rule");
+        assert_eq!(all, (1..=highest).collect::<Vec<u8>>());
     }
 
     #[test]

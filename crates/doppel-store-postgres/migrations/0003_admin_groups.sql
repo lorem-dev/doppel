@@ -1,0 +1,11 @@
+-- `AdminConfig::groups`: which names `access` may reference (rule V36).
+--
+-- Nullable, and deliberately without `DEFAULT '["*"]'`. The field is an
+-- `Option<Vec<AllowedGroup>>` where absent means "any", and absent is a
+-- different document from `["*"]` written out -- not in meaning, but in bytes.
+-- The revision is derived from the document's canonical YAML, so a column that
+-- materialised the default would hand back a configuration whose computed
+-- revision no longer matched the stored one, and every configuration saved
+-- before this migration would fail its own revision check on the first load
+-- after it. `proxies.rewrite_redirects` is nullable for the same reason.
+ALTER TABLE configurations ADD COLUMN admin_groups JSONB;
