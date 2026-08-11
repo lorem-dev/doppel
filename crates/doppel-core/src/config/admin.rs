@@ -121,18 +121,40 @@ pub struct AdminConfig {
     /// each unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.
     #[serde(default)]
     pub tokens: Vec<TokenConfig>,
+    /// Serve the whole admin API unauthenticated.
+    ///
+    /// `false` by default. `true` makes every action `public` and leaves no name
+    /// to reference, so `groups` is effectively empty and `access` effectively
+    /// all-public -- whatever either of them says. Anything they did say is
+    /// reported as a startup advisory rather than refused, so a configuration
+    /// being made temporarily public does not have to be gutted first and
+    /// rebuilt afterwards.
+    ///
+    /// This overrides rule V34, which otherwise refuses a public write action.
+    /// V34 exists so that an unauthenticated writable proxy set cannot happen by
+    /// omission; a field named `public` set to `true` is not an omission. Think
+    /// of it as the flag V34 was holding the line for.
+    ///
+    /// An `Option` and skipped when absent, for the reason given on `groups`:
+    /// adding it must not change the canonical YAML of configurations written
+    /// before it existed. Read it through [`AdminConfig::is_public`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<bool>,
     /// Which names `access` may reference, here and in a proxy's overrides.
     ///
     /// `["*"]`, the default, allows any. A concrete list allows exactly those:
     /// `["admin", "ci"]` permits `admin` and `ci` and refuses `user`.
     ///
-    /// `[]` allows none, and that is stronger than it looks: every action
-    /// defaults to the `admin` group, so an empty list makes the defaults
-    /// themselves violations and every one of the six actions has to be written
-    /// out as `public`.
+    /// `[]` names nobody, which leaves no action anything to reference -- so it
+    /// means the same thing as `public: true`, and is treated as it. It used to
+    /// mean a configuration with no legal value for `create`, `update`, `delete`
+    /// or `upload`: V36 refused their `admin` default and V34 refused `public`,
+    /// so the document could not be written at all.
     ///
-    /// `public` is never governed by this. It is the absence of a subject rather
-    /// than a name, so an allow-list has nothing to say about it.
+    /// `public` and `admin` are never governed by this. `public` is the absence
+    /// of a subject rather than a name; `admin` is the fallback every action
+    /// already has, and a list that revoked it would produce the same
+    /// unsatisfiable state as `[]` once did.
     ///
     /// Checked by rule V36, not by this type: it compares one field against
     /// another, which is what is left for the rule set once the types have taken
@@ -159,11 +181,40 @@ impl AdminConfig {
     /// default.
     ///
     /// One place resolves it, so no caller has to remember that absent and
-    /// `["*"]` mean the same thing while `[]` means the opposite -- which is
-    /// exactly the confusion an `Option<Vec<_>>` invites.
+    /// `["*"]` mean the same thing while `[]` means something else entirely --
+    /// which is exactly the confusion an `Option<Vec<_>>` invites.
     #[must_use]
     pub fn allowed_groups(&self) -> &[AllowedGroup] {
         self.groups.as_deref().unwrap_or(&ANY_GROUP)
+    }
+
+    /// Whether the admin API is served unauthenticated.
+    ///
+    /// True for `public: true`, and equally for `groups: []`: a list naming
+    /// nobody leaves every action nothing to reference, so all-public is the only
+    /// reading of it that describes a configuration that can run.
+    ///
+    /// Everything that consults `access` goes through here, so "public" cannot
+    /// mean one thing to the rule set and another to the code that authorises a
+    /// request -- which is the failure this being a derived value rather than a
+    /// rewritten document is meant to prevent.
+    #[must_use]
+    pub fn is_public(&self) -> bool {
+        self.public.unwrap_or(false) || self.groups.as_deref().is_some_and(<[_]>::is_empty)
+    }
+
+    /// What `access` amounts to once `is_public` is taken into account.
+    ///
+    /// `None` when the configuration is public, which every caller reads as
+    /// "`Subjects::Public` for every action". Returning the borrowed `access` in
+    /// the ordinary case keeps the common path allocation-free.
+    #[must_use]
+    pub fn effective_access(&self) -> Option<&AccessConfig> {
+        if self.is_public() {
+            None
+        } else {
+            Some(&self.access)
+        }
     }
 }
 

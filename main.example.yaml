@@ -31,11 +31,14 @@ admin:
   enable: true
   host: "0.0.0.0"
   port: 8081
+  # Serve the admin API unauthenticated: every action answers as `public`,
+  # for anyone. Overrides `access`, `groups` and any proxy override, which
+  # startup then reports as ignored. Off by default.
+  public: false
   # Which names `access` may reference, here and per proxy. "*" is any;
   # ["admin", "ci"] allows exactly those. Never governs `public` itself.
-  # [] allows no name at all -- and since every action defaults to `admin`,
-  # that makes the defaults violations too, so all six would have to be
-  # written out as `public`. Rule V36.
+  # `public` and `admin` are always available whatever the list says.
+  # [] names nobody, which means the same as `public: true`. Rule V36.
   groups: ["*"]
   auth:
     header: X-Proxy-Authorization  # expects "Bearer {token}"

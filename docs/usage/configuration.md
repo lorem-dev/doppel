@@ -117,6 +117,7 @@ admin:
   enable: true
   host: "0.0.0.0"
   port: 8081
+  public: false
   groups: ["*"]
   auth:
     header: X-Proxy-Authorization
@@ -159,69 +160,70 @@ action out entirely, which is far more often a typo than an intent.
 `access` maps each action to `public`, a single name, or a list of names. An
 empty list means public. Names are token names or group names.
 
+### `public`: serve the admin API unauthenticated
+
+```yaml
+admin:
+  public: true
+```
+
+Every action answers as `public`, for anyone, with no token. `false` by default.
+
+This overrides rule V34, which otherwise refuses a public write action. V34 is
+there so an unauthenticated writable proxy set cannot happen by *omission*; a
+field called `public` set to `true` is not an omission.
+
+Anything `access`, `groups` or a proxy's overrides still say is ignored, and
+startup says so rather than refusing the document -- so a configuration can be
+made public temporarily without being gutted first:
+
+```
+admin.public is true: the whole admin API is served unauthenticated, including
+the actions that rewrite the proxy set
+admin.access, admin.groups are ignored while the admin API is public; every
+action answers as `public` regardless
+```
+
 ### `groups`: which names `access` may reference
 
 ```yaml
 admin:
-  groups: ["*"]        # the default: any name may be referenced
+  groups: ["*"]     # the default
 ```
 
-`groups` bounds the vocabulary `access` may draw on -- both here and in a
-proxy's `access` overrides. It is checked by rule **V36**.
+Bounds the vocabulary `access` may draw on, here and in a proxy's overrides.
+Rule **V36**.
 
-| `groups` | What `access` may reference |
+| `groups` | `access` may name |
 |---|---|
-| absent | any name. This is the default |
-| `["*"]` | any name. The same thing, written down |
-| `["admin", "ci"]` | `admin` and `ci`, and nothing else. `user` is refused |
-| `[]` | no name at all: every one of the six actions has to be spelled `public` |
+| absent, or `["*"]` | anything. The default |
+| `["admin", "ci"]` | `admin`, `ci`, and nothing else -- `user` is refused |
+| `[]` | nobody, which is the same as `public: true`. See below |
 
-`public` is **never** governed by `groups`. It is the absence of a subject rather
-than a name, so an allow-list has nothing to say about it -- and a deployment
-locked down to `groups: []` still has to be able to say "anyone may read this".
+`public` and `admin` are always available whatever the list says. `public` is the
+absence of a subject rather than a name; `admin` is the fallback every action
+already has, and a list that revoked it would leave the four write actions with
+no legal value at all.
 
-!!! warning "`groups: []` is not a small change"
-    Every action defaults to the `admin` group, and `groups: []` forbids naming
-    `admin`. So the defaults themselves become violations, and a configuration
-    with `groups: []` is only valid if **all six** actions are written out as
-    `public`:
+`groups: []` names nobody, so nothing can be granted to anyone -- which leaves
+all-public as the only reading of it that describes a configuration that runs. It
+is treated as `public: true`, and startup says which of the two you wrote.
 
-    ```
-    admin.access.list: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
-    admin.access.create: `admin` is not an allowed group: ...
-    admin.access.update: `admin` is not an allowed group: ...
-    ```
-
-    That is what an empty allow-list means, taken literally, and it is reported
-    per action rather than once, so nothing is missed on the way to fixing it.
-    If the intent was "no *custom* groups", name the ones you do want --
-    `["admin"]` -- rather than emptying the list.
-
-The default is permissive, which is the opposite of how `access` itself
-defaults, on purpose. `access` defaults to `admin` because the cost of getting it
-wrong is unauthenticated writes. `groups` defaults to `*` because the cost of
-getting it wrong is an operator unable to name their own groups, and an
-allow-list nobody asked for only ever surprises.
-
-The violation names what is permitted, not just what was refused:
+The violation names everything permitted, because the reader has to choose
+between changing the reference and widening the list:
 
 ```
-admin.access.read: `user` is not an allowed group: `admin.groups` allows only `admin`, `ci`
-proxies[0].access.update: `admin` is not an allowed group: `admin.groups` is empty, so only `public` may be used
+admin.access.read: `user` is not an allowed group; `admin.access` may name only `admin`, `ci`, `public`
 ```
-
-That matters because the reader has to choose between changing the reference and
-widening the list, and cannot do either without seeing the list.
 
 Two things `groups` does not do. It does not create groups -- a name still has to
-be a predefined group or one carried by a token, which is rule V27, and the two
-rules are reported separately because widening `groups` and adding a token are
-different fixes. And it is not authorisation: it constrains what a
-*configuration* may say, so a caller's rights come from `access` as before.
+be predefined or carried by a token, which is rule V27, reported separately
+because widening the list and adding a token are different fixes. And it is not
+authorisation: it bounds what a *configuration* may say, and a caller's rights
+still come from `access`.
 
-Since it applies to proxy overrides too, `POST` and `PUT /api/v1/proxies` refuse
-a document whose `access` names something outside the list, with `400` and
-`CONFIG_INVALID`.
+`POST` and `PUT /api/v1/proxies` refuse a document whose `access` names something
+outside the list, with `400` and `CONFIG_INVALID`.
 
 Every action defaults to the `admin` group, reads included. The most common
 configuration is the one nobody wrote, so the default has to be the safe one.
