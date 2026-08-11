@@ -10,10 +10,6 @@ use crate::config::{Config, Subjects};
 /// Groups that always exist, whether or not a token carries them.
 const PREDEFINED_GROUPS: [&str; 2] = ["admin", "user"];
 
-fn access_of(config: &Config) -> &crate::config::AccessConfig {
-    &config.admin.access
-}
-
 pub(super) fn check(config: &Config, v: &mut Violations) {
     // V26
     let mut seen_names = BTreeSet::new();
@@ -34,11 +30,12 @@ pub(super) fn check(config: &Config, v: &mut Violations) {
     // rewrite the proxy set. That is far more often a mistake than an intent,
     // and startup is the last cheap moment to catch it. Reads stay allowed to
     // be public -- `/status` and a proxy listing give nothing away.
+    let access = &config.admin.access;
     for (action, subjects) in [
-        ("create", &access_of(config).create),
-        ("update", &access_of(config).update),
-        ("delete", &access_of(config).delete),
-        ("upload", &access_of(config).upload),
+        ("create", &access.create),
+        ("update", &access.update),
+        ("delete", &access.delete),
+        ("upload", &access.upload),
     ] {
         if matches!(subjects, Subjects::Public) {
             v.push(

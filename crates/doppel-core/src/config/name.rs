@@ -234,7 +234,11 @@ mod tests {
 
     /// The default cap, spelled out: `Name` alone leaves the const parameter to
     /// be inferred, and in a test there is nothing to infer it from.
-    type Default = Name<MAX>;
+    ///
+    /// Not called `Default`, which it was: that shadows the trait of the same
+    /// name inside this module, and a reader meeting `AnyName::parse` has to
+    /// work out which of the two they are looking at.
+    type AnyName = Name<MAX>;
 
     #[test]
     fn the_names_people_actually_write_are_accepted() {
@@ -248,7 +252,7 @@ mod tests {
             "a".repeat(MAX).as_str(),
         ] {
             assert!(
-                Default::parse(name).is_ok(),
+                AnyName::parse(name).is_ok(),
                 "`{name}` should be a legal name"
             );
         }
@@ -258,9 +262,9 @@ mod tests {
     fn a_single_character_is_refused_but_two_are_not() {
         // Two, not four. Four refuses `ops`, and a group nobody can name for
         // being three letters long is a rule obstructing its own purpose.
-        assert!(matches!(Default::parse("a"), Err(NameError::TooShort(_))));
-        assert!(Default::parse("ci").is_ok());
-        assert!(Default::parse("ops").is_ok());
+        assert!(matches!(AnyName::parse("a"), Err(NameError::TooShort(_))));
+        assert!(AnyName::parse("ci").is_ok());
+        assert!(AnyName::parse("ops").is_ok());
     }
 
     /// The dot was legal until 0.3.0 and the reference configuration taught
@@ -269,7 +273,7 @@ mod tests {
     /// restated.
     #[test]
     fn a_dot_is_refused_and_the_message_offers_a_replacement() {
-        let err = Default::parse("Billing.API.v2").unwrap_err();
+        let err = AnyName::parse("Billing.API.v2").unwrap_err();
         assert!(matches!(err, NameError::Dot(_)), "{err:?}");
         let text = err.to_string();
         assert!(text.contains("no longer"), "{text}");
@@ -281,7 +285,7 @@ mod tests {
     #[test]
     fn the_shapes_that_needed_their_own_rules_are_unwritable_now() {
         for name in ["..", ".hidden", "a..b", "..a"] {
-            let err = Default::parse(name).unwrap_err();
+            let err = AnyName::parse(name).unwrap_err();
             assert!(
                 matches!(err, NameError::Dot(_) | NameError::TooShort(_)),
                 "`{name}` -> {err:?}"
@@ -293,17 +297,17 @@ mod tests {
     fn the_message_says_what_is_wrong_not_just_that_something_is() {
         // The whole point of one variant per rule. A reader who sees the rule
         // restated still has to work out which part they broke.
-        let short = Default::parse("a").unwrap_err().to_string();
+        let short = AnyName::parse("a").unwrap_err().to_string();
         assert!(short.contains("at least 2"), "{short}");
         assert!(short.contains("is 1"), "{short}");
 
-        let bad = Default::parse("a/b").unwrap_err().to_string();
+        let bad = AnyName::parse("a/b").unwrap_err().to_string();
         assert!(
             bad.contains('/'),
             "the offending character must be named: {bad}"
         );
 
-        let long = Default::parse("a".repeat(MAX + 1)).unwrap_err().to_string();
+        let long = AnyName::parse("a".repeat(MAX + 1)).unwrap_err().to_string();
         assert!(long.contains("at most 64"), "{long}");
         assert!(long.contains("65"), "{long}");
     }
@@ -316,7 +320,7 @@ mod tests {
     fn a_proxy_name_is_capped_shorter_than_other_names() {
         let thirty_three = "a".repeat(MAX_PROXY + 1);
         assert!(
-            Default::parse(&thirty_three).is_ok(),
+            AnyName::parse(&thirty_three).is_ok(),
             "still fine for a token or a group"
         );
 
@@ -334,7 +338,7 @@ mod tests {
         // being one, and the reason the store's `sanitize` and this type agree
         // about what a name is.
         for name in ["..", "a/b", "a\\b", "a b", "a\u{0}b"] {
-            assert!(Default::parse(name).is_err(), "`{name}` must be refused");
+            assert!(AnyName::parse(name).is_err(), "`{name}` must be refused");
         }
     }
 
@@ -343,12 +347,12 @@ mod tests {
         // Two accented letters are two characters and four bytes. The length
         // check runs before the character set check, so its message has to be
         // right even for input the next check will reject.
-        let err = Default::parse("é").unwrap_err();
+        let err = AnyName::parse("é").unwrap_err();
         assert!(
             matches!(err, NameError::TooShort(_)),
             "one character is short regardless of its byte length: {err:?}"
         );
-        let two = Default::parse("éé").unwrap_err();
+        let two = AnyName::parse("éé").unwrap_err();
         assert!(
             matches!(two, NameError::BadCharacter(..)),
             "two characters are long enough, and then refused for the character: {two:?}"
@@ -357,14 +361,14 @@ mod tests {
 
     #[test]
     fn a_name_round_trips_through_yaml() {
-        let name = Default::parse("billing-api").unwrap();
+        let name = AnyName::parse("billing-api").unwrap();
         let yaml = serde_norway::to_string(&name).unwrap();
-        assert_eq!(serde_norway::from_str::<Default>(&yaml).unwrap(), name);
+        assert_eq!(serde_norway::from_str::<AnyName>(&yaml).unwrap(), name);
     }
 
     #[test]
     fn deserializing_a_bad_name_fails_with_the_reason() {
-        let err = serde_norway::from_str::<Default>("\"a/b\"").unwrap_err();
+        let err = serde_norway::from_str::<AnyName>("\"a/b\"").unwrap_err();
         assert!(err.to_string().contains('/'), "{err}");
     }
 
@@ -373,7 +377,7 @@ mod tests {
     #[test]
     fn the_proxy_cap_applies_when_deserializing_too() {
         let long = format!("\"{}\"", "a".repeat(MAX_PROXY + 1));
-        assert!(serde_norway::from_str::<Default>(&long).is_ok());
+        assert!(serde_norway::from_str::<AnyName>(&long).is_ok());
         let err = serde_norway::from_str::<ProxyName>(&long).unwrap_err();
         assert!(err.to_string().contains("at most 32"), "{err}");
     }
