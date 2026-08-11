@@ -5,6 +5,7 @@ pub mod body;
 pub mod openapi;
 pub mod proxies;
 pub mod response;
+pub mod rights;
 pub mod state;
 pub mod status;
 pub mod templates;
@@ -22,6 +23,7 @@ pub fn router(state: AdminState) -> axum::Router {
         .merge(proxies::routes())
         .merge(templates::routes())
         .merge(status::routes())
+        .merge(rights::routes())
         .merge(openapi::routes())
         // Without these two, a typo'd path answers 404 with an empty body and
         // a wrong method answers 405 with one. The contract is that every
