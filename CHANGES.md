@@ -8,6 +8,15 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+### Added
+
+- `admin.public` serves the whole admin API unauthenticated; off by default.
+
+### Fixed
+
+- `admin.groups` without `admin` left the write actions no legal value; it now
+  means public.
+
 ## 0.4.0 -- 2026-08-11
 
 ### Added

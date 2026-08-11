@@ -114,6 +114,7 @@ impl PostgresStore {
             },
             tokens,
             access: json_column::<AccessConfig>(row, "admin_access")?,
+            public: row.try_get("admin_public").map_err(query_failed)?,
             groups: optional_json::<Vec<doppel_core::config::AllowedGroup>>(row, "admin_groups")?,
             upload: UploadConfig {
                 limit: byte_size(row, "admin_upload_limit")?,

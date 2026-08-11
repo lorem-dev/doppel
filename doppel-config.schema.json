@@ -46,7 +46,7 @@
           "type": "boolean"
         },
         "groups": {
-          "description": "Which names `access` may reference, here and in a proxy's overrides.\n\n`[\"*\"]`, the default, allows any. A concrete list allows exactly those:\n`[\"admin\", \"ci\"]` permits `admin` and `ci` and refuses `user`.\n\n`[]` allows none, and that is stronger than it looks: every action\ndefaults to the `admin` group, so an empty list makes the defaults\nthemselves violations and every one of the six actions has to be written\nout as `public`.\n\n`public` is never governed by this. It is the absence of a subject rather\nthan a name, so an allow-list has nothing to say about it.\n\nChecked by rule V36, not by this type: it compares one field against\nanother, which is what is left for the rule set once the types have taken\neverything they can decide alone.\n\nAn `Option` rather than a `Vec` defaulting to `[\"*\"]`, and skipped when\nabsent, so that adding this field did not change the canonical YAML of\nevery configuration written before it existed. The revision is derived\nfrom that YAML, so a materialised default would have made every stored\nconfiguration fail its own revision check on the first load after the\nupgrade. Read it through [`AdminConfig::allowed_groups`].",
+          "description": "Which names `access` may reference, here and in a proxy's overrides.\n\n`[\"*\"]`, the default, allows any. A concrete list allows exactly those:\n`[\"admin\", \"ci\"]` permits `admin` and `ci` and refuses `user`.\n\n`[]` names nobody, which leaves no action anything to reference -- so it\nmeans the same thing as `public: true`, and is treated as it. It used to\nmean a configuration with no legal value for `create`, `update`, `delete`\nor `upload`: V36 refused their `admin` default and V34 refused `public`,\nso the document could not be written at all.\n\n`public` and `admin` are never governed by this. `public` is the absence\nof a subject rather than a name; `admin` is the fallback every action\nalready has, and a list that revoked it would produce the same\nunsatisfiable state as `[]` once did.\n\nChecked by rule V36, not by this type: it compares one field against\nanother, which is what is left for the rule set once the types have taken\neverything they can decide alone.\n\nAn `Option` rather than a `Vec` defaulting to `[\"*\"]`, and skipped when\nabsent, so that adding this field did not change the canonical YAML of\nevery configuration written before it existed. The revision is derived\nfrom that YAML, so a materialised default would have made every stored\nconfiguration fail its own revision check on the first load after the\nupgrade. Read it through [`AdminConfig::allowed_groups`].",
           "items": {
             "$ref": "#/$defs/AllowedGroup"
           },
@@ -65,6 +65,13 @@
         "port": {
           "$ref": "#/$defs/Port",
           "description": "The TCP port the admin API listens on. Must differ from\n`server.port`."
+        },
+        "public": {
+          "description": "Serve the whole admin API unauthenticated.\n\n`false` by default. `true` makes every action `public` and leaves no name\nto reference, so `groups` is effectively empty and `access` effectively\nall-public -- whatever either of them says. Anything they did say is\nreported as a startup advisory rather than refused, so a configuration\nbeing made temporarily public does not have to be gutted first and\nrebuilt afterwards.\n\nThis overrides rule V34, which otherwise refuses a public write action.\nV34 exists so that an unauthenticated writable proxy set cannot happen by\nomission; a field named `public` set to `true` is not an omission. Think\nof it as the flag V34 was holding the line for.\n\nAn `Option` and skipped when absent, for the reason given on `groups`:\nadding it must not change the canonical YAML of configurations written\nbefore it existed. Read it through [`AdminConfig::is_public`].",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "tokens": {
           "description": "The tokens that may call the admin API. Names and token values are\neach unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.",

@@ -176,11 +176,22 @@ pub fn authorize(
     }
 }
 
+/// So a public configuration can be answered with a borrow like any other.
+const PUBLIC: Subjects = Subjects::Public;
+
 fn effective_subjects<'a>(
     admin: &'a AdminConfig,
     proxy: Option<&'a ProxyConfig>,
     action: Action,
 ) -> &'a Subjects {
+    // `public: true`, or `groups: []`, makes every action public -- including a
+    // proxy's overrides, which is why this comes before them. A per-proxy
+    // `read: admin` under a public configuration would otherwise be the one
+    // thing still asking for a token, which is not what "public" was set for.
+    if admin.is_public() {
+        return &PUBLIC;
+    }
+
     if action.overridable()
         && let Some(overrides) = proxy.and_then(|p| p.access.as_ref())
     {
@@ -414,6 +425,64 @@ proxies:
         assert_eq!(
             caller_from_headers(&c.admin, &headers(None)),
             Caller::Anonymous
+        );
+    }
+
+    /// `public: true` answers every action publicly, and the fixture's `access`
+    /// is deliberately restrictive so this cannot pass by the defaults being
+    /// permissive already. Enumerated over every action rather than spot-checked:
+    /// the point of the flag is that nothing is left needing a token.
+    #[test]
+    fn a_public_admin_api_authorises_every_action_for_anyone() {
+        let config = load_from_str(&CONFIG.replacen("  access:", "  public: true\n  access:", 1))
+            .expect("fixture must parse");
+        for action in [
+            Action::List,
+            Action::Read,
+            Action::Create,
+            Action::Update,
+            Action::Delete,
+            Action::Upload,
+        ] {
+            assert!(
+                authorize(&config.admin, None, action, &Caller::Anonymous).is_ok(),
+                "`{}` must be public",
+                action.as_str()
+            );
+        }
+    }
+
+    /// `groups: []` names nobody, so it means the same thing. Worth its own test
+    /// because it is the spelling an operator reaches by trying to lock the
+    /// configuration down, which is the opposite of what it does.
+    #[test]
+    fn an_empty_groups_list_authorises_every_action_too() {
+        let config = load_from_str(&CONFIG.replacen("  access:", "  groups: []\n  access:", 1))
+            .expect("fixture must parse");
+        assert!(config.admin.is_public());
+        assert!(authorize(&config.admin, None, Action::Delete, &Caller::Anonymous).is_ok());
+    }
+
+    /// A per-proxy override cannot claw back a token requirement under a public
+    /// configuration -- it would be the one thing still asking for a token, which
+    /// is not what the flag was set for.
+    #[test]
+    fn a_proxy_override_does_not_survive_a_public_admin_api() {
+        let config = load_from_str(&CONFIG.replacen("  access:", "  public: true\n  access:", 1))
+            .expect("fixture must parse");
+        let locked = config
+            .proxies
+            .iter()
+            .find(|proxy| proxy.access.is_some())
+            .expect("the fixture must define a proxy with overrides");
+        assert!(
+            authorize(
+                &config.admin,
+                Some(locked),
+                Action::Read,
+                &Caller::Anonymous
+            )
+            .is_ok()
         );
     }
 

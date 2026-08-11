@@ -269,20 +269,22 @@ const UPDATE_HEADER: &str = "UPDATE configurations SET revision = $1, \
      log_format = $8, control_socket = $9, templates_dir = $10, sentry_dsn = $11, \
      admin_host = $12, admin_port = $13, admin_auth_header = $14, \
      admin_upload_limit = $15, admin_access = $16, admin_groups = $17, \
-     updated_at = now() \
+     admin_public = $18, updated_at = now() \
      WHERE name = $2 AND revision = $3";
 
 const UPSERT_HEADER: &str = "INSERT INTO configurations \
      (name, revision, admin_enable, server_host, server_port, log_level, log_format, \
       control_socket, templates_dir, sentry_dsn, admin_host, admin_port, \
-      admin_auth_header, admin_upload_limit, admin_access, admin_groups) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
+      admin_auth_header, admin_upload_limit, admin_access, admin_groups, \
+      admin_public) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, \
+             $17) \
      ON CONFLICT (name) DO UPDATE SET revision = $2, \
      admin_enable = $3, server_host = $4, server_port = $5, log_level = $6, \
      log_format = $7, control_socket = $8, templates_dir = $9, sentry_dsn = $10, \
      admin_host = $11, admin_port = $12, admin_auth_header = $13, \
      admin_upload_limit = $14, admin_access = $15, admin_groups = $16, \
-     updated_at = now()";
+     admin_public = $17, updated_at = now()";
 
 /// Bind the header values in `HEADER_COLUMNS` order.
 ///
@@ -319,6 +321,7 @@ impl<'q> BindHeader<'q> for sqlx::query::Query<'q, Postgres, sqlx::postgres::PgA
                     .as_ref()
                     .map(|groups| serde_json::to_value(groups).unwrap_or(serde_json::Value::Null)),
             )
+            .bind(config.admin.public)
     }
 }
 
@@ -390,6 +393,7 @@ mod tests {
         "admin_upload_limit",
         "admin_access",
         "admin_groups",
+        "admin_public",
     ];
 
     /// Every `column = $n` assignment in a statement.

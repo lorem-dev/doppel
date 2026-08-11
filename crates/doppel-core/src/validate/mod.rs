@@ -210,41 +210,61 @@ proxies:
         let text = good()
             .replace("  access:", "  groups: [\"admin\", \"ci\"]\n  access:")
             .replace("read: public", "read: user");
-        assert_violation(&text, "admin.access.read", "allows only `admin`, `ci`");
-    }
-
-    /// `[]` is the deliberate lockdown: no name may be referenced at all, and
-    /// the message says so rather than listing nothing.
-    #[test]
-    fn v36_an_empty_list_permits_no_name_and_says_why() {
-        let text = good()
-            .replace("  access:", "  groups: []\n  access:")
-            .replace("update: user1", "update: admin");
         assert_violation(
             &text,
-            "admin.access.update",
-            "`admin.groups` is empty, so only `public` may be used",
+            "admin.access.read",
+            "may name only `admin`, `ci`, `public`",
         );
     }
 
-    /// `public` is the absence of a subject rather than a name, so an
-    /// allow-list has nothing to say about it -- and a configuration locked down
-    /// to `groups: []` still has to be able to express "anyone may read this".
+    /// `groups: []` names nobody, so nothing can be granted to anyone and the
+    /// only reading that describes a runnable configuration is all-public.
+    ///
+    /// It used to be unsatisfiable: V36 refused the `admin` every action
+    /// defaults to, V34 refused `public` for the four writes, and no value
+    /// existed that both would accept. The regression is worth naming because
+    /// nothing failed -- the configuration was simply impossible to write.
     #[test]
-    fn v36_public_is_never_governed_by_the_list() {
+    fn v36_an_empty_list_means_public_rather_than_an_impossible_document() {
+        let text = good().replace("  access:", "  groups: []\n  access:");
+        let config = load_from_str(&text).unwrap();
+        assert_eq!(validate(&config), Ok(()));
+        assert!(config.admin.is_public());
+    }
+
+    /// The same for the flag that says it in as many words. V34 does not apply:
+    /// its job is to stop an unauthenticated writable proxy set happening by
+    /// omission, and this is the opposite of an omission.
+    #[test]
+    fn v34_does_not_refuse_writes_when_the_admin_api_is_declared_public() {
         let text = good()
-            .replace("  access:", "  groups: []\n  access:")
+            .replace("  access:", "  public: true\n  access:")
             .replace("update: user1", "update: public\n    create: public");
         let config = load_from_str(&text).unwrap();
-        // V34 refuses a public *write*, which is a different rule and still
-        // applies; `read: public` is what is being asserted here.
-        let violations = validate(&config).unwrap_err();
-        assert!(
-            violations
-                .iter()
-                .all(|violation| violation.path != "admin.access.read"),
-            "`read: public` must not be a V36 violation: {violations:?}"
+        assert_eq!(validate(&config), Ok(()));
+        assert!(config.admin.is_public());
+    }
+
+    /// And `public` still refuses a write when nothing declared the API public,
+    /// which is the case V34 was written for.
+    #[test]
+    fn v34_still_refuses_a_public_write_by_omission() {
+        assert_violation(
+            &good().replace("update: user1", "update: public"),
+            "admin.access.update",
+            "must not be public",
         );
+    }
+
+    /// A list that omits `admin` would otherwise recreate the impossible
+    /// document: every action defaults to `admin`, so refusing it leaves the
+    /// writes with no legal value again.
+    #[test]
+    fn v36_never_refuses_admin_even_when_the_list_omits_it() {
+        let text = good()
+            .replace("  access:", "  groups: [\"ci\"]\n  access:")
+            .replace("update: user1", "update: admin");
+        assert_eq!(validate(&load_from_str(&text).unwrap()), Ok(()));
     }
 
     /// A proxy's overrides are checked too. V27 and V36 walk one shared list of
