@@ -133,6 +133,11 @@ jobs:
       - name: Configuration schema is up to date
         run: uv run scripts/config_schema.py --check
 
+      # The parameter reference is generated from that schema, so it goes stale the
+      # same way and for the same reason: nobody regenerates a file by hand twice.
+      - name: Parameter reference is up to date
+        run: uv run scripts/parameters_doc.py --check
+
   docs:
     name: Documentation builds
     runs-on: ubuntu-latest
@@ -157,6 +162,12 @@ jobs:
       # moved.
       - name: Build the site (strict)
         run: uv run --with-requirements docs/requirements.txt mkdocs build --strict
+
+      # `--strict` catches a broken link between pages; this catches the links the
+      # dashboard builds at runtime, which mkdocs cannot see. A wrong fragment is
+      # silent in a browser -- the page opens at the top and nobody notices.
+      - name: Dashboard documentation links resolve
+        run: uv run scripts/check_docs_links.py
 
   frontend:
     name: Frontend lint, types, tests, size

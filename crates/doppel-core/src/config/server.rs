@@ -91,7 +91,7 @@ pub struct ControlConfig {
     #[serde(default = "default_socket")]
     /// A filesystem path. `utoipa` has no schema for `PathBuf`, so it is
     /// described as the string it is written as.
-    #[schema(value_type = String)]
+    #[schema(value_type = String, examples("/tmp/doppel.sock"))]
     pub socket: PathBuf,
 }
 
@@ -115,7 +115,7 @@ pub struct TemplatesConfig {
     #[serde(default = "default_templates_dir")]
     /// A filesystem path. `utoipa` has no schema for `PathBuf`, so it is
     /// described as the string it is written as.
-    #[schema(value_type = String)]
+    #[schema(value_type = String, examples("./templates"))]
     pub dir: PathBuf,
 }
 
@@ -136,5 +136,6 @@ impl Default for TemplatesConfig {
 pub struct SentryConfig {
     /// The Sentry DSN to report to. Empty disables reporting, so a deployment
     /// can blank it without removing the section.
+    #[schema(examples("https://key@o0.ingest.sentry.io/0"))]
     pub dsn: String,
 }

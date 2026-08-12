@@ -165,3 +165,35 @@ test('the bounds come from the server, not from this bundle', async ({ page }) =
   await page.getByRole('button', { name: 'Create proxy' }).click()
   await expect(page.getByRole('alert').first()).toContainText(/name/i)
 })
+
+test('an (i) beside a field links to that field, for this version', async ({ page }) => {
+  // A wrong fragment is silent in a browser -- the page just opens at the top -- so
+  // this asserts the whole href, and `scripts/check_docs_links.py` asserts that the
+  // fragment exists in the generated reference.
+  await openForm(page)
+
+  const injected = await page.locator('#doppel-config').textContent()
+  const { version } = JSON.parse(injected ?? '{}') as { version: string }
+
+  // Located by where it goes: every (i) is named the same on purpose, so that
+  // looking a field up by its label finds the field rather than the link beside it.
+  const url = (anchor: string) =>
+    `https://lorem-dev.github.io/doppel/${version}/usage/parameters/#${anchor}`
+
+  const name = page.locator(`a[href="${url('proxies-name')}"]`)
+  await expect(name).toBeVisible()
+  await expect(name).toHaveAttribute('title', /^Name:/)
+
+  // A footnote marker beside the words, not a control: small, and centred on the line
+  // rather than on the space under it. It sat two pixels low when the row centred it
+  // against the label's bottom margin.
+  const mark = (await name.boundingBox())!
+  const label = (await page.getByText('Name', { exact: true }).boundingBox())!
+  expect(mark.height).toBeLessThanOrEqual(14)
+  expect(Math.abs(mark.y + mark.height / 2 - (label.y + label.height / 2))).toBeLessThan(1)
+  // It leaves the dashboard, and a half-filled form is not worth losing.
+  await expect(name).toHaveAttribute('target', '_blank')
+
+  await open(page, 'Faults')
+  await expect(page.locator(`a[href="${url('proxies-loss-percentage')}"]`)).toBeVisible()
+})

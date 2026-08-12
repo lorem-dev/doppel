@@ -34,7 +34,12 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['**/services/*', '!**/services/runtimeConfig'],
+              // `runtimeConfig` and `docs` are exempt because neither calls anything:
+              // one reads the configuration the page was served with, the other turns
+              // its version into a URL. What the rule is for is a component that
+              // fetches -- a control that talks to the API decides when it talks, and
+              // then a page cannot say when.
+              group: ['**/services/*', '!**/services/runtimeConfig', '!**/services/docs'],
               message:
                 'a presentational component must not call the API; a page or a store does that',
             },

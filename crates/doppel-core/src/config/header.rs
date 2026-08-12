@@ -130,7 +130,7 @@ impl HeaderValue {
 }
 
 macro_rules! string_newtype_impls {
-    ($type:ident, $error:ident, $description:expr) => {
+    ($type:ident, $error:ident, $description:expr, $example:expr) => {
         impl fmt::Display for $type {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 f.write_str(&self.0)
@@ -188,6 +188,7 @@ macro_rules! string_newtype_impls {
                 utoipa::openapi::schema::ObjectBuilder::new()
                     .schema_type(utoipa::openapi::schema::Type::String)
                     .description(Some($description))
+                    .examples([serde_json::json!($example)])
                     .into()
             }
         }
@@ -199,12 +200,14 @@ macro_rules! string_newtype_impls {
 string_newtype_impls!(
     HeaderName,
     HeaderNameError,
-    "An HTTP header name: a non-empty RFC 9110 token."
+    "An HTTP header name: a non-empty RFC 9110 token.",
+    "X-Request-Id"
 );
 string_newtype_impls!(
     HeaderValue,
     HeaderValueError,
-    "An HTTP header value: visible ASCII, space and tab, with no line breaks."
+    "An HTTP header value: visible ASCII, space and tab, with no line breaks.",
+    "staging"
 );
 
 #[cfg(test)]

@@ -61,7 +61,7 @@ run: build ## Run the debug binary against ./main.yaml
 # Checks
 # ---------------------------------------------------------------------------
 
-gate: fmt-check lint test test-frontend size docs schema licences ## Everything CI checks, except the browser suite
+gate: fmt-check lint test test-frontend size docs schema parameters links licences ## Everything CI checks, except the browser suite
 	@echo "gate: clean"
 
 fmt: ## Format the Rust sources
@@ -125,6 +125,12 @@ licences-write: frontend ## Regenerate THIRD-PARTY.md from both dependency graph
 # ---------------------------------------------------------------------------
 # Documentation
 # ---------------------------------------------------------------------------
+
+parameters: ## Fail if the generated parameter reference is stale
+	$(UV) run scripts/parameters_doc.py --check
+
+links: ## Fail if the dashboard links to documentation that is not there
+	$(UV) run scripts/check_docs_links.py
 
 docs: ## Build the documentation site, strictly
 	$(UV) run --with-requirements docs/requirements.txt mkdocs build --strict

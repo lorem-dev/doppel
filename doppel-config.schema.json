@@ -112,6 +112,9 @@
     },
     "AdminTitle": {
       "description": "The heading the dashboard shows, at most 64 characters and free of control characters. Defaults to `Doppel`.",
+      "examples": [
+        "billing-api (staging)"
+      ],
       "maxLength": 64,
       "minLength": 1,
       "type": "string"
@@ -159,6 +162,9 @@
       "properties": {
         "socket": {
           "description": "Path to the control socket, created with mode 0600 and removed on\nshutdown. Its parent directory must already exist.\nA filesystem path. `utoipa` has no schema for `PathBuf`, so it is\ndescribed as the string it is written as.",
+          "examples": [
+            "/tmp/doppel.sock"
+          ],
           "type": "string"
         }
       },
@@ -166,10 +172,16 @@
     },
     "HeaderName": {
       "description": "An HTTP header name: a non-empty RFC 9110 token.",
+      "examples": [
+        "X-Request-Id"
+      ],
       "type": "string"
     },
     "HeaderValue": {
       "description": "An HTTP header value: visible ASCII, space and tab, with no line breaks.",
+      "examples": [
+        "staging"
+      ],
       "type": "string"
     },
     "HttpMethod": {
@@ -197,6 +209,9 @@
     },
     "HttpStatus": {
       "description": "An HTTP status code, 100 to 599.",
+      "examples": [
+        200
+      ],
       "maximum": 599,
       "minimum": 100,
       "type": "integer"
@@ -399,6 +414,9 @@
       "properties": {
         "body": {
           "description": "A template rendered and sent as `text/plain`. Exclusive with `json` and\n`template`.",
+          "examples": [
+            "widget {{ id }} is ready"
+          ],
           "type": [
             "string",
             "null"
@@ -411,12 +429,18 @@
           "description": "Header name -> template producing the value.\n\nThe value is a template, not a header value: what it renders to is\nonly a header value once a request has been served, which is checked\nthere. The name is a name now.",
           "propertyNames": {
             "description": "An HTTP header name: a non-empty RFC 9110 token.",
+            "examples": [
+              "X-Request-Id"
+            ],
             "type": "string"
           },
           "type": "object"
         },
         "json": {
           "description": "A template whose rendered output must be valid JSON, sent as\n`application/json`. Exclusive with `body` and `template`.",
+          "examples": [
+            "{\"id\": \"{{ id }}\"}"
+          ],
           "type": [
             "string",
             "null"
@@ -445,6 +469,9 @@
     },
     "Name": {
       "description": "Letters, digits, `-` and `_`, between 2 and 64 characters.",
+      "examples": [
+        "billing-api"
+      ],
       "maxLength": 64,
       "minLength": 2,
       "pattern": "^[A-Za-z0-9_-]{2,64}$",
@@ -459,6 +486,9 @@
     },
     "Port": {
       "description": "A TCP port, 1 to 65535.",
+      "examples": [
+        8080
+      ],
       "maximum": 65535,
       "minimum": 1,
       "type": "integer"
@@ -539,6 +569,9 @@
           "description": "Headers injected into every outbound request, overriding whatever the\nclient sent by the same name.",
           "propertyNames": {
             "description": "An HTTP header name: a non-empty RFC 9110 token.",
+            "examples": [
+              "X-Request-Id"
+            ],
             "type": "string"
           },
           "type": "object"
@@ -634,6 +667,9 @@
     },
     "ProxyName": {
       "description": "Letters, digits, `-` and `_`, between 2 and 32 characters.",
+      "examples": [
+        "billing-api"
+      ],
       "maxLength": 32,
       "minLength": 2,
       "pattern": "^[A-Za-z0-9_-]{2,32}$",
@@ -641,6 +677,9 @@
     },
     "Ratio": {
       "description": "A probability from 0.0 to 1.0. 50% is `0.5`.",
+      "examples": [
+        0.25
+      ],
       "maximum": 1,
       "minimum": 0,
       "type": "number"
@@ -675,6 +714,9 @@
     },
     "Seconds": {
       "description": "A latency in seconds, 0 to 300.",
+      "examples": [
+        0.25
+      ],
       "maximum": 300,
       "minimum": 0,
       "type": "number"
@@ -692,6 +734,9 @@
       "properties": {
         "dsn": {
           "description": "The Sentry DSN to report to. Empty disables reporting, so a deployment\ncan blank it without removing the section.",
+          "examples": [
+            "https://key@o0.ingest.sentry.io/0"
+          ],
           "type": "string"
         }
       },
@@ -758,6 +803,9 @@
       "properties": {
         "dir": {
           "description": "Directory holding mock templates, one subdirectory per proxy. Created\nat startup if absent.\nA filesystem path. `utoipa` has no schema for `PathBuf`, so it is\ndescribed as the string it is written as.",
+          "examples": [
+            "./templates"
+          ],
           "type": "string"
         }
       },
@@ -765,12 +813,18 @@
     },
     "TimeoutSeconds": {
       "description": "An upstream timeout in whole seconds, 1 to 3600.",
+      "examples": [
+        30
+      ],
       "maximum": 3600,
       "minimum": 1,
       "type": "integer"
     },
     "Token": {
       "description": "An admin token: printable ASCII with no spaces, 32 to 255 characters. A version 4 UUID is the recommended shape.",
+      "examples": [
+        "replace-me-00000000000000000000000"
+      ],
       "maxLength": 255,
       "minLength": 32,
       "type": "string"

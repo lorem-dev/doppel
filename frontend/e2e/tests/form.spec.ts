@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { PRIVATE_CONFIG, ROOT_TOKEN } from '../src/configs'
+import { fieldMessage } from '../src/fields'
 import { startDoppel, type Doppel } from '../src/server'
 
 let doppel: Doppel
@@ -190,6 +191,5 @@ test('a name the configuration does not know is refused, on its field', async ({
   await page.getByLabel('read', { exact: true }).fill('nobody')
   await page.getByRole('button', { name: 'Save changes' }).click()
 
-  const field = page.getByText('read', { exact: true }).locator('..')
-  await expect(field.getByRole('alert')).toContainText('nobody')
+  await expect(await fieldMessage(page, 'read')).toContainText('nobody')
 })

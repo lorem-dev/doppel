@@ -1,9 +1,13 @@
-import { useState } from 'react'
+import { Suspense, lazy, useId, useState } from 'react'
 
 import { Button } from './Button'
 import { controlClass } from './Field'
+import { Info } from './Info'
+import type { Syntax } from './grammars'
 import type { Rule } from '../schema/rules'
 import { complain } from '../schema/rules'
+
+const CodeEditor = lazy(() => import('./CodeEditor'))
 
 /**
  * A string-to-string map as rows.
@@ -28,6 +32,8 @@ export function KeyValueRows({
   onChange,
   disabled,
   valueRule,
+  info,
+  valueSyntax,
 }: {
   label: string
   keyLabel: string
@@ -44,8 +50,21 @@ export function KeyValueRows({
    * arrives, and absent for good if it never does.
    */
   valueRule?: Rule
+  /** The map's path in a proxy document, which makes the legend carry an (i). */
+  info?: string
+  /**
+   * What the values are written in, when they are not plain strings.
+   *
+   * A mock's response headers are Jinja templates -- `rid-{{ requestId }}` -- so the
+   * value gets a one-line editor with the braces coloured instead of an input. Every
+   * other map here holds a header name or a selector, which are neither templates nor
+   * anything else worth colouring.
+   */
+  valueSyntax?: Syntax
 }) {
   const [rows, setRows] = useState<Array<[string, string]>>(() => toRows(value))
+  // One id per component, so two maps on a page do not name each other's editors.
+  const group = useId()
 
   // Reseeded when the map arrives holding something the rows do not describe -- a
   // proxy being loaded, or a form being reset. Compared against what the rows
@@ -73,8 +92,9 @@ export function KeyValueRows({
 
   return (
     <fieldset>
-      <legend className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+      <legend className="mb-1.5 flex items-center gap-1 text-sm font-medium text-slate-700 dark:text-slate-200">
         {label}
+        {info ? <Info path={info} label={label} /> : null}
       </legend>
       <div className="flex flex-col gap-2">
         {rows.map(([key, value], index) => {
@@ -82,23 +102,44 @@ export function KeyValueRows({
           return (
             <div key={index} className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <input
-                  className={controlClass}
-                  aria-label={`${label} ${keyLabel} ${index + 1}`}
-                  placeholder={keyLabel}
-                  value={key}
-                  disabled={disabled}
-                  onChange={(event) => set(index, [event.target.value, value])}
-                />
-                <input
-                  className={controlClass}
-                  aria-label={`${label} ${valueLabel} ${index + 1}`}
-                  placeholder={valueLabel}
-                  value={value}
-                  disabled={disabled}
-                  aria-invalid={complaint ? true : undefined}
-                  onChange={(event) => set(index, [key, event.target.value])}
-                />
+                <div className="min-w-0 flex-1">
+                  <input
+                    className={controlClass}
+                    aria-label={`${label} ${keyLabel} ${index + 1}`}
+                    placeholder={keyLabel}
+                    value={key}
+                    disabled={disabled}
+                    onChange={(event) => set(index, [event.target.value, value])}
+                  />
+                </div>
+                {valueSyntax ? (
+                  <div className="min-w-0 flex-1">
+                    <Suspense fallback={<div className={controlClass} />}>
+                      <CodeEditor
+                        label={`${label} ${valueLabel} ${index + 1}`}
+                        id={`${group}-${index}`}
+                        syntax={valueSyntax}
+                        placeholder={valueLabel}
+                        rows={1}
+                        value={value}
+                        disabled={disabled}
+                        onChange={(next) => set(index, [key, next])}
+                      />
+                    </Suspense>
+                  </div>
+                ) : (
+                  <div className="min-w-0 flex-1">
+                    <input
+                      className={controlClass}
+                      aria-label={`${label} ${valueLabel} ${index + 1}`}
+                      placeholder={valueLabel}
+                      value={value}
+                      disabled={disabled}
+                      aria-invalid={complaint ? true : undefined}
+                      onChange={(event) => set(index, [key, event.target.value])}
+                    />
+                  </div>
+                )}
                 <Button
                   variant="danger"
                   disabled={disabled}

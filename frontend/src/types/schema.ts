@@ -9,6 +9,10 @@
 
 /** A schema node, as far as the field rules care. */
 export interface JsonSchema {
+  /** The document's own id, which is how a validator names its definitions. */
+  $id?: string
+  /** Which dialect it is written in. */
+  $schema?: string
   $defs?: Record<string, JsonSchema>
   $ref?: string
   type?: string | string[]

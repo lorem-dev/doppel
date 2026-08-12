@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { cloneElement, isValidElement, useId, type ReactNode } from 'react'
+
+import { Info } from './Info'
 
 /**
  * A labelled control with room for the server's complaint about it.
@@ -10,33 +12,88 @@ import type { ReactNode } from 'react'
  * The hint and the error share one line of reserved space. Without that the row
  * grows the moment a save is refused and everything below it jumps -- which is
  * exactly when the operator is trying to read something.
+ *
+ * The label names the control by `for` rather than by wrapping it, and the (i) sits
+ * beside the label rather than inside it. Both follow from one rule: what a screen
+ * reader announces for the input has to be the field's name and nothing else. A link
+ * inside the label became part of that name -- "Timeout (seconds) What Timeout
+ * (seconds) does, in the documentation" -- which is the kind of thing only a test
+ * notices.
  */
 export function Field({
   label,
   hint,
   error,
   children,
+  htmlFor,
+  info,
 }: {
   label: string
   hint?: string
   error?: string
   children: ReactNode
+  /**
+   * The field's path in a proxy document, which makes the label carry an (i).
+   *
+   * `timeout`, `loss.percentage`, `mocks[].request.url`: the same paths the schema
+   * rules use, so a field states its path once and gets both its bounds and its
+   * documentation from it.
+   */
+  info?: string
+  /**
+   * The id of the control, when this component cannot give it one.
+   *
+   * The code editor renders its own textarea, so only the editor can put an id on
+   * it. Everything else gets one from here.
+   */
+  htmlFor?: string
 }) {
+  const generated = useId()
+  const id = htmlFor ?? generated
+  // The hint and the complaint are about the control, so they are attached to it
+  // rather than merely printed under it: a screen reader then reads "Upstream URL,
+  // must be absolute" instead of leaving the reason somewhere on the page. It is also
+  // what lets a test ask a field for its message without walking the DOM.
+  const messageId = `${id}-message`
+  const message = error ?? hint
+
+  // The child is one element -- an input, a select, or an editor's Suspense -- and it
+  // needs the id the label points at. Cloned rather than demanded of every call site:
+  // twenty fields would each be spelling out an id whose only reader is the label
+  // above it. A caller that owns the id says so with `htmlFor` and is left alone.
+  const control =
+    htmlFor === undefined && isValidElement<{ id?: string; 'aria-describedby'?: string }>(children)
+      ? cloneElement(children, {
+          id: children.props.id ?? id,
+          'aria-describedby': message ? messageId : undefined,
+        })
+      : children
+
   return (
-    <label className="block">
-      <span className={labelClass}>{label}</span>
-      {children}
-      {hint || error ? (
+    <div className="block">
+      {/*
+        The margin belongs to the row, not to the label: with it on the label, the row
+        centred a 14px circle against a 24px box and the icon sat two pixels low.
+      */}
+      <div className="mb-1 flex items-center gap-1">
+        <label className={labelTextClass} htmlFor={id}>
+          {label}
+        </label>
+        {info ? <Info path={info} label={label} /> : null}
+      </div>
+      {control}
+      {message ? (
         <span
+          id={messageId}
           className={`mt-1 block min-h-4 text-xs ${
             error ? 'text-red-700 dark:text-red-300' : 'text-slate-500 dark:text-slate-400'
           }`}
           role={error ? 'alert' : undefined}
         >
-          {error ?? hint}
+          {message}
         </span>
       ) : null}
-    </label>
+    </div>
   )
 }
 
@@ -47,7 +104,10 @@ export function Field({
  * textarea, so its name has to be a `label` with a `for` rather than a `span`
  * wrapping the control. Same words, same weight, one definition.
  */
-export const labelClass = 'mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200'
+export const labelTextClass = 'block text-sm font-medium text-slate-700 dark:text-slate-200'
+
+/** The same, with the gap to the control -- for a label that stands on its own row. */
+export const labelClass = `mb-1 ${labelTextClass}`
 
 /**
  * One height and one padding for every control on the page.

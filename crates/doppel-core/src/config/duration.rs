@@ -134,6 +134,7 @@ impl utoipa::PartialSchema for Seconds {
             .minimum(Some(0.0))
             .maximum(Some(MAX_LATENCY_SECONDS))
             .description(Some("A latency in seconds, 0 to 300."))
+            .examples([serde_json::json!(0.25)])
             .into()
     }
 }
@@ -247,6 +248,7 @@ impl utoipa::PartialSchema for TimeoutSeconds {
             .minimum(Some(1.0))
             .maximum(Some(MAX_TIMEOUT_SECONDS as f64))
             .description(Some("An upstream timeout in whole seconds, 1 to 3600."))
+            .examples([serde_json::json!(30)])
             .into()
     }
 }

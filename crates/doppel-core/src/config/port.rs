@@ -122,6 +122,7 @@ impl utoipa::PartialSchema for Port {
             .minimum(Some(1.0))
             .maximum(Some(f64::from(u16::MAX)))
             .description(Some("A TCP port, 1 to 65535."))
+            .examples([serde_json::json!(8080)])
             .into()
     }
 }

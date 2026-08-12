@@ -64,6 +64,7 @@ nav:
       - Storing configuration in PostgreSQL: usage/storage.md
       - Observability: usage/observability.md
       - Configuration reference: usage/configuration.md
+      - Every parameter: usage/parameters.md
       - CLI reference: usage/cli.md
       - Troubleshooting: usage/troubleshooting.md
   - Development:
@@ -82,6 +83,10 @@ extra:
     provider: mike
 
 markdown_extensions:
+  # `{ #anchor }` on a heading. usage/parameters.md gives every parameter an anchor
+  # derived from its path, because the dashboard links a field to its section and an
+  # anchor mkdocs invented from the heading text would move when the text did.
+  - attr_list
   - admonition
   - pymdownx.details
   - pymdownx.superfences

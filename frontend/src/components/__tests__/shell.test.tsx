@@ -81,9 +81,11 @@ describe('the footer', () => {
       'href',
       'https://github.com/lorem-dev/doppel',
     )
+    // Versioned: the site is published per version, and a link without one would
+    // show the reader whatever has been released since this binary was built.
     expect(screen.getByRole('link', { name: /Documentation/ })).toHaveAttribute(
       'href',
-      'https://lorem-dev.github.io/doppel/',
+      'https://lorem-dev.github.io/doppel/0.4.1/',
     )
     // Both leave the dashboard, and neither is worth losing a half-filled form for.
     for (const link of screen.getAllByRole('link')) {

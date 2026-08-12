@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { PRIVATE_CONFIG, READER_TOKEN, ROOT_TOKEN } from '../src/configs'
+import { fieldMessage } from '../src/fields'
 import { startDoppel, type Doppel } from '../src/server'
 
 let doppel: Doppel
@@ -74,8 +75,7 @@ test("a rejected document lands on the field the server complained about", async
   // Under the field, not merely somewhere on the page. Asserting on the banner
   // alone is what let a parser that never matched anything pass: the banner
   // carries the same words.
-  const field = page.getByText('Upstream URL').locator('..')
-  await expect(field.getByRole('alert')).toContainText('must be absolute')
+  await expect(await fieldMessage(page, 'Upstream URL')).toContainText('must be absolute')
   // And nothing was created.
   await page.goto(doppel.baseURL)
   await expect(page.getByRole('cell', { name: 'bad', exact: true })).toBeHidden()

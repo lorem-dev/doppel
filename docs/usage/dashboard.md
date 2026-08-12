@@ -103,6 +103,18 @@ Editing opens a form over the whole proxy document: the upstream, timeouts, body
 limits, resolution, injected headers, the three fault settings, per-proxy access
 overrides, and the mocks with their matching rules and responses.
 
+Every field carries an (i) to its section of [Every
+parameter](parameters.md) -- the type, the bounds, an example in place -- and the
+link is versioned, so it describes the Doppel serving the page rather than whatever
+has been released since.
+
+A field is checked as it is typed: a name with a space in it, a timeout of 5000, a
+loss rate of 45, a selector without its leading dot. Those bounds are read from
+[`GET /api/v1/schema`](admin-api.md#the-configuration-schema) at load, so they are
+the server's own rules rather than a second copy in the page -- and what needs more
+than one field to judge is still the server's answer on save, reported against the
+field it is about.
+
 A proxy has thirteen fields and any number of mocks, and most edits touch one of
 them -- so the name, the type and the upstream are always on screen and everything
 else is a folded section that says what is inside it: `Faults none`,
@@ -113,8 +125,47 @@ Saving sends the revision the form was loaded at, so a proxy someone else change
 in the meantime is refused rather than overwritten -- the page says so and asks you
 to reload.
 
+### Editing a proxy as YAML
+
+**Edit as YAML** swaps the form for the whole proxy document, in the shape
+`main.yaml` has it:
+
+```yaml
+name: alpha
+type: http
+url: https://alpha.example.com/api/
+timeout: 30
+mocks:
+  - name: one-widget
+    request:
+      method: GET
+      url: ^/widgets/(?P<id>\d+)$
+    response:
+      status: 200
+      json: '{"id": "{{ id }}"}'
+```
+
+The form is better for changing one field; this is better for everything else --
+pasting a proxy from a colleague, reordering mocks, copying a block out of a
+configuration file. Tab indents inside the document, **Reformat** tidies it, and
+saving tidies it too, so a refused save leaves readable YAML on screen.
+
+It is checked against the running Doppel's own schema as you type, and Save is
+refused while it does not match: a field the schema does not know is named, and so
+is a value out of range. What needs more than one field to judge is still the
+server's answer.
+
+Two things it does not do. It does not keep comments -- the document is stored as
+data, so there is nowhere to put them -- and it edits one proxy rather than the
+whole configuration. For the whole file, edit `main.yaml` and reload.
+
 **Templates**, per proxy, lists the template files and lets you write one: a name,
 one of `json.j2`, `html.j2` or `text.j2`, and the content, with syntax colouring.
+
+Everything that is rendered through Jinja is coloured as a template: a `{{ variable }}`
+and a `{% statement %}` stand out from the JSON, HTML or text around them, in a
+template file, in a mock's body and in a response header's value. A mock's path pattern
+is coloured as the regex it is.
 There is no file upload; the content is typed or pasted, which is what the API has
 always taken.
 

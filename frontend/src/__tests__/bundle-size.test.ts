@@ -50,17 +50,27 @@ describe('the built bundle', () => {
   })
 
   it('keeps every lazy chunk within its budget', () => {
-    // Measured: the largest page chunk is 3.7 KB (the proxy form) and the editor
-    // is 10.8. The page budget is deliberately looser than measured-plus-ten:
-    // a page gaining a section is ordinary and should not need this file edited,
-    // while a page gaining a *library* is what this is here to catch, and any
-    // library clears 8 KB.
+    // Measured: the largest page chunk is 4.4 KB (the proxy form) and the editor
+    // is 11.9 -- prism plus four grammars, json, markup, regex and yaml. The page
+    // budget is deliberately looser than measured-plus-ten: a page gaining a
+    // section is ordinary and should not need this file edited, while a page
+    // gaining a *library* is what this is here to catch, and any library clears
+    // 8 KB.
     const PAGE_BUDGET_KB = 8
-    const EDITOR_BUDGET_KB = 12
+    const EDITOR_BUDGET_KB = 14
+    // Measured 37.2: a YAML parser and a JSON Schema validator, for the operators who
+    // turn the toggle on. Nobody else fetches it. `js-yaml` would have been 14 KB
+    // lighter and brings `argparse`, whose Python-2.0 licence is outside this
+    // repository's policy -- see the note in YamlMode.tsx.
+    const YAML_BUDGET_KB = 40
     const entry = entryName()
 
     for (const file of readdirSync(ASSETS).filter((f) => f.endsWith('.js') && f !== entry)) {
-      const budget = file.includes('CodeEditor') ? EDITOR_BUDGET_KB : PAGE_BUDGET_KB
+      const budget = file.includes('CodeEditor')
+        ? EDITOR_BUDGET_KB
+        : file.includes('YamlMode')
+          ? YAML_BUDGET_KB
+          : PAGE_BUDGET_KB
       expect(gzippedKb(file)).toBeLessThanOrEqual(budget)
     }
   })
@@ -77,10 +87,11 @@ describe('the built bundle', () => {
   })
 
   it('keeps the whole payload within its budget', () => {
-    // Measured 100 KB across every chunk and the stylesheet. The sum is here so
-    // that splitting a chunk in two cannot slip past the per-chunk budgets while
-    // making the payload heavier overall.
-    const BUDGET_KB = 110
+    // Measured 141 KB across every chunk and the stylesheet, of which 37 is the YAML
+    // editor that most visitors never open and 12 the highlighter that only a page
+    // with an editor on it fetches. The sum is here so that splitting a chunk in two
+    // cannot slip past the per-chunk budgets while making the payload heavier overall.
+    const BUDGET_KB = 155
     const total = readdirSync(ASSETS).reduce((sum, file) => sum + gzippedKb(file), 0)
     expect(total).toBeLessThanOrEqual(BUDGET_KB)
   })
@@ -110,5 +121,14 @@ describe('the built bundle', () => {
     // then every visitor pays for it to list proxies.
     const entry = readFileSync(join(ASSETS, entryName()), 'utf8')
     expect(entry).not.toMatch(/prism/i)
+  })
+
+  it('does not carry the YAML parser or the schema validator in the entry chunk', () => {
+    // Same argument, twenty-three kilobytes louder. Matched on strings the two
+    // libraries carry in their own messages, since a minifier keeps those and keeps
+    // nothing of their names.
+    const entry = readFileSync(join(ASSETS, entryName()), 'utf8')
+    expect(entry).not.toMatch(/YAMLException/)
+    expect(entry).not.toMatch(/additional properties schema/)
   })
 })

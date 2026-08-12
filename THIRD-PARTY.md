@@ -9,7 +9,7 @@ Generated from the resolved dependency graph by `scripts/third_party.py`. Do
 not edit by hand -- run the script.
 
 
-382 packages: 372 from crates.io, 10 from npm.
+384 packages: 372 from crates.io, 12 from npm.
 
 | Package | Ecosystem | Version | Licence |
 |---|---|---|---|
@@ -385,6 +385,7 @@ not edit by hand -- run the script.
 | [zlib-rs](https://github.com/trifectatechfoundation/zlib-rs) | cargo | 0.6.6 | Zlib |
 | [zmij](https://github.com/dtolnay/zmij) | cargo | 1.0.23 | MIT |
 | [zopfli](https://github.com/zopfli-rs/zopfli) | cargo | 0.8.3 | Apache-2.0 |
+| [@cfworker/json-schema](https://github.com/cfworker/cfworker) | npm | 4.1.1 | MIT |
 | [@types/react](https://github.com/DefinitelyTyped/DefinitelyTyped) | npm | 19.2.18 | MIT |
 | cookie-es | npm | 3.1.1 | MIT |
 | [csstype](https://github.com/frenic/csstype) | npm | 3.2.3 | MIT |
@@ -394,4 +395,5 @@ not edit by hand -- run the script.
 | [react-router](https://github.com/remix-run/react-router) | npm | 8.3.0 | MIT |
 | [react-simple-code-editor](https://github.com/react-simple-code-editor/react-simple-code-editor) | npm | 0.14.1 | MIT |
 | [scheduler](https://github.com/facebook/react) | npm | 0.27.0 | MIT |
+| yaml | npm | 2.9.0 | ISC |
 | [zustand](https://github.com/pmndrs/zustand) | npm | 5.0.14 | MIT |

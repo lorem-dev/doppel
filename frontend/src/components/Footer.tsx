@@ -1,10 +1,5 @@
+import { REPOSITORY, docsRoot } from '../services/docs'
 import { runtimeConfig } from '../services/runtimeConfig'
-
-/** Where this project lives, for an operator who wants either. */
-const LINKS = [
-  { href: 'https://github.com/lorem-dev/doppel', label: 'Repository' },
-  { href: 'https://lorem-dev.github.io/doppel/', label: 'Documentation' },
-]
 
 /**
  * The copyright, the version of the binary serving this page, and where to read
@@ -18,6 +13,10 @@ const LINKS = [
  * report the reader's clock, which is neither when this was published nor the same
  * answer for two people looking at one binary.
  *
+ * The documentation link carries the running version, like every other one out of
+ * this page: the site is published per version, and an unversioned link would show
+ * whoever followed it the rules of whatever has been released since.
+ *
  * The copyright is text and stays text. It is a statement rather than a
  * destination, and a line that looks clickable and does nothing is worse than a
  * line that plainly does not. The two links beside it are the things there is
@@ -26,13 +25,17 @@ const LINKS = [
  */
 export function Footer() {
   const { version, copyrightYear } = runtimeConfig()
+  const links = [
+    { href: REPOSITORY, label: 'Repository' },
+    { href: docsRoot(), label: 'Documentation' },
+  ]
   return (
     <footer className="mt-8 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-slate-200 py-4 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
       <p>
         (c) {copyrightYear} Lorem Dev &middot; Doppel {version}
       </p>
       <nav className="flex items-center gap-3">
-        {LINKS.map(({ href, label }) => (
+        {links.map(({ href, label }) => (
           <a
             key={href}
             href={href}

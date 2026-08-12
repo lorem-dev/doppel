@@ -133,6 +133,7 @@ impl utoipa::PartialSchema for AdminTitle {
                 "The heading the dashboard shows, at most {MAX_LEN} characters \
                  and free of control characters. Defaults to `{DEFAULT}`."
             )))
+            .examples([serde_json::json!("billing-api (staging)")])
             .into()
     }
 }

@@ -70,6 +70,9 @@ export function MockEditor({
   // The schema describes one mock, so the path has no index in it: every mock in
   // the list is the same shape.
   const bounds = (field: string) => rule(`mocks[].${field}`)
+  // The pattern editor is named by the field around it, so both need the same id --
+  // and every mock on the page needs its own.
+  const patternId = `mock-${index}-pattern`
   const checked = (field: string, value: unknown) => complain(bounds(field), value)
 
   const setResponse = (patch: Partial<MockConfig['response']>) => {
@@ -94,7 +97,11 @@ export function MockEditor({
     <div className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-end gap-2">
         <div className="grow">
-          <Field label="Mock name" error={checked('name', mock.name) ?? complaint('name')}>
+          <Field
+            label="Mock name"
+            info="mocks[].name"
+            error={checked('name', mock.name) ?? complaint('name')}
+          >
             <input
               className={controlClass}
               value={mock.name}
@@ -109,7 +116,7 @@ export function MockEditor({
       </div>
 
       <div className="flex gap-3">
-        <Field label="Method">
+        <Field label="Method" info="mocks[].request.method">
           <select
             className={selectFullClass}
             aria-label={`${mock.name} method`}
@@ -130,19 +137,32 @@ export function MockEditor({
           </select>
         </Field>
         <div className="grow">
+          {/*
+            A code editor rather than an input, for one line of regex. The pattern is
+            the field an operator gets wrong most often, and colouring the groups,
+            classes and quantifiers is what makes a stray bracket visible before the
+            server compiles it. `Field` names it by id, because the editor renders its
+            own textarea and a label cannot wrap one.
+          */}
           <Field
             label="Path pattern"
+            info="mocks[].request.url"
             hint="A regex, matched unanchored. Named groups become template variables."
             error={checked('request.url', mock.request.url) ?? complaint('url')}
+            htmlFor={patternId}
           >
-            <input
-              className={controlClass}
-              value={mock.request.url}
-              disabled={disabled}
-              onChange={(event) =>
-                onChange({ ...mock, request: { ...mock.request, url: event.target.value } })
-              }
-            />
+            <Suspense fallback={<Spinner label="Loading the editor..." />}>
+              <CodeEditor
+                id={patternId}
+                syntax="regex"
+                rows={1}
+                disabled={disabled}
+                value={mock.request.url}
+                onChange={(next) =>
+                  onChange({ ...mock, request: { ...mock.request, url: next } })
+                }
+              />
+            </Suspense>
           </Field>
         </div>
       </div>
@@ -152,6 +172,7 @@ export function MockEditor({
         label="Variables from headers"
         keyLabel="variable"
         valueLabel="header name"
+        info="mocks[].request.headers"
         disabled={disabled}
         valueRule={valueRule('mocks[].request.headers')}
         value={mock.request.headers}
@@ -161,6 +182,7 @@ export function MockEditor({
         label="Variables from the query"
         keyLabel="variable"
         valueLabel="selector"
+        info="mocks[].request.query"
         disabled={disabled}
         valueRule={valueRule('mocks[].request.query')}
         value={mock.request.query}
@@ -170,6 +192,7 @@ export function MockEditor({
         label="Variables from the body"
         keyLabel="variable"
         valueLabel="selector"
+        info="mocks[].request.body"
         disabled={disabled}
         valueRule={valueRule('mocks[].request.body')}
         value={mock.request.body}
@@ -180,6 +203,7 @@ export function MockEditor({
       <div className="flex gap-3">
         <Field
           label="Status"
+          info="mocks[].response.status"
           error={checked('response.status', mock.response.status) ?? complaint('status')}
         >
           <input
@@ -209,6 +233,7 @@ export function MockEditor({
       {source === 'template' ? (
         <Field
           label="Template file"
+          info="mocks[].response.template"
           hint="A file under this proxy's template directory, written on the Templates page."
           error={checked('response.template', mock.response.template) ?? complaint('template')}
         >
@@ -235,6 +260,8 @@ export function MockEditor({
         label="Response headers"
         keyLabel="header name"
         valueLabel="template"
+        info="mocks[].response.headers"
+        valueSyntax="text"
         disabled={disabled}
         valueRule={valueRule('mocks[].response.headers')}
         value={mock.response.headers}

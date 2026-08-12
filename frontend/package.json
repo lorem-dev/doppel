@@ -14,11 +14,13 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
     "prismjs": "^1.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.3.0",
     "react-simple-code-editor": "^0.14.1",
+    "yaml": "^2.9.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
