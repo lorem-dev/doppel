@@ -420,7 +420,13 @@ async fn metrics_renders_the_exposition_with_the_registered_content_type() {
         // recorder would pass here whether or not the handler was wired to
         // anything.
         let _guard = metrics::set_default_local_recorder(&harness.recorder);
-        doppel_core::metrics::record_proxy("alpha", "GET", 200, Duration::from_millis(5));
+        doppel_core::metrics::record_proxy(
+            "alpha",
+            "GET",
+            200,
+            Duration::from_millis(5),
+            doppel_core::metrics::Outcome::proxied(),
+        );
         doppel_core::metrics::record_loss("alpha");
     }
 
@@ -478,6 +484,37 @@ async fn the_root_still_answers() {
     let harness = Harness::new();
     let reply = Call::get("/").send(harness.router()).await;
     assert_ne!(reply.status, 404, "the layer trimmed the root itself");
+}
+
+/// The admin listener's own latency, labelled by the route template.
+///
+/// The recorder is the harness's, held for the whole exchange: the middleware
+/// records inside the request future, and `oneshot` runs it on this thread, so a
+/// thread-local recorder sees it.
+#[tokio::test]
+async fn an_admin_request_records_its_own_latency_by_route() {
+    let harness = Harness::new();
+    {
+        let _guard = metrics::set_default_local_recorder(&harness.recorder);
+        let read = Call::get("/api/v1/proxies/alpha")
+            .token("root-token-0000000000000000000000000")
+            .send(harness.router())
+            .await;
+        assert_eq!(read.status, 200, "{}", read.body);
+    }
+
+    let exposition = harness.recorder.handle().render();
+    assert!(
+        exposition.contains(r#"route="/api/v1/proxies/{name}""#),
+        "the template, not the path: {exposition}"
+    );
+    // The proxy's own name must not be in there. One series per proxy is how a
+    // cardinality incident starts.
+    assert!(!exposition.contains("alpha"), "{exposition}");
+    assert!(
+        exposition.contains("doppel_admin_request_duration_seconds_bucket"),
+        "{exposition}"
+    );
 }
 
 #[tokio::test]

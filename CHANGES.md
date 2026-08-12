@@ -10,6 +10,11 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ### Added
 
+- Metrics that exist before anything happens: `doppel_build_info`,
+  `doppel_dashboard_info`, `doppel_proxy_last_error_timestamp_seconds` and
+  `doppel_proxy_mocks`, the last following the configuration in force.
+- `doppel_admin_request_duration_seconds`, the admin API's own latency, labelled
+  by route template so path and query parameters cannot multiply series.
 - `server.external_url` and `DOPPEL_EXTERNAL_URL`: the address clients reach
   Doppel at, used when rewriting an upstream's redirects.
 - A browser dashboard on the admin listener's root, compiled into the binary:
@@ -23,6 +28,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 - The Prometheus exposition is `GET /metrics` again, the path every scraper
   looks for; under `/api/v1/` the dashboard answered scrapes with HTML.
+- `doppel_proxy_request_duration_seconds` carries `replace`, `loss` and
+  `upstream_error`, and its buckets reach 60s for injected latency.
 - The admin listener accepts a trailing slash on every path. The proxy listener
   still relays one verbatim.
 - The admin listener compresses its responses, `br` or `gzip`, so the dashboard

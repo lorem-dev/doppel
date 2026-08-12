@@ -10,7 +10,7 @@
 
 import { expect, test } from '@playwright/test'
 
-import { PRIVATE_CONFIG } from '../src/configs'
+import { PRIVATE_CONFIG, ROOT_TOKEN } from '../src/configs'
 import { startDoppel, type Doppel } from '../src/server'
 
 let doppel: Doppel
@@ -171,4 +171,59 @@ test('assets and the page are served compressed', async ({ page }) => {
     headers: { 'Accept-Encoding': 'identity' },
   })
   expect(identity.headers()['content-encoding']).toBeUndefined()
+})
+
+test('the metrics that must always be there are there', async ({ page }) => {
+  // A panel and an alert both read a never-recorded metric as "no data", which is
+  // indistinguishable from a process nobody is scraping. These four are published
+  // at startup or on the first runtime swap, so a scrape of a process that has
+  // served nothing still answers with them.
+  const exposition = await (await page.request.get(`${doppel.baseURL}/metrics`)).text()
+
+  // What this binary is, and what this deployment turned on.
+  expect(exposition).toMatch(/doppel_build_info\{version="\d+\.\d+\.\d+[^"]*"\} 1/)
+  expect(exposition).toContain('doppel_dashboard_info{enabled="true"} 1')
+
+  // No proxy error yet, said in a form a query can subtract rather than as an
+  // absence.
+  expect(exposition).toContain('doppel_proxy_last_error_timestamp_seconds{code=""} 0')
+
+  // The mock counts of the configuration in force. This spec's configuration has
+  // two proxies and no mocks.
+  expect(exposition).toContain('doppel_proxy_mocks{proxy="alpha"} 0')
+  expect(exposition).toContain('doppel_proxy_mocks{proxy="beta"} 0')
+})
+
+test('the admin API records its own latency, by route template', async ({ page }) => {
+  // Two requests to the same route with different path parameters, and a query
+  // string on one of them: one series, or the label is wrong.
+  const token = ROOT_TOKEN
+  for (const name of ['alpha', 'beta']) {
+    const response = await page.request.get(`${doppel.baseURL}/api/v1/proxies/${name}?noise=1`, {
+      headers: { 'X-Proxy-Authorization': `Bearer ${token}` },
+    })
+    expect(response.status(), name).toBe(200)
+  }
+
+  const exposition = await (await page.request.get(`${doppel.baseURL}/metrics`)).text()
+  const counted = exposition
+    .split('\n')
+    .filter(
+      (line) =>
+        line.startsWith('doppel_admin_request_duration_seconds_count') &&
+        line.includes('route="/api/v1/proxies/{name}"'),
+    )
+
+  expect(counted, `no templated series in:\n${exposition}`).toHaveLength(1)
+  expect(counted[0]).toMatch(/\} 2$/)
+  // Neither proxy name nor the query string may appear in the exposition.
+  expect(exposition).not.toContain('proxies/alpha')
+  expect(exposition).not.toContain('noise=1')
+
+  // And the ladder the admin histogram uses stops at five seconds.
+  const buckets = exposition
+    .split('\n')
+    .filter((line) => line.startsWith('doppel_admin_request_duration_seconds_bucket'))
+  expect(buckets.some((line) => line.includes('le="5"'))).toBe(true)
+  expect(buckets.some((line) => line.includes('le="10"'))).toBe(false)
 })

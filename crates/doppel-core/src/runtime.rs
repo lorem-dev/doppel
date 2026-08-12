@@ -281,6 +281,7 @@ pub struct RuntimeHolder(ArcSwap<Runtime>);
 impl RuntimeHolder {
     #[must_use]
     pub fn new(runtime: Runtime) -> Self {
+        publish_mock_counts(&runtime);
         Self(ArcSwap::from_pointee(runtime))
     }
 
@@ -290,8 +291,27 @@ impl RuntimeHolder {
     }
 
     pub fn store(&self, runtime: Runtime) {
+        // Before the swap, so that anything scraping between the two sees the
+        // counts of the configuration that is about to be in force rather than
+        // the one that just left. Either way the window is a few microseconds
+        // wide; this is the side of it that cannot report a proxy that is gone.
+        publish_mock_counts(&runtime);
         self.0.store(Arc::new(runtime));
     }
+}
+
+/// `doppel_proxy_mocks` for the configuration this runtime carries.
+///
+/// Here rather than at the call sites that build a runtime -- startup, reload, a
+/// write through the admin API -- because there are three of them and a metric
+/// that follows the configuration cannot afford to be forgotten at one.
+fn publish_mock_counts(runtime: &Runtime) {
+    let counts: Vec<(&str, usize)> = runtime
+        .proxies
+        .iter()
+        .map(|proxy| (proxy.name.as_str(), proxy.mocks.len()))
+        .collect();
+    crate::metrics::record_proxy_mocks(&counts);
 }
 
 #[cfg(test)]

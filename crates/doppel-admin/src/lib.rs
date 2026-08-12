@@ -12,7 +12,7 @@ pub mod state;
 pub mod status;
 pub mod templates;
 
-use axum::extract::Request;
+use axum::extract::{MatchedPath, Request};
 use tower::Layer as _;
 use tower::util::{MapRequest, MapRequestLayer};
 use tower_http::compression::CompressionLayer;
@@ -120,12 +120,50 @@ pub type App = MapRequest<axum::Router, fn(Request) -> Request>;
 /// thing it is testing against.
 #[must_use]
 pub fn app(state: AdminState) -> App {
+    // Latency inside compression, so what it measures is the work rather than the
+    // deflating: a scrape of a 150 KB stylesheet should not read as a slow route.
+    // Also inside routing, which is what makes `MatchedPath` available -- the
+    // template is the label, and a label built from the path itself would put one
+    // series per proxy name and per query string into the exposition.
+    //
     // Compression on the router rather than around it: `axum::serve` wants a
     // service whose body is axum's own, and `Router::layer` is what converts the
     // compressed body back into one. Running after routing costs nothing here --
     // a response is compressed whatever matched it.
-    MapRequestLayer::new(trim_trailing_slash as fn(Request) -> Request)
-        .layer(router(state).layer(CompressionLayer::new().br(true).gzip(true)))
+    MapRequestLayer::new(trim_trailing_slash as fn(Request) -> Request).layer(
+        router(state)
+            .layer(axum::middleware::from_fn(record_admin_request))
+            .layer(CompressionLayer::new().br(true).gzip(true)),
+    )
+}
+
+/// One admin request, timed and recorded by the route it matched.
+///
+/// `MatchedPath` is the template the router matched -- `/api/v1/proxies/{name}`,
+/// never `/api/v1/proxies/alpha` -- so a deployment with a hundred proxies has one
+/// series and a query string has none. A request that matched nothing has no
+/// template, and is recorded under the empty route for the same reason an
+/// unresolved proxy request is: the total has to be the total.
+async fn record_admin_request(
+    matched: Option<MatchedPath>,
+    request: Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let method = request.method().as_str().to_owned();
+    let route = matched.map_or_else(
+        || doppel_core::metrics::UNMATCHED.to_owned(),
+        |matched| matched.as_str().to_owned(),
+    );
+
+    let started = std::time::Instant::now();
+    let response = next.run(request).await;
+    doppel_core::metrics::record_admin(
+        &method,
+        &route,
+        response.status().as_u16(),
+        started.elapsed(),
+    );
+    response
 }
 
 /// `/metrics/` becomes `/metrics`, and two paths are left exactly as they came.

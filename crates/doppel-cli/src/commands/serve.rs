@@ -139,6 +139,21 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     } else {
         None
     };
+
+    // The series that must be there before anything happens.
+    //
+    // A dashboard panel and an alert both read "no data" for a metric that has
+    // never been recorded, and "no data" is indistinguishable from "this process
+    // is not being scraped". So the facts that are true at startup are published
+    // at startup: what this binary is, whether it serves the dashboard, and that
+    // no proxy error has happened yet. The per-proxy mock counts come from the
+    // runtime below, on every swap, so they follow the configuration in force.
+    if admin_enabled {
+        doppel_core::metrics::describe_build(env!("CARGO_PKG_VERSION"));
+        doppel_core::metrics::describe_dashboard(config.admin.is_dashboard_enabled());
+        doppel_core::metrics::init_proxy_errors();
+    }
+
     let started_at = std::time::Instant::now();
 
     let addr = SocketAddr::new(config.server.host, config.server.port.get());
