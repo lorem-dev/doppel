@@ -19,6 +19,11 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ### Changed
 
+- The Prometheus exposition is `GET /metrics` again, the path every scraper
+  looks for; under `/api/v1/` the dashboard answered scrapes with HTML.
+- The admin listener accepts a trailing slash on every path. The proxy listener
+  still relays one verbatim.
+
 - The PostgreSQL store keeps the configuration as JSON, so a new field no longer
   needs a migration. Migration 0005 backfills it.
 - **Breaking:** every admin endpoint now lives under `/api/`. `/status` and

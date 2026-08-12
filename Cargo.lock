@@ -604,6 +604,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tower",
+ "tower-http",
  "tracing",
  "utoipa",
  "utoipa-swagger-ui",

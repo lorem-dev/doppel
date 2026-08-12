@@ -120,7 +120,7 @@ mod tests {
         ("get", "/api/v1/access"),
         ("get", "/api/v1/schema"),
         ("get", "/api/v1/status"),
-        ("get", "/api/v1/metrics"),
+        ("get", "/metrics"),
     ];
 
     fn document() -> serde_json::Value {

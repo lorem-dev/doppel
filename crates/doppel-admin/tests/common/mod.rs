@@ -180,8 +180,8 @@ impl Harness {
         self.store = wrap(inner);
     }
 
-    pub fn router(&self) -> Router {
-        doppel_admin::router(AdminState::new(
+    pub fn router(&self) -> tower_http::normalize_path::NormalizePath<Router> {
+        doppel_admin::app(AdminState::new(
             Arc::clone(&self.store),
             Arc::clone(&self.holder),
             Arc::clone(&self.startup),
@@ -270,7 +270,7 @@ impl Call {
         self
     }
 
-    pub async fn send(self, router: Router) -> Reply {
+    pub async fn send(self, router: tower_http::normalize_path::NormalizePath<Router>) -> Reply {
         let mut builder = Request::builder().method(self.method).uri(&self.uri);
         if let Some(token) = self.token {
             builder = builder.header("X-Proxy-Authorization", format!("Bearer {token}"));

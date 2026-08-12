@@ -105,7 +105,7 @@ fn status_and_metrics_are_scrapeable_without_a_token() {
     assert!(body.contains("\"revision\""), "{body}");
     assert!(body.contains("\"p1\""), "{body}");
 
-    let (status, body) = admin.anonymous_get("/api/v1/metrics");
+    let (status, body) = admin.anonymous_get("/metrics");
     assert_eq!(status, 200, "{body}");
     // The request above went through the pipeline, so the proxy histogram
     // must have it. An empty exposition here would mean the recorder the

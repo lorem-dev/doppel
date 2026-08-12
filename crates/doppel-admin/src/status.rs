@@ -17,7 +17,7 @@ use crate::state::AdminState;
 pub fn routes() -> Router<AdminState> {
     Router::new()
         .route("/api/v1/status", get(status))
-        .route("/api/v1/metrics", get(exposition))
+        .route("/metrics", get(exposition))
         .route("/api/v1/config/reload", post(reload))
 }
 
@@ -99,11 +99,20 @@ pub(crate) async fn status(State(state): State<AdminState>) -> Response {
 
 /// The Prometheus exposition.
 ///
-/// Unauthenticated, like `/status`: a scraper is a machine on the operator's
-/// network with no place to put a token, and the exposition names proxies and
-/// counts -- never a token, a URL or a header value.
+/// Unauthenticated, like the status endpoint: a scraper is a machine on the
+/// operator's network with no place to put a token, and the exposition names
+/// proxies and counts -- never a token, a URL or a header value.
+///
+/// The one endpoint outside `/api/`, deliberately. `metrics_path` defaults to
+/// `/metrics` in Prometheus, in every Kubernetes annotation and in every agent
+/// that scrapes one, so that path is settled by something larger than this
+/// project -- and while it was under `/api/v1/`, a scrape of `/metrics` was
+/// answered by the dashboard's fallback with `200 text/html`, which a scraper
+/// reports as a parse failure or, worse, records as nothing at all. It cannot
+/// collide with a page: the dashboard's routes are `/`, `/proxies`,
+/// `/proxies/{name}` and `/status`.
 #[utoipa::path(
-    get, path = "/api/v1/metrics", tag = "process",
+    get, path = "/metrics", tag = "process",
     responses((status = 200, description = "Prometheus text exposition", content_type = "text/plain")),
 )]
 pub(crate) async fn exposition(State(state): State<AdminState>) -> Response {

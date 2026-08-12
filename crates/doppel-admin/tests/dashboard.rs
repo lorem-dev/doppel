@@ -206,6 +206,27 @@ async fn an_unknown_static_path_is_a_404_in_the_envelope() {
     assert_eq!(reply.json()["code"], "NOT_FOUND");
 }
 
+/// The scrape path belongs to the scraper, not to the page.
+///
+/// This is what a Prometheus scrape of a running Doppel actually got while the
+/// exposition lived under `/api/v1/`: `200` with the dashboard's HTML, because
+/// the page answers every GET outside `/api/` and `/static/`. A scraper reports
+/// that as a parse failure at best, and the operator sees no metrics with
+/// nothing anywhere saying why.
+#[tokio::test]
+async fn metrics_is_the_exposition_and_not_the_page() {
+    let harness = Harness::new();
+    let reply = Call::get("/metrics").send(harness.router()).await;
+
+    assert_eq!(reply.status, 200);
+    assert_eq!(
+        reply.content_type.as_deref(),
+        Some("text/plain; version=0.0.4; charset=utf-8"),
+        "the dashboard fallback answered the scrape path"
+    );
+    assert!(!reply.body.contains("<!doctype html"), "{}", reply.body);
+}
+
 #[tokio::test]
 async fn robots_disallows_everything() {
     let harness = Harness::new();

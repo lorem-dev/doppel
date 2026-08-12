@@ -4,7 +4,7 @@ A second HTTP listener on `admin.host:admin.port`, separate from the proxy
 because the proxy's fallback handler swallows every path -- there is nowhere
 on it an admin route could live.
 
-`admin.enable: false` turns all of it off, including `/api/v1/status` and `/api/v1/metrics`,
+`admin.enable: false` turns all of it off, including `/api/v1/status` and `/metrics`,
 and the port is then never bound. See
 [the configuration reference](configuration.md#admin).
 
@@ -129,13 +129,20 @@ would not help.
 | GET | `/api/v1/access` | none | `200` |
 | GET | `/api/v1/schema` | none | `200` |
 | GET | `/api/v1/status` | none | `200` |
-| GET | `/api/v1/metrics` | none | `200` |
+| GET | `/metrics` | none | `200` |
 | GET | `/api/openapi.json` | none | `200` |
 | GET | `/api/swagger-ui` | none | `200` |
 
-`/api/v1/status`, `/api/v1/metrics`, `/api/openapi.json` and `/api/swagger-ui` sit outside
-`/api/v1` because they are not resources of the API; they describe or observe
-the process.
+A trailing slash is accepted everywhere: `/metrics/` answers as `/metrics` does.
+Axum stopped redirecting between the two spellings, and a 404 for a slash is a
+poor answer for a path an operator typed. The proxy listener is deliberately not
+like this -- a proxied path is relayed byte for byte, because `/orders/` and
+`/orders` are two resources upstream.
+
+`/api/v1/status`, `/api/openapi.json` and `/api/swagger-ui` sit outside `/api/v1`
+because they are not resources of the API; they describe or observe the process.
+`/metrics` sits outside `/api/` altogether, because that path is what every
+scraper looks for by default.
 
 Everything the API serves is under `/api/`. That is a boundary rather than a
 convention: with `admin.dashboard` on, a `GET` outside `/api/` and `/static/` is

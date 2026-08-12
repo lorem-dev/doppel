@@ -343,7 +343,7 @@ async fn metrics_renders_the_exposition_with_the_registered_content_type() {
         doppel_core::metrics::record_loss("alpha");
     }
 
-    let reply = Call::get("/api/v1/metrics").send(harness.router()).await;
+    let reply = Call::get("/metrics").send(harness.router()).await;
 
     assert_eq!(reply.status, 200);
     assert_eq!(
@@ -359,15 +359,52 @@ async fn metrics_renders_the_exposition_with_the_registered_content_type() {
     assert!(reply.body.contains(r#"proxy="alpha""#), "{}", reply.body);
 }
 
+/// Both spellings of every path the API answers.
+///
+/// Axum stopped redirecting `/x/` to `/x` in 0.8, so without the trailing-slash
+/// layer each of these is a 404 -- and a scrape config or a curl carrying the
+/// slash gets nothing, with the endpoint sitting right there.
+#[tokio::test]
+async fn a_trailing_slash_reaches_the_same_endpoint() {
+    let harness = Harness::new();
+    for (with, without) in [
+        ("/metrics/", "/metrics"),
+        ("/api/v1/status/", "/api/v1/status"),
+        ("/api/v1/proxies/", "/api/v1/proxies"),
+        ("/api/v1/schema/", "/api/v1/schema"),
+        ("/api/v1/access/", "/api/v1/access"),
+    ] {
+        let slashed = Call::get(with)
+            .token("root-token-0000000000000000000000000")
+            .send(harness.router())
+            .await;
+        let bare = Call::get(without)
+            .token("root-token-0000000000000000000000000")
+            .send(harness.router())
+            .await;
+        assert_eq!(slashed.status, bare.status, "{with} against {without}");
+        assert_eq!(
+            slashed.content_type, bare.content_type,
+            "{with} against {without}"
+        );
+        assert_eq!(slashed.body, bare.body, "{with} against {without}");
+    }
+}
+
+/// And the root is not a trailing slash to be trimmed away.
+#[tokio::test]
+async fn the_root_still_answers() {
+    let harness = Harness::new();
+    let reply = Call::get("/").send(harness.router()).await;
+    assert_ne!(reply.status, 404, "the layer trimmed the root itself");
+}
+
 #[tokio::test]
 async fn metrics_needs_no_token() {
     // A scraper is a machine with nowhere to put one.
     let harness = Harness::new();
     assert_eq!(
-        Call::get("/api/v1/metrics")
-            .send(harness.router())
-            .await
-            .status,
+        Call::get("/metrics").send(harness.router()).await.status,
         200
     );
 }

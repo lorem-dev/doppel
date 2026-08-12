@@ -60,8 +60,14 @@ sending events, in the same position a URL carries a password.
 
 ## Metrics
 
-`GET /api/v1/metrics` on the admin listener, in the Prometheus text format,
+`GET /metrics` on the admin listener, in the Prometheus text format,
 unauthenticated because a scraper has nowhere to put a token.
+
+The one endpoint outside `/api/`. `metrics_path` defaults to `/metrics` in
+Prometheus and in every agent and annotation that scrapes one, so the path is
+settled by something larger than this project -- and a scrape of `/metrics` while
+the exposition was under `/api/v1/` was answered by the dashboard with `200
+text/html`, which reads as a parse failure or as no metrics at all.
 
 | Metric | Type | Labels |
 |---|---|---|

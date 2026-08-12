@@ -12,6 +12,9 @@ pub mod state;
 pub mod status;
 pub mod templates;
 
+use tower::Layer as _;
+use tower_http::normalize_path::{NormalizePath, NormalizePathLayer};
+
 pub use access::{Action, Caller, authorize, caller_from_headers};
 pub use response::ApiError;
 pub use state::AdminState;
@@ -79,6 +82,25 @@ async fn method_not_allowed(method: axum::http::Method, uri: axum::http::Uri) ->
     .into()
 }
 
+/// The router with a trailing slash trimmed before routing.
+///
+/// `/metrics/` and `/api/v1/status/` answer as `/metrics` and `/api/v1/status`
+/// do. Axum stopped redirecting between the two spellings in 0.8, and a 404 for
+/// a slash is a poor answer for a path an operator typed or a scrape config
+/// carried over from somewhere else.
+///
+/// A layer around the router rather than on it: `Router::layer` runs after
+/// routing has already decided there is nothing there, which is too late to
+/// rewrite the path.
+///
+/// The proxy listener deliberately gets none of this. A proxied path is relayed
+/// byte for byte -- `/orders/` and `/orders` are two resources upstream, and one
+/// of this project's own mocks matches `^/api/v1/resource/9/$`.
+#[must_use]
+pub fn app(state: AdminState) -> NormalizePath<axum::Router> {
+    NormalizePathLayer::trim_trailing_slash().layer(router(state))
+}
+
 /// Bind nothing, serve until `shutdown` resolves.
 ///
 /// Mirrors `doppel_proxy::serve`: the caller owns the listener and the
@@ -89,7 +111,12 @@ pub async fn serve(
     listener: tokio::net::TcpListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown)
-        .await
+    // `into_make_service` from `axum::ServiceExt`, not the `Router` method: the
+    // trailing-slash layer makes this a `Service` rather than a `Router`.
+    axum::serve(
+        listener,
+        axum::ServiceExt::<axum::extract::Request>::into_make_service(app(state)),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
 }
