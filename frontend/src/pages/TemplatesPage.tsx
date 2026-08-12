@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router'
 
 import { Banner } from '../components/Banner'
 import { Button } from '../components/Button'
-import { Field, inputClass } from '../components/Field'
+import { Field, controlClass, selectFullClass } from '../components/Field'
 import { Spinner } from '../components/Spinner'
 import type { Syntax } from '../components/CodeEditor'
 import type { TemplateEntry } from '../types/api'
@@ -128,7 +128,7 @@ export default function TemplatesPage() {
           <div className="grow">
             <Field label="File name" hint="Letters, digits, - and _. The extension is chosen beside it.">
               <input
-                className={inputClass}
+                className={controlClass}
                 value={stem}
                 disabled={!allowed}
                 onChange={(event) => setStem(event.target.value)}
@@ -137,7 +137,7 @@ export default function TemplatesPage() {
           </div>
           <Field label="Kind">
             <select
-              className={inputClass}
+              className={selectFullClass}
               aria-label="Kind"
               value={kind.extension}
               disabled={!allowed}

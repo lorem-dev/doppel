@@ -12,6 +12,15 @@ const TABS = [
 ]
 
 /**
+ * Swagger UI, which the server serves rather than the page.
+ *
+ * A plain anchor, not a `NavLink`: it lives under `/api/`, which react-router must
+ * not try to resolve as one of its own routes. In a new tab, because it is a
+ * different application and going there should not throw away a half-filled form.
+ */
+const SWAGGER = '/api/swagger-ui/'
+
+/**
  * The title, the tabs, and the two controls that are always available.
  *
  * The sign-in control is absent entirely on a public deployment: there are no
@@ -44,6 +53,17 @@ export function Header() {
             {label}
           </NavLink>
         ))}
+        <a
+          href={SWAGGER}
+          target="_blank"
+          rel="noreferrer"
+          className="text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+        >
+          API
+          <span aria-hidden="true" className="ml-0.5 text-xs">
+            &#8599;
+          </span>
+        </a>
       </nav>
 
       <div className="ml-auto flex items-center gap-3">

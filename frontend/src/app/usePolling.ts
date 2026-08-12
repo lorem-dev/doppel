@@ -11,8 +11,13 @@ import { runtimeConfig } from '../services/runtimeConfig'
  * Pausing on hidden is not an optimisation for the browser's sake: a dashboard
  * left open in a background tab overnight would otherwise make about a thousand
  * requests nobody reads, and each one carries the admin token.
+ *
+ * `key` is never read. It is the thing whose change means "and fetch again now":
+ * the token, for the caller below. Without it, signing in left the refusal that
+ * had been shown to an anonymous caller on screen until the next tick -- up to a
+ * minute of a page saying a token is needed to someone who had just given one.
  */
-export function usePolling(tick: () => void): void {
+export function usePolling(tick: () => void, key?: unknown): void {
   useEffect(() => {
     const { refreshMs } = runtimeConfig()
 
@@ -37,5 +42,5 @@ export function usePolling(tick: () => void): void {
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [tick])
+  }, [tick, key])
 }

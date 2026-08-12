@@ -42,6 +42,10 @@ test('a proxy can be created, edited and deleted', async ({ page }) => {
   // Resolved by header, because `alpha` is already the default proxy and rule V12
   // allows only one. Leaving this alone is how an operator meets that rule for
   // the first time -- as a refusal from the server, which is the next test.
+  //
+  // Inside a folded section, so it is opened first: every group on the form starts
+  // folded, which is what keeps the form to one screen.
+  await page.locator('summary').filter({ hasText: 'Forwarding' }).first().click()
   await page.getByLabel('Resolve by').selectOption('header')
   await page.getByLabel('Header name').fill('X-Proxy-Name')
   await page.getByRole('button', { name: 'Create proxy' }).click()

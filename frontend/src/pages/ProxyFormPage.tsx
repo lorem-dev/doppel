@@ -3,9 +3,10 @@ import { useNavigate, useParams } from 'react-router'
 
 import { Banner } from '../components/Banner'
 import { Button } from '../components/Button'
-import { Field, inputClass } from '../components/Field'
+import { Field, controlClass, selectFullClass } from '../components/Field'
 import { KeyValueRows } from '../components/KeyValueRows'
 import { MockEditor, emptyMock } from '../components/MockEditor'
+import { Section } from '../components/Section'
 import { Spinner } from '../components/Spinner'
 import type { ProxyConfig } from '../types/proxy'
 import { ApiError, complaintAbout } from '../types/error'
@@ -15,6 +16,46 @@ import { createProxy, readProxy, updateProxy } from '../services/proxies'
 
 /** A new proxy, with the two fields the server requires. */
 const BLANK: ProxyConfig = { name: '', type: 'http', url: '' }
+
+/**
+ * What each folded section says about itself.
+ *
+ * A row of four identical closed headings would make the operator open all of them
+ * to find out which one holds the setting they came for.
+ */
+function forwardingSummary(proxy: ProxyConfig): string {
+  const parts = [proxy.resolve?.type === 'header' ? 'by header' : 'default proxy']
+  if (proxy.timeout !== undefined) {
+    parts.push(`${proxy.timeout}s timeout`)
+  }
+  const headers = Object.keys(proxy.headers ?? {}).length
+  if (headers) {
+    parts.push(`${headers} header${headers === 1 ? '' : 's'}`)
+  }
+  return parts.join(', ')
+}
+
+function faultSummary(proxy: ProxyConfig): string {
+  const parts: string[] = []
+  if (proxy.replace !== undefined) {
+    parts.push('replace')
+  }
+  if (proxy.loss) {
+    parts.push('loss')
+  }
+  if (proxy.latency) {
+    parts.push('latency')
+  }
+  if (proxy.rewrite_redirects === false) {
+    parts.push('redirects kept')
+  }
+  return parts.length ? parts.join(', ') : 'none'
+}
+
+function accessSummary(proxy: ProxyConfig): string {
+  const set = Object.keys(proxy.access ?? {})
+  return set.length ? set.join(', ') : 'inherited'
+}
 
 /**
  * An optional number field: empty means absent, not zero.
@@ -128,9 +169,6 @@ export default function ProxyFormPage() {
         <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
           {editing ? `Edit ${name}` : 'Add a proxy'}
         </h2>
-        {revision ? (
-          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{revision}</span>
-        ) : null}
       </div>
 
       {error ? (
@@ -143,7 +181,7 @@ export default function ProxyFormPage() {
 
       <Field label="Name" hint="Letters, digits, - and _, 2 to 32 characters." error={errorFor('name')}>
         <input
-          className={inputClass}
+          className={controlClass}
           value={draft.name}
           disabled={!allowed || saving}
           onChange={(event) => patch({ name: event.target.value })}
@@ -151,22 +189,26 @@ export default function ProxyFormPage() {
       </Field>
 
       <Field label="Type" hint="Only http. tcp is not implemented and the server refuses it.">
-        <input className={inputClass} value={draft.type} disabled readOnly aria-label="Type" />
+        <input className={controlClass} value={draft.type} disabled readOnly aria-label="Type" />
       </Field>
 
       <Field label="Upstream URL" error={errorFor('url')}>
         <input
-          className={inputClass}
+          className={controlClass}
           value={draft.url}
           disabled={!allowed || saving}
           onChange={(event) => patch({ url: event.target.value })}
         />
       </Field>
 
-      <div className="flex gap-2">
+      <Section
+        title="Forwarding"
+        summary={forwardingSummary(draft)}
+      >
+      <div className="flex gap-3">
         <Field label="Timeout (seconds)" hint="Absent means no per-proxy timeout." error={errorFor('timeout')}>
           <input
-            className={inputClass}
+            className={controlClass}
             type="number"
             value={draft.timeout ?? ''}
             disabled={!allowed || saving}
@@ -175,7 +217,7 @@ export default function ProxyFormPage() {
         </Field>
         <Field label="Body limit" hint="Bytes, or 4Mi." error={errorFor('body_limit')}>
           <input
-            className={inputClass}
+            className={controlClass}
             value={draft.body_limit ?? ''}
             disabled={!allowed || saving}
             onChange={(event) =>
@@ -188,7 +230,7 @@ export default function ProxyFormPage() {
       <div className="flex gap-2">
         <Field label="Resolve by">
           <select
-            className={inputClass}
+            className={selectFullClass}
             aria-label="Resolve by"
             value={draft.resolve?.type ?? 'default'}
             disabled={!allowed || saving}
@@ -209,7 +251,7 @@ export default function ProxyFormPage() {
           <div className="grow">
             <Field label="Header name" error={errorFor('header')}>
               <input
-                className={inputClass}
+                className={controlClass}
                 value={draft.resolve.header ?? ''}
                 disabled={!allowed || saving}
                 onChange={(event) => patch({ resolve: { type: 'header', header: event.target.value } })}
@@ -227,17 +269,17 @@ export default function ProxyFormPage() {
         value={draft.headers}
         onChange={(next) => patch({ headers: next })}
       />
+      </Section>
 
-      <fieldset className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">
-        <legend className="text-sm font-semibold text-slate-900 dark:text-slate-100">Faults</legend>
-        <div className="flex gap-2">
+      <Section title="Faults" summary={faultSummary(draft)}>
+        <div className="flex gap-3">
           <Field
             label="Replace"
             hint="A fraction: 0.25 replaces a quarter of matching requests with a mock."
             error={errorFor('replace')}
           >
             <input
-              className={inputClass}
+              className={controlClass}
               type="number"
               step="0.01"
               value={draft.replace ?? ''}
@@ -247,7 +289,7 @@ export default function ProxyFormPage() {
           </Field>
           <Field label="Rewrite redirects" hint="On by default: a Location pointing upstream is pointed back here.">
             <select
-              className={inputClass}
+              className={selectFullClass}
               aria-label="Rewrite redirects"
               value={draft.rewrite_redirects === undefined ? 'default' : String(draft.rewrite_redirects)}
               disabled={!allowed || saving}
@@ -265,10 +307,10 @@ export default function ProxyFormPage() {
           </Field>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <Field label="Loss rate" hint="A fraction. Leave empty for none." error={errorFor('percentage')}>
             <input
-              className={inputClass}
+              className={controlClass}
               type="number"
               step="0.01"
               value={draft.loss?.percentage ?? ''}
@@ -286,7 +328,7 @@ export default function ProxyFormPage() {
           </Field>
           <Field label="Loss status" error={errorFor('status')}>
             <input
-              className={inputClass}
+              className={controlClass}
               type="number"
               value={draft.loss?.status ?? ''}
               disabled={!allowed || saving || !draft.loss}
@@ -301,10 +343,10 @@ export default function ProxyFormPage() {
           </Field>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex gap-3">
           <Field label="Latency rate" hint="A fraction of requests to delay.">
             <input
-              className={inputClass}
+              className={controlClass}
               type="number"
               step="0.01"
               value={draft.latency?.percentage ?? ''}
@@ -326,7 +368,7 @@ export default function ProxyFormPage() {
           </Field>
           <Field label="Minimum (seconds)" error={errorFor('min')}>
             <input
-              className={inputClass}
+              className={controlClass}
               type="number"
               step="0.1"
               value={draft.latency?.min ?? ''}
@@ -342,7 +384,7 @@ export default function ProxyFormPage() {
           </Field>
           <Field label="Maximum (seconds)" error={errorFor('max')}>
             <input
-              className={inputClass}
+              className={controlClass}
               type="number"
               step="0.1"
               value={draft.latency?.max ?? ''}
@@ -357,12 +399,9 @@ export default function ProxyFormPage() {
             />
           </Field>
         </div>
-      </fieldset>
+      </Section>
 
-      <fieldset className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">
-        <legend className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          Access overrides
-        </legend>
+      <Section title="Access overrides" summary={accessSummary(draft)}>
         <p className="text-xs text-slate-500 dark:text-slate-400">
           Empty means this proxy follows <code>admin.access</code>. A name must be one
           <code> admin.groups</code> allows.
@@ -373,7 +412,7 @@ export default function ProxyFormPage() {
           return (
             <Field key={action} label={action} error={errorFor(action)}>
               <input
-                className={inputClass}
+                className={controlClass}
                 placeholder="inherit"
                 value={value}
                 disabled={!allowed || saving}
@@ -393,10 +432,14 @@ export default function ProxyFormPage() {
             </Field>
           )
         })}
-      </fieldset>
+      </Section>
 
-      <fieldset className="flex flex-col gap-3 rounded border border-slate-200 p-3 dark:border-slate-800">
-        <legend className="text-sm font-semibold text-slate-900 dark:text-slate-100">Mocks</legend>
+      <Section
+        title="Mocks"
+        summary={
+          (draft.mocks?.length ?? 0) === 0 ? 'none' : `${draft.mocks?.length ?? 0}`
+        }
+      >
         {(draft.mocks ?? []).map((mock, index) => (
           <MockEditor
             key={index}
@@ -421,9 +464,15 @@ export default function ProxyFormPage() {
         >
           Add a mock
         </Button>
-      </fieldset>
+      </Section>
 
-      <div className="flex items-center gap-2">
+      {/*
+        Sticky, because the form is long enough that the button was a scroll away
+        from whatever was just typed. `bottom-0` inside the page's scroll container,
+        with the page's own background under it -- a transparent bar over a table of
+        inputs is unreadable at exactly the moment it matters.
+      */}
+      <div className="sticky bottom-0 -mx-4 mt-2 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
         <Button
           variant="primary"
           onClick={save}
@@ -435,6 +484,11 @@ export default function ProxyFormPage() {
         <Button onClick={() => void navigate('/')} disabled={saving}>
           Cancel
         </Button>
+        {revision ? (
+          <span className="ml-auto font-mono text-xs text-slate-500 dark:text-slate-400">
+            {revision}
+          </span>
+        ) : null}
       </div>
     </section>
   )

@@ -36,3 +36,23 @@
     color-scheme: dark;
   }
 }
+
+@layer components {
+  /*
+   * The chevron on a select.
+   *
+   * Written here rather than as a Tailwind arbitrary value: a `bg-[url("data:...")]`
+   * carrying a quoted SVG did not survive into the stylesheet at all, which left
+   * `appearance-none` having removed the native arrow and nothing having replaced
+   * it -- a select with no affordance whatsoever. Plain CSS needs no escaping.
+   *
+   * `currentColor` cannot be used inside a data URI, so the stroke is slate-500,
+   * which reads on both themes.
+   */
+  .select-chevron {
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%2364748b' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M4 6l4 4 4-4'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 16px 16px;
+  }
+}

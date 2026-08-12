@@ -1,3 +1,4 @@
+import { selectFullClass } from './Field'
 import { useTheme } from '../store/theme'
 import type { ThemeChoice } from '../store/theme'
 
@@ -24,7 +25,7 @@ export function ThemeToggle() {
         aria-label="Theme"
         value={choice}
         onChange={(event) => set(event.target.value as ThemeChoice)}
-        className="rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
+        className={`${selectFullClass} w-auto`}
       >
         {CHOICES.map(({ value, label }) => (
           <option key={value} value={value}>

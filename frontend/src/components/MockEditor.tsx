@@ -1,8 +1,9 @@
 import { Suspense, lazy } from 'react'
 
 import { Button } from './Button'
-import { Field, inputClass } from './Field'
+import { Field, controlClass, selectFullClass } from './Field'
 import { KeyValueRows } from './KeyValueRows'
+import { Section } from './Section'
 import { Spinner } from './Spinner'
 import type { Syntax } from './CodeEditor'
 import type { HttpMethod, MockConfig } from '../types/proxy'
@@ -74,12 +75,12 @@ export function MockEditor({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">
-      <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
+      <div className="flex items-end gap-2">
         <div className="grow">
           <Field label="Mock name" error={complaint('name')}>
             <input
-              className={inputClass}
+              className={controlClass}
               value={mock.name}
               disabled={disabled}
               onChange={(event) => onChange({ ...mock, name: event.target.value })}
@@ -91,10 +92,10 @@ export function MockEditor({
         </Button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-3">
         <Field label="Method">
           <select
-            className={inputClass}
+            className={selectFullClass}
             aria-label={`${mock.name} method`}
             value={mock.request.method}
             disabled={disabled}
@@ -119,7 +120,7 @@ export function MockEditor({
             error={complaint('url')}
           >
             <input
-              className={inputClass}
+              className={controlClass}
               value={mock.request.url}
               disabled={disabled}
               onChange={(event) =>
@@ -130,6 +131,7 @@ export function MockEditor({
         </div>
       </div>
 
+      <Section title="Variables from the request" summary={variableSummary(mock)}>
       <KeyValueRows
         label="Variables from headers"
         keyLabel="variable"
@@ -154,11 +156,12 @@ export function MockEditor({
         value={mock.request.body}
         onChange={(next) => onChange({ ...mock, request: { ...mock.request, body: next } })}
       />
+      </Section>
 
-      <div className="flex gap-2">
+      <div className="flex gap-3">
         <Field label="Status" error={complaint('status')}>
           <input
-            className={inputClass}
+            className={controlClass}
             type="number"
             value={mock.response.status}
             disabled={disabled}
@@ -167,7 +170,7 @@ export function MockEditor({
         </Field>
         <Field label="Answer with">
           <select
-            className={inputClass}
+            className={selectFullClass}
             aria-label={`${mock.name} response source`}
             value={source}
             disabled={disabled}
@@ -187,7 +190,7 @@ export function MockEditor({
           error={complaint('template')}
         >
           <input
-            className={inputClass}
+            className={controlClass}
             value={mock.response.template ?? ''}
             disabled={disabled}
             onChange={(event) => setResponse({ template: event.target.value })}
@@ -215,6 +218,15 @@ export function MockEditor({
       />
     </div>
   )
+}
+
+/** How many variables a mock extracts, for the folded summary. */
+function variableSummary(mock: MockConfig): string {
+  const count =
+    Object.keys(mock.request.headers ?? {}).length +
+    Object.keys(mock.request.query ?? {}).length +
+    Object.keys(mock.request.body ?? {}).length
+  return count === 0 ? 'none' : `${count}`
 }
 
 /** A new mock, with the fields the server requires already filled in. */

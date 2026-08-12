@@ -10,6 +10,19 @@ test.beforeAll(async () => {
 })
 test.afterAll(() => doppel.stop())
 
+/**
+ * Unfold a section of the form.
+ *
+ * Every group starts folded, so a scenario has to open what it is about to fill in
+ * -- which is also what an operator does, and the reason the test says which
+ * sections it touches.
+ */
+async function open(page: Page, title: string) {
+  // The summary itself, not the group: a section that contains another one -- Mocks
+  // holds the variable maps -- matches its child's text too.
+  await page.locator('summary').filter({ hasText: title }).first().click()
+}
+
 async function signedIn(page: Page) {
   await page.goto(doppel.baseURL)
   await page.getByRole('textbox', { name: 'Token' }).fill(ROOT_TOKEN)
@@ -52,6 +65,7 @@ test('every field of a proxy can be filled in and is stored', async ({ page }) =
   await expect(page.getByLabel('Type')).toBeDisabled()
 
   // Forwarding.
+  await open(page, 'Forwarding')
   await page.getByLabel('Timeout (seconds)').fill('12')
   await page.getByLabel('Body limit').fill('4Mi')
   // Resolved by header, because `alpha` is already the default proxy and rule V12
@@ -65,6 +79,7 @@ test('every field of a proxy can be filled in and is stored', async ({ page }) =
   await page.getByLabel('Headers sent upstream value 1').fill('yes')
 
   // Faults.
+  await open(page, 'Faults')
   await page.getByLabel('Replace').fill('0.25')
   await page.getByLabel('Rewrite redirects').selectOption('false')
   await page.getByLabel('Loss rate').fill('0.05')
@@ -75,16 +90,19 @@ test('every field of a proxy can be filled in and is stored', async ({ page }) =
 
   // Access overrides. `reader` is a token this configuration knows; a name it did
   // not would be refused by rule V27, which is the next test.
+  await open(page, 'Access overrides')
   await page.getByLabel('read', { exact: true }).fill('reader')
   await page.getByLabel('upload', { exact: true }).fill('public')
 
   // One mock, with all three selector maps, a JSON body and an override.
+  await open(page, 'Mocks')
   await page.getByRole('button', { name: 'Add a mock' }).click()
   await page.getByLabel('Mock name').fill('one-widget')
   // The mock's own controls are labelled with its name, so they are addressed by
   // the name just typed.
   await page.getByLabel('one-widget method').selectOption('POST')
   await page.getByLabel('Path pattern').fill('^/widgets$')
+  await open(page, 'Variables from the request')
   await page.getByRole('button', { name: 'Add Variables from headers' }).click()
   await page.getByLabel('Variables from headers variable 1').fill('trace')
   await page.getByLabel('Variables from headers header name 1').fill('X-Trace-Id')
@@ -168,6 +186,7 @@ test('a name the configuration does not know is refused, on its field', async ({
   await page.getByRole('heading', { name: 'Edit alpha' }).waitFor()
 
   // Rule V27: `access` may only name a token or group that exists.
+  await open(page, 'Access overrides')
   await page.getByLabel('read', { exact: true }).fill('nobody')
   await page.getByRole('button', { name: 'Save changes' }).click()
 

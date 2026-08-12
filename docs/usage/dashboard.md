@@ -97,9 +97,17 @@ hidden.
 
 Editing opens a form over the whole proxy document: the upstream, timeouts, body
 limits, resolution, injected headers, the three fault settings, per-proxy access
-overrides, and the mocks with their matching rules and responses. Saving sends the
-revision the form was loaded at, so a proxy someone else changed in the meantime
-is refused rather than overwritten -- the page says so and asks you to reload.
+overrides, and the mocks with their matching rules and responses.
+
+A proxy has thirteen fields and any number of mocks, and most edits touch one of
+them -- so the name, the type and the upstream are always on screen and everything
+else is a folded section that says what is inside it: `Faults none`,
+`Access overrides inherited`, `Mocks 3`. Save and Cancel sit in a bar pinned to the
+bottom of the window, so they are reachable whatever is open.
+
+Saving sends the revision the form was loaded at, so a proxy someone else changed
+in the meantime is refused rather than overwritten -- the page says so and asks you
+to reload.
 
 **Templates**, per proxy, lists the template files and lets you write one: a name,
 one of `json.j2`, `html.j2` or `text.j2`, and the content, with syntax colouring.
@@ -113,6 +121,10 @@ then the file.
 **Status** shows uptime, the configuration revision in effect and the resolution
 state of each proxy, and carries the reload button. Reload re-reads the store and
 reports what it applied, including the sections that need a restart instead.
+
+**API** is not a page of the dashboard but a link to the Swagger UI the same
+listener serves, at `/api/swagger-ui/`. It opens in a new tab, because it is a
+different application and going there should not throw away a half-filled form.
 
 ---
 

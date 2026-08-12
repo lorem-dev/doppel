@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { Button } from './Button'
-import { inputClass } from './Field'
+import { controlClass } from './Field'
 import { useAuth } from '../store/auth'
 
 /**
@@ -46,7 +46,7 @@ export function TokenDialog() {
           does not expire.
         </p>
         <input
-          className={inputClass}
+          className={controlClass}
           type="password"
           autoComplete="off"
           aria-label="Token"

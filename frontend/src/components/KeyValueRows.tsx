@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { Button } from './Button'
-import { inputClass } from './Field'
+import { controlClass } from './Field'
 
 /**
  * A string-to-string map as rows.
@@ -61,13 +61,15 @@ export function KeyValueRows({
   }
 
   return (
-    <fieldset className="mt-2">
-      <legend className="text-sm font-medium text-slate-700 dark:text-slate-200">{label}</legend>
-      <div className="flex flex-col gap-1">
+    <fieldset>
+      <legend className="mb-1.5 text-sm font-medium text-slate-700 dark:text-slate-200">
+        {label}
+      </legend>
+      <div className="flex flex-col gap-2">
         {rows.map(([key, value], index) => (
           <div key={index} className="flex items-center gap-2">
             <input
-              className={inputClass}
+              className={controlClass}
               aria-label={`${label} ${keyLabel} ${index + 1}`}
               placeholder={keyLabel}
               value={key}
@@ -75,7 +77,7 @@ export function KeyValueRows({
               onChange={(event) => set(index, [event.target.value, value])}
             />
             <input
-              className={inputClass}
+              className={controlClass}
               aria-label={`${label} ${valueLabel} ${index + 1}`}
               placeholder={valueLabel}
               value={value}
@@ -92,13 +94,15 @@ export function KeyValueRows({
           </div>
         ))}
       </div>
-      <Button
-        disabled={disabled}
-        onClick={() => publish([...rows, ['', '']])}
-        aria-label={`Add ${label}`}
-      >
-        Add
-      </Button>
+      <div className={rows.length ? 'mt-2' : ''}>
+        <Button
+          disabled={disabled}
+          onClick={() => publish([...rows, ['', '']])}
+          aria-label={`Add ${label}`}
+        >
+          Add
+        </Button>
+      </div>
     </fieldset>
   )
 }
