@@ -1,6 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { PRIVATE_CONFIG, PUBLIC_OVERRIDES_CONFIG, ROOT_TOKEN } from '../src/configs'
+import {
+  PRIVATE_CONFIG,
+  PUBLIC_OVERRIDES_CONFIG,
+  READER_TOKEN,
+  ROOT_TOKEN,
+} from '../src/configs'
 import { fieldMessage } from '../src/fields'
 import { startDoppel, type Doppel } from '../src/server'
 
@@ -31,11 +36,19 @@ async function signedIn(page: Page) {
   await page.getByText('root (admin)').waitFor()
 }
 
-/** The stored document, read back through the API rather than off the screen. */
+/**
+ * The stored document, read back through the API rather than off the screen.
+ *
+ * `reader`'s token, not root's: the scenario below writes `access.read: reader`
+ * onto the proxy, and a write through the API is in force by the time it answers
+ * -- so from that moment the override is what decides, and `admin` is not on it.
+ * Reading as root here got a `403` the moment writes started applying
+ * themselves, which is the override doing exactly what the form said.
+ */
 async function stored(page: Page, name: string): Promise<Record<string, unknown>> {
   const response = await page.request.get(
     `${doppel.baseURL}/api/v1/proxies/${encodeURIComponent(name)}`,
-    { headers: { 'X-Proxy-Authorization': `Bearer ${ROOT_TOKEN}` } },
+    { headers: { 'X-Proxy-Authorization': `Bearer ${READER_TOKEN}` } },
   )
   expect(response.status()).toBe(200)
   const { proxy } = (await response.json()) as { proxy: Record<string, unknown> }

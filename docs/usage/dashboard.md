@@ -17,6 +17,12 @@ The whole thing is compiled into the binary. There is nothing to deploy, no
 directory to serve, and no version of the page that can disagree with the version
 of Doppel serving it.
 
+It is served compressed: the listener negotiates `br` and `gzip` from
+`Accept-Encoding`, so the 140 KB of JavaScript and CSS the page is made of goes
+out as 74 KB or less, and `index.html` is minified on the way into the binary.
+The proxy listener is deliberately left out of that -- a client under test has to
+see the encoding its upstream chose.
+
 Every URL the dashboard shows is a real one. `/proxies/alpha` can be bookmarked,
 reloaded and shared, because everything outside `/api/` and `/static/` is answered
 with the page -- which is also why the API lives under `/api/` in the first place:
@@ -211,11 +217,14 @@ choices are Text body and JSON body. Switching away from a template is undoable 
 the page is open, because the name cannot be typed back in.
 
 **Status** shows uptime, the configuration revision in effect and the resolution
-state of each proxy, and carries the reload button. Reload re-reads the store and
-reports what it applied, including the sections that need a restart instead.
+state of each proxy, and carries the reload button. Saving in the form needs no
+reload -- a write through the API is in force when it answers -- so the button is
+for a configuration changed behind the dashboard: `main.yaml` edited by hand,
+`doppel config push`, another instance. Reload re-reads the store and reports what
+it applied, including the sections that need a restart instead.
 
 **API** is not a page of the dashboard but a link to the Swagger UI the same
-listener serves, at `/api/swagger-ui/`. It opens in a new tab, because it is a
+listener serves, at `/swagger-ui/`. It opens in a new tab, because it is a
 different application and going there should not throw away a half-filled form.
 
 ---

@@ -130,8 +130,13 @@ would not help.
 | GET | `/api/v1/schema` | none | `200` |
 | GET | `/api/v1/status` | none | `200` |
 | GET | `/metrics` | none | `200` |
-| GET | `/api/openapi.json` | none | `200` |
-| GET | `/api/swagger-ui` | none | `200` |
+| GET | `/openapi.json` | none | `200` |
+| GET | `/swagger-ui` | none | `200` |
+
+Responses are compressed when the client asks: `br` or `gzip` from
+`Accept-Encoding`, `br` first when both are offered. The proxy listener does not
+do this -- it relays the upstream's own encoding, because that is part of what a
+client is being tested against.
 
 A trailing slash is accepted everywhere: `/metrics/` answers as `/metrics` does.
 Axum stopped redirecting between the two spellings, and a 404 for a slash is a
@@ -139,10 +144,11 @@ poor answer for a path an operator typed. The proxy listener is deliberately not
 like this -- a proxied path is relayed byte for byte, because `/orders/` and
 `/orders` are two resources upstream.
 
-`/api/v1/status`, `/api/openapi.json` and `/api/swagger-ui` sit outside `/api/v1`
-because they are not resources of the API; they describe or observe the process.
-`/metrics` sits outside `/api/` altogether, because that path is what every
-scraper looks for by default.
+`/api/v1/status` sits outside `/api/v1` because it is not a resource of the API;
+it reports on the process. `/metrics`, `/openapi.json` and `/swagger-ui/` sit
+outside `/api/` altogether: those paths are what a scraper, a client generator
+and a browser look for by default, and none of the three is a resource of the API
+either.
 
 Everything the API serves is under `/api/`. That is a boundary rather than a
 convention: with `admin.dashboard` on, a `GET` outside `/api/` and `/static/` is
@@ -263,6 +269,24 @@ Deleting a proxy removes its templates. Updating one removes the templates no
 remaining mock names. Both happen *after* the configuration write, so a
 rejected change leaves every file in place.
 
+### A write is in force when it answers
+
+`POST`, `PUT` and `DELETE` promote the stored configuration to the running one
+before they reply, so a `200` means the process is serving what you just wrote:
+the next request through the proxy listener goes to the new upstream, and
+`GET /api/v1/status` reports the new revision. No reload in between.
+
+It used to take one, and that was a trap worth naming: the write returned `200`,
+the API read the new document back, and the traffic kept going where it went
+before -- the API agreeing with the operator while the process disagreed with
+both.
+
+If the promotion itself fails -- the store became unreadable, or another writer
+left the document invalid between the save and the load -- the response says so
+and names both halves: the configuration is stored, the process is still running
+the previous one, and `POST /api/v1/config/reload` retries. The write is not
+undone, because it is not this process's to undo.
+
 ## Reload
 
 `POST /api/v1/config/reload` promotes the stored configuration to the running
@@ -290,7 +314,13 @@ the configuration file out of band could add a token for themselves and reload
 it into effect.
 
 Same effect as `doppel config reload`, and the two share one implementation
-and one mutex, so they cannot swap runtimes in the wrong order.
+and one mutex -- with the writes above, which promote through the same path, so
+none of the three can swap runtimes in the wrong order.
+
+What is left for it, now that a write applies itself: a configuration changed
+**behind** the API. An operator editing `main.yaml`, `doppel config push`, another
+instance writing to the same database -- none of those pass through a handler, so
+none of them can promote themselves.
 
 ## Status
 
@@ -354,9 +384,14 @@ tell "that already exists" from "you are holding a stale copy".
 ## OpenAPI
 
 `GET /openapi.json` serves a document generated from the handlers themselves,
-so it cannot describe an endpoint this binary does not serve. `GET
-/api/swagger-ui` serves a browser UI over it, with the assets built into the
-binary rather than fetched at runtime.
+so it cannot describe an endpoint this binary does not serve. `GET /swagger-ui/`
+serves a browser UI over it, with the assets built into the binary rather than
+fetched at runtime.
+
+The UI sits outside `/api/` because it is a page rather than an endpoint: it is
+served to a browser, it belongs beside the dashboard's own pages, and an ingress
+routing `/api/*` to a JSON service would otherwise hand a browser HTML through a
+JSON path.
 
 Both are unauthenticated: they describe the API rather than expose any of it,
 and a client cannot authenticate before it knows how.

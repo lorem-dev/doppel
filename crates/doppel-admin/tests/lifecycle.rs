@@ -68,9 +68,51 @@ async fn status_reports_a_default_resolver_as_default() {
 
 #[tokio::test]
 async fn status_reports_what_is_running_not_what_is_stored() {
-    // A configuration written but not reloaded is not what this process is
-    // doing. Reporting the store here would make `/api/v1/status` agree with the
-    // file and disagree with reality, which is the opposite of its job.
+    // A configuration written *behind* the API -- an operator editing
+    // `main.yaml`, `doppel config push`, another instance -- is not what this
+    // process is doing until it reloads. Reporting the store here would make
+    // `/api/v1/status` agree with the file and disagree with reality, which is
+    // the opposite of its job.
+    //
+    // A write *through* the API is the other case, and the test below: that one
+    // is in force by the time the response is written.
+    let harness = Harness::new();
+    let before = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
+
+    let (mut config, revision) = harness.store.load().await.expect("the fixture loads");
+    // Through the same shape the API takes, minus the API: `proxy_json`'s
+    // document, deserialized straight into the configuration.
+    config.proxies.push(
+        serde_json::from_value(
+            proxy_json("gamma", "https://gamma.example.com/api/")["proxy"].clone(),
+        )
+        .expect("a proxy document parses"),
+    );
+    harness
+        .store
+        .save(&config, Some(revision))
+        .await
+        .expect("the store accepts it");
+
+    let after = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
+    assert_eq!(before, after);
+    assert_eq!(after["proxies"].as_array().unwrap().len(), 2);
+}
+
+/// The other half, and the one an operator reported: a `PUT` that changed an
+/// upstream returned 200, the document held the new value, and the traffic kept
+/// going to the old one until somebody reloaded.
+///
+/// Every write applies to the running process now, so a 200 means what a client
+/// reads it to mean.
+#[tokio::test]
+async fn a_write_through_the_api_is_in_force_immediately() {
     let harness = Harness::new();
     let before = Call::get("/api/v1/status")
         .send(harness.router())
@@ -88,12 +130,49 @@ async fn status_reports_what_is_running_not_what_is_stored() {
         .send(harness.router())
         .await
         .json();
-    assert_eq!(before, after);
-    assert_eq!(after["proxies"].as_array().unwrap().len(), 2);
+    assert_eq!(after["proxies"].as_array().unwrap().len(), 3);
+    assert_ne!(after["revision"], before["revision"]);
+
+    // And an update reaches it as well, which is the shape of the report: the
+    // upstream in the running configuration is the one just written.
+    let update = Call::put("/api/v1/proxies/gamma")
+        .token(ROOT)
+        // The revision the create handed back, which is what an update is
+        // required to carry.
+        .if_match(create.etag.clone().expect("create sets an ETag"))
+        .json(proxy_json("gamma", "https://moved.example.com/api/"))
+        .send(harness.router())
+        .await;
+    assert_eq!(update.status, 200, "{}", update.body);
+
+    let running = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
+    let gamma = running["proxies"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|proxy| proxy["name"] == "gamma")
+        .expect("gamma is in the running configuration");
+    assert_eq!(gamma["upstream"], "https://moved.example.com/api/");
+
+    // A delete too: a proxy the operator has been told is gone must not still be
+    // served.
+    let delete = Call::delete("/api/v1/proxies/gamma")
+        .token(ROOT)
+        .send(harness.router())
+        .await;
+    assert_eq!(delete.status, 204, "{}", delete.body);
+    let gone = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
+    assert_eq!(gone["proxies"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]
-async fn reload_applies_a_change_written_through_the_api() {
+async fn a_reload_after_a_write_through_the_api_changes_nothing_more() {
     let harness = Harness::new();
     let create = Call::post("/api/v1/proxies")
         .token(ROOT)
@@ -102,6 +181,8 @@ async fn reload_applies_a_change_written_through_the_api() {
         .await;
     assert_eq!(create.status, 201, "{}", create.body);
 
+    // The write already applied, so this is the idempotent case: same store,
+    // same revision, nothing to promote.
     let reload = Call::post("/api/v1/config/reload")
         .token(ROOT)
         .send(harness.router())
@@ -412,7 +493,7 @@ async fn metrics_needs_no_token() {
 #[tokio::test]
 async fn the_openapi_document_is_served_as_json() {
     let harness = Harness::new();
-    let reply = Call::get("/api/openapi.json").send(harness.router()).await;
+    let reply = Call::get("/openapi.json").send(harness.router()).await;
 
     assert_eq!(reply.status, 200, "{}", reply.body);
     let doc = reply.json();
@@ -430,7 +511,7 @@ async fn the_openapi_document_needs_no_token() {
     // cannot authenticate before it knows how to.
     let harness = Harness::new();
     assert_eq!(
-        Call::get("/api/openapi.json")
+        Call::get("/openapi.json")
             .send(harness.router())
             .await
             .status,
@@ -443,7 +524,7 @@ async fn swagger_ui_is_served() {
     let harness = Harness::new();
     // The UI root redirects to its index; both are the UI answering rather
     // than the router falling through to a 404.
-    let reply = Call::get("/api/swagger-ui").send(harness.router()).await;
+    let reply = Call::get("/swagger-ui").send(harness.router()).await;
     assert!(
         reply.status.is_success() || reply.status.is_redirection(),
         "{} {}",
@@ -451,7 +532,7 @@ async fn swagger_ui_is_served() {
         reply.body
     );
 
-    let index = Call::get("/api/swagger-ui/index.html")
+    let index = Call::get("/swagger-ui/index.html")
         .send(harness.router())
         .await;
     assert_eq!(index.status, 200, "{}", index.body);
@@ -468,7 +549,7 @@ async fn the_documented_error_envelope_is_the_one_the_api_actually_sends() {
     // real error response against that promise, so the two cannot drift
     // apart in the direction the document is silent about.
     let harness = Harness::new();
-    let doc = Call::get("/api/openapi.json")
+    let doc = Call::get("/openapi.json")
         .send(harness.router())
         .await
         .json();

@@ -129,6 +129,49 @@ pub(crate) async fn exposition(State(state): State<AdminState>) -> Response {
         .into_response()
 }
 
+/// Promote the stored configuration to the running one, for a caller that has
+/// just written to the store.
+///
+/// A write that only reached the store is a 200 that changed nothing a client can
+/// see: the proxy keeps forwarding to the old upstream, `/api/v1/status` keeps
+/// reporting the old revision, and the CRUD endpoints keep reading the new
+/// document back -- so the API agrees with the operator while the process
+/// disagrees with both. Reported as exactly that, from a running deployment,
+/// after a `PUT` changed an upstream and the traffic did not move.
+///
+/// Authorization is not repeated here. The caller has already been authorized for
+/// the write, and this is the second half of that write rather than a promotion
+/// of its own -- unlike the endpoint below, which is reachable on its own and
+/// authorizes against the running configuration for a reason worth reading there.
+pub(crate) async fn apply_to_runtime(state: &AdminState) -> Result<(), Error> {
+    // The same mutex the reload endpoint and the control socket take: two swaps
+    // that interleave can leave the process running the older configuration.
+    let _guard = state.reload_lock().lock().await;
+
+    doppel_core::reload(state.holder(), state.store(), state.startup())
+        .await
+        .map(|_| ())
+        .map_err(|failure| {
+            // Both facts, because the write is not being undone: the document is
+            // stored and the process is not serving it. A message naming only one
+            // of the two sends the operator looking in the wrong place.
+            Error::new(
+                failure.code,
+                format!(
+                    "the configuration was saved but this process could not start \
+                     serving it, so it is still running the previous one: {}. \
+                     `POST /api/v1/config/reload` retries.",
+                    failure
+                        .violations
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                ),
+            )
+        })
+}
+
 /// Promote the stored configuration to the running one.
 #[utoipa::path(
     post, path = "/api/v1/config/reload", tag = "process",

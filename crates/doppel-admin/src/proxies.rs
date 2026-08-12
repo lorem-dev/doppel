@@ -202,6 +202,9 @@ pub(crate) async fn create(
         .await
         .map_err(|err| store_error(&err))?;
 
+    // The proxy exists in the store; this is what makes it exist in the process.
+    crate::status::apply_to_runtime(&state).await?;
+
     Ok(with_etag(StatusCode::CREATED, created, Some(location)))
 }
 
@@ -309,6 +312,9 @@ pub(crate) async fn update(
         .await
         .map_err(|err| store_error(&err))?;
 
+    // Without this the upstream changes in the document and the traffic does not.
+    crate::status::apply_to_runtime(&state).await?;
+
     Ok(with_etag(StatusCode::OK, updated, None))
 }
 
@@ -364,6 +370,10 @@ pub(crate) async fn remove(
         .retain_templates(name.as_str(), &[])
         .await
         .map_err(|err| store_error(&err))?;
+
+    // A deleted proxy that is still being served is the worst of the three: the
+    // operator has been told it is gone.
+    crate::status::apply_to_runtime(&state).await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
