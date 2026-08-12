@@ -3,12 +3,16 @@
 **/*.rs.bk
 *.pdb
 
-# Runtime artifacts
+# Runtime artifacts. Anchored with a leading slash, all of them: `config/`
+# without one matches a directory of that name at any depth, which quietly
+# covered `crates/doppel-core/src/config/` -- git keeps tracking files it
+# already knows, so nothing failed, but every editor drew the crate's own
+# configuration module as excluded.
 /templates
 *.sock
-main.yaml
+/main.yaml
 # The configuration the compose file mounts, and anything else kept beside it.
-config/
+/config/
 .env
 
 # mkdocs build output
