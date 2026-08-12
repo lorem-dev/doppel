@@ -34,13 +34,23 @@ start.
 ```bash
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:1.2.3-alpine
 ```
 
 Two mounts, and the second is not optional if you use templates at all --
 see [Templates](#templates) below.
+
+**Mount the directory, not the file.** `-v "$PWD/main.yaml:/etc/doppel/main.yaml"`
+looks tidier and breaks every write: a save puts the new configuration in a
+temporary file and renames it over the old one, and nothing can rename over a mount
+point. Reads work, so the dashboard lists proxies happily and then refuses to save
+one with `Resource busy (os error 16)`. With the directory mounted, the
+configuration inside it is an ordinary file and the rename stays within the mount.
+
+Add `:ro` to the mount if nothing should write the configuration -- then the admin
+API's writes are refused for a reason it can state.
 
 The configuration must bind `0.0.0.0` rather than `127.0.0.1`, or nothing
 outside the container can reach it:
@@ -68,7 +78,7 @@ missing volume.
 docker volume create doppel-templates
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:1.2.3-alpine
 ```
@@ -100,8 +110,10 @@ curl -X POST -H "X-Proxy-Authorization: Bearer $TOKEN" \
 docker exec <container> doppel config reload --socket /tmp/doppel.sock
 ```
 
-Editing a bind-mounted `main.yaml` on the host changes the file the container
-reads, so a reload picks it up without restarting anything.
+Editing `config/main.yaml` on the host changes the file the container reads, so a
+reload picks it up without restarting anything. It works the other way too: a write
+through the admin API rewrites that file, in canonical form -- so comments in it do
+not survive an edit made from the dashboard.
 
 ## Tokens
 
@@ -133,7 +145,7 @@ services:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - ./main.yaml:/etc/doppel/main.yaml:ro
+      - ./config:/etc/doppel
       - doppel-templates:/var/lib/doppel/templates
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'

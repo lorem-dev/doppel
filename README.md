@@ -37,7 +37,7 @@ Or run the image:
 
 ```bash
 docker run --rm -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   loremdev/doppel:1.2.3-alpine
 ```
 
@@ -116,8 +116,8 @@ Prerequisites: a stable Rust toolchain via rustup, edition 2024 (see
 
 ```bash
 make release                     # the dashboard, then the binary
-cp main.example.yaml main.yaml   # edit to taste; main.yaml is git-ignored
-./target/release/doppel serve --config main.yaml
+mkdir -p config && cp main.example.yaml config/main.yaml   # config/ is git-ignored
+./target/release/doppel serve --config config/main.yaml
 ```
 
 `make help` lists every target: `make gate` runs the whole check suite,

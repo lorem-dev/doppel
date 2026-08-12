@@ -44,9 +44,12 @@ admin:
   # leaves `/`, `/static/*` and `/robots.txt` unrouted and the JSON API
   # untouched. Takes effect on restart.
   dashboard: true
-  # The heading the dashboard shows, and the browser tab's title. Defaults to
-  # "Doppel"; useful when several Doppels are open at once.
-  title: "Doppel"
+  # The heading the dashboard shows, and the browser tab's title. Left out here,
+  # and left out is worth seeing: with no title the header draws the project's
+  # wordmark, which is the state a first run should show. Set it to a name --
+  # "billing-api (staging)" -- once several Doppels are open at once.
+  #
+  # title: "Doppel"
   auth:
     header: X-Proxy-Authorization  # expects "Bearer {token}"
   tokens:

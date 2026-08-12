@@ -92,6 +92,38 @@ impl FileStore {
         }
     }
 
+    /// The rename that puts a saved configuration in place has failed.
+    ///
+    /// One cause is worth naming, because the operating system's own words for it
+    /// are true and useless: `EBUSY` here almost always means the configuration
+    /// *file* is a mount point. A container started with
+    /// `-v ./main.yaml:/etc/doppel/main.yaml` mounts the file itself, and nothing
+    /// can rename over a mount point -- so every read works, every save fails, and
+    /// the message says "Resource busy".
+    ///
+    /// Mounting the directory instead is the fix, and the message says so. The
+    /// alternative -- writing in place instead of renaming -- would trade this for
+    /// a configuration that can be read half-written, which is the one thing this
+    /// whole function is arranged to prevent.
+    fn replace_failed(path: &Path, source: std::io::Error) -> StoreError {
+        if source.kind() != std::io::ErrorKind::ResourceBusy {
+            return StoreError::Io {
+                path: path.to_path_buf(),
+                source,
+            };
+        }
+        StoreError::Io {
+            path: path.to_path_buf(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::ResourceBusy,
+                "cannot be replaced because it is busy. A save writes a new file and \
+                 renames it over this path, and nothing can rename over a mount point -- \
+                 which is what a container gets from `-v ./main.yaml:/etc/doppel/main.yaml`. \
+                 Mount the directory instead: `-v ./config:/etc/doppel`",
+            ),
+        }
+    }
+
     /// Decode a directory entry's raw file name, treating anything that is
     /// not valid UTF-8 as foreign junk rather than something to report or
     /// compare under a mangled, `to_string_lossy`-produced stand-in.
@@ -210,10 +242,7 @@ impl ConfigStore for FileStore {
             .map_err(Self::io(temp.path()))?;
         temp.as_file().sync_all().map_err(Self::io(temp.path()))?;
         temp.persist(&self.config_path)
-            .map_err(|e| StoreError::Io {
-                path: self.config_path.clone(),
-                source: e.error,
-            })?;
+            .map_err(|e| Self::replace_failed(&self.config_path, e.error))?;
 
         // The rename itself is atomic and content is never at risk: a
         // concurrent reader always sees the complete old configuration or
@@ -379,6 +408,38 @@ proxies:
         std::fs::write(&config_path, GOOD).unwrap();
         let store = FileStore::new(config_path.clone(), dir.join("templates"));
         (store, config_path)
+    }
+
+    #[test]
+    fn a_busy_config_file_is_explained_rather_than_reported() {
+        // The failure a container hits on its first save when the *file* is the bind
+        // mount. `EBUSY` alone sends the reader looking for another process holding
+        // the file, which is not what is wrong.
+        let path = Path::new("/etc/doppel/main.yaml");
+        let busy = FileStore::replace_failed(path, std::io::Error::from_raw_os_error(16));
+
+        let message = busy.to_string();
+        assert!(message.contains("/etc/doppel/main.yaml"), "{message}");
+        assert!(
+            message.contains("mount the directory") || message.contains("Mount the directory"),
+            "{message}"
+        );
+        assert!(message.contains("rename"), "{message}");
+    }
+
+    #[test]
+    fn any_other_failure_to_replace_is_reported_as_it_came() {
+        // Only `EBUSY` gets the explanation. A full disk or a permission problem is
+        // its own thing, and burying it under advice about mounts would be worse
+        // than saying nothing.
+        let path = Path::new("/etc/doppel/main.yaml");
+        let denied = FileStore::replace_failed(
+            path,
+            std::io::Error::from(std::io::ErrorKind::PermissionDenied),
+        );
+        let message = denied.to_string();
+        assert!(message.contains("permission denied"), "{message}");
+        assert!(!message.contains("Mount the directory"), "{message}");
     }
 
     #[tokio::test]

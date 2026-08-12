@@ -54,8 +54,8 @@ frontend: ## Build the dashboard into frontend/dist
 	$(NPM) --prefix $(FRONTEND) ci
 	$(NPM) --prefix $(FRONTEND) run build
 
-run: build ## Run the debug binary against ./main.yaml
-	./target/debug/doppel serve --config main.yaml
+run: build ## Run the debug binary against ./config/main.yaml
+	./target/debug/doppel serve --config config/main.yaml
 
 # ---------------------------------------------------------------------------
 # Checks
@@ -157,9 +157,9 @@ image-rebuild: clean-frontend ## Build the image from scratch: no npm or docker 
 	rm -rf dist
 	docker build --no-cache -t $(IMAGE) .
 
-image-run: ## Run the built image against ./main.yaml
+image-run: ## Run the built image against ./config/main.yaml
 	docker run --rm -p 8080:8080 -p 8081:8081 \
-		-v "$(PWD)/main.yaml:/etc/doppel/main.yaml:ro" \
+		-v "$(PWD)/config:/etc/doppel:ro" \
 		$(IMAGE)
 
 # ---------------------------------------------------------------------------

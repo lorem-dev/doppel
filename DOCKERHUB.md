@@ -60,14 +60,14 @@ start.
 ```bash
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:0.1.0-alpine
 ```
 
 `8080` carries proxied traffic, `8081` the admin API.
 
-A minimal `main.yaml`:
+A minimal `config/main.yaml`:
 
 ```yaml
 server:
@@ -120,7 +120,7 @@ services:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - ./main.yaml:/etc/doppel/main.yaml:ro
+      - ./config:/etc/doppel
       - doppel-templates:/var/lib/doppel/templates
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
@@ -176,7 +176,11 @@ curl -X POST -H "X-Proxy-Authorization: Bearer $TOKEN" \
 docker exec <container> doppel config reload --socket /tmp/doppel.sock
 ```
 
-Editing a bind-mounted `main.yaml` on the host changes the file the container
+The directory is mounted rather than the file on purpose: a save renames a new
+file over the old one, and a file that is itself a mount point cannot be replaced --
+the admin API would refuse every write with "Resource busy".
+
+Editing `config/main.yaml` on the host changes the file the container
 reads, so a reload picks it up without restarting anything.
 
 ## What the image contains
