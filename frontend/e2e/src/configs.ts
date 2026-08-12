@@ -78,6 +78,44 @@ templates:
 ${PROXIES}
 `
 
+/**
+ * Public, with a proxy whose `access` block the public API makes inert.
+ *
+ * The configuration an operator reaches by turning `public: true` on over proxies
+ * they had already restricted: the overrides stay in the document and stop
+ * deciding anything, which the form has to say rather than offer fields for.
+ * `alpha` holds one and `beta` holds none, so one instance covers both answers.
+ */
+export const PUBLIC_OVERRIDES_CONFIG = `
+server:
+  host: "127.0.0.1"
+  port: {proxyPort}
+admin:
+  host: "127.0.0.1"
+  port: {adminPort}
+  public: true
+  tokens: []
+  access: {}
+  upload:
+    limit: 1Mi
+control:
+  socket: {controlSocket}
+templates:
+  dir: {templatesDir}
+proxies:
+  - name: alpha
+    type: http
+    url: "https://alpha.example.com/api/"
+    access:
+      delete: public
+  - name: beta
+    type: http
+    url: "https://beta.example.com/api/"
+    resolve:
+      type: header
+      header: X-Proxy-Name
+`
+
 /** The dashboard turned off: the API stays, the three routes go. */
 export const DASHBOARD_OFF_CONFIG = `
 server:

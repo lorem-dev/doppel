@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { PRIVATE_CONFIG, ROOT_TOKEN } from '../src/configs'
+import { PRIVATE_CONFIG, PUBLIC_OVERRIDES_CONFIG, ROOT_TOKEN } from '../src/configs'
 import { fieldMessage } from '../src/fields'
 import { startDoppel, type Doppel } from '../src/server'
 
@@ -268,6 +268,34 @@ test('a save that only changes things does not ask', async ({ page }) => {
     // Straight through: nothing was removed, so there is nothing to agree to.
     await expect(page.getByRole('cell', { name: 'alpha', exact: true })).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)
+  } finally {
+    doppel.stop()
+  }
+})
+
+test('the form leaves access overrides out when the admin API is public', async ({ page }) => {
+  // Its own instance: this configuration is public, and the file's shared one is not.
+  const doppel = await startDoppel(PUBLIC_OVERRIDES_CONFIG)
+  try {
+    await page.goto(doppel.baseURL)
+    await page.getByRole('link', { name: 'alpha' }).click()
+    await expect(page.getByRole('heading', { name: 'Edit alpha' })).toBeVisible()
+
+    // The section is gone. Faults is not, so this is a form that rendered rather
+    // than a page that failed to load.
+    await expect(page.locator('summary').filter({ hasText: 'Faults' })).toHaveCount(1)
+    await expect(page.locator('summary').filter({ hasText: 'Access overrides' })).toHaveCount(0)
+
+    // `alpha` still holds an override, and leaving that unsaid is how the YAML mode
+    // comes to show an `access` block the form has no section for.
+    await expect(page.getByText('ignored while the admin API is public')).toBeVisible()
+
+    // `beta` holds none, so there is nothing to say about it either way.
+    await page.getByRole('link', { name: 'Proxies' }).click()
+    await page.getByRole('link', { name: 'beta' }).click()
+    await expect(page.getByRole('heading', { name: 'Edit beta' })).toBeVisible()
+    await expect(page.locator('summary').filter({ hasText: 'Access overrides' })).toHaveCount(0)
+    await expect(page.getByText('ignored while the admin API is public')).toHaveCount(0)
   } finally {
     doppel.stop()
   }

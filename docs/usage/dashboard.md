@@ -128,6 +128,14 @@ else is a folded section that says what is inside it: `Faults none`,
 `Access overrides inherited`, `Mocks 3`. Save and Cancel sit in a bar pinned to the
 bottom of the window, so they are reachable whatever is open.
 
+On a `public: true` deployment the `Access overrides` section is not there at all.
+Nothing in a proxy's `access` block decides anything while the admin API is
+unauthenticated -- every action answers as public regardless, which the process
+also says among its startup advisories -- so four fields that change no outcome
+would be the page disagreeing with the binary serving it. A proxy whose document
+still holds overrides says so in one line instead, because the YAML mode shows an
+`access` block the form otherwise has no section for.
+
 The name can be edited like any other field. Renaming moves the proxy's template
 files with it, and the page says which happened -- "Renamed alpha to billing-api"
 rather than "Updated". Clients selecting that proxy by `X-Proxy-Name` have to use the

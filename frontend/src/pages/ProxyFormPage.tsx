@@ -18,6 +18,7 @@ import { useMay } from "../store/access";
 import { useRule, useSchema, useValueRule } from "../store/schema";
 import { useToasts } from "../store/toast";
 import { createProxy, readProxy, updateProxy } from "../services/proxies";
+import { runtimeConfig } from "../services/runtimeConfig";
 
 /**
  * The YAML editor, loaded only when it is opened.
@@ -160,6 +161,17 @@ export default function ProxyFormPage() {
   useEffect(load, [load]);
 
   const allowed = editing ? may("update", name) : may("create");
+
+  /**
+   * The admin API is unauthenticated, so this proxy's `access` block decides
+   * nothing.
+   *
+   * `authorize()` answers every action as public while `admin.public` is set,
+   * and the process says so among its startup advisories. Offering four fields
+   * that change no outcome would be the page disagreeing with the binary it is
+   * served from, so the section is left out entirely.
+   */
+  const isPublic = runtimeConfig().public;
 
   /**
    * The server's complaint about one field, if it made one.
@@ -662,54 +674,69 @@ export default function ProxyFormPage() {
             </div>
           </Section>
 
-          <Section title="Access overrides" summary={accessSummary(draft)}>
+          {!isPublic && (
+            <Section title="Access overrides" summary={accessSummary(draft)}>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                Empty means this proxy follows <code>admin.access</code>. A name
+                must be one
+                <code> admin.groups</code> allows.
+              </p>
+              {(["read", "update", "delete", "upload"] as const).map(
+                (action) => {
+                  const current = draft.access?.[action];
+                  const value =
+                    current === undefined
+                      ? ""
+                      : current === "public"
+                        ? "public"
+                        : current.join(", ");
+                  return (
+                    <Field
+                      key={action}
+                      label={action}
+                      info={`access.${action}`}
+                      error={errorFor(action)}
+                    >
+                      <input
+                        className={controlClass}
+                        placeholder="inherit"
+                        value={value}
+                        disabled={!allowed || saving}
+                        onChange={(event) => {
+                          const text = event.target.value.trim();
+                          const access = { ...draft.access };
+                          if (text === "") {
+                            delete access[action];
+                          } else if (text === "public") {
+                            access[action] = "public";
+                          } else {
+                            access[action] = text
+                              .split(",")
+                              .map((part) => part.trim())
+                              .filter(Boolean);
+                          }
+                          patch({
+                            access: Object.keys(access).length
+                              ? access
+                              : undefined,
+                          });
+                        }}
+                      />
+                    </Field>
+                  );
+                },
+              )}
+            </Section>
+          )}
+
+          {isPublic && draft.access !== undefined && (
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Empty means this proxy follows <code>admin.access</code>. A name
-              must be one
-              <code> admin.groups</code> allows.
+              This proxy has <code>access</code> overrides, and they are ignored
+              while the admin API is public: every action answers as public
+              regardless. They are still in the document -- the YAML mode shows
+              them.
             </p>
-            {(["read", "update", "delete", "upload"] as const).map((action) => {
-              const current = draft.access?.[action];
-              const value =
-                current === undefined
-                  ? ""
-                  : current === "public"
-                    ? "public"
-                    : current.join(", ");
-              return (
-                <Field
-                  key={action}
-                  label={action}
-                  info={`access.${action}`}
-                  error={errorFor(action)}
-                >
-                  <input
-                    className={controlClass}
-                    placeholder="inherit"
-                    value={value}
-                    disabled={!allowed || saving}
-                    onChange={(event) => {
-                      const text = event.target.value.trim();
-                      const access = { ...draft.access };
-                      if (text === "") {
-                        delete access[action];
-                      } else if (text === "public") {
-                        access[action] = "public";
-                      } else {
-                        access[action] = text
-                          .split(",")
-                          .map((part) => part.trim())
-                          .filter(Boolean);
-                      }
-                      patch({
-                        access: Object.keys(access).length ? access : undefined,
-                      });
-                    }}
-                  />
-                </Field>
-              );
-            })}
-          </Section>
+          )}
 
           <Section
             title="Mocks"
