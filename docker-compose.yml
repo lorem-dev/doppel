@@ -15,8 +15,10 @@
 # **Doppel itself**, behind a profile, for trying the two together:
 #
 #   mkdir -p config && cp main.example.yaml config/main.yaml
-#   make frontend                           # the dashboard the image embeds
 #   docker compose --profile doppel up -d --wait
+#
+# `make frontend` beforehand is optional and only faster: the image builds the
+# dashboard itself when `frontend/dist` is not there.
 #
 # The copy is not optional and its absence is a confusing failure rather than a
 # clear one: a bind mount whose source does not exist makes Docker create an empty

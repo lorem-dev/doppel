@@ -15,6 +15,12 @@
 #   docker build -t doppel:dev .   # compiles inside, or uses dist/ if it is there
 #   make image                     # builds the dashboard first, then this
 #
+# The dashboard is built inside too, when `frontend/dist` is not in the context. It
+# is embedded at compile time, so a binary built without it answers 503 at its own
+# root -- and a fresh checkout should not have to know that before it can build an
+# image. `make image` still builds it on the host first, which is faster and is what
+# a working checkout already has.
+#
 # A binary you built yourself is used by putting it at `dist/doppel`, or at
 # `dist/<platform>/doppel` for a multi-platform build. There is no build argument
 # to point elsewhere: one place to look is one thing to get wrong.
@@ -61,10 +67,11 @@ COPY . .
 
 # One of two things, decided by what was staged.
 #
-# The compile branch refuses to run without `frontend/dist`: the admin crate embeds
-# whatever is there, and an empty directory yields a binary that starts, serves the
-# API, and answers 503 at its own root. Shipping that quietly is worse than
-# refusing to build it.
+# The compile branch needs `frontend/dist`, because the admin crate embeds whatever is
+# there and an empty directory yields a binary that starts, serves the API, and
+# answers 503 at its own root. So it builds the dashboard when nobody has: the
+# alternative was refusing, which meant the image could not be built from a fresh
+# checkout without knowing to run `make frontend` first.
 RUN set -eu; \
     staged=""; \
     for candidate in \
@@ -87,9 +94,20 @@ RUN set -eu; \
         exit 1; \
     fi; \
     if [ ! -f frontend/dist/index.html ]; then \
-        echo "doppel: frontend/dist is missing, so this would build a binary whose" >&2; \
-        echo "        own root answers 503. Run 'make frontend' first, or stage a" >&2; \
-        echo "        binary in dist/." >&2; \
+        if [ ! -f frontend/package.json ]; then \
+            echo "doppel: there is no built dashboard in frontend/dist and no frontend" >&2; \
+            echo "        sources to build one from. Check .dockerignore, or stage a" >&2; \
+            echo "        binary in dist/." >&2; \
+            exit 1; \
+        fi; \
+        echo "doppel: no dashboard in frontend/dist, building it"; \
+        apk add --no-cache nodejs npm >/dev/null; \
+        npm --prefix frontend ci; \
+        npm --prefix frontend run build; \
+    fi; \
+    if [ ! -f frontend/dist/index.html ]; then \
+        echo "doppel: the dashboard build produced no frontend/dist/index.html, and a" >&2; \
+        echo "        binary embedding nothing answers 503 at its own root." >&2; \
         exit 1; \
     fi; \
     apk add --no-cache musl-dev >/dev/null; \

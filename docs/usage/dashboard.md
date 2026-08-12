@@ -244,8 +244,8 @@ stylesheet fails a build rather than filling a console.
 
 The binary was compiled without `frontend/dist`. Released binaries and the
 published image always carry the dashboard -- the release refuses to publish one
-that does not -- so this is a binary built from source without building the
-frontend first:
+that does not, and `docker build` builds the assets itself when they are absent --
+so this is a binary built from source without building the frontend first:
 
 ```bash
 npm --prefix frontend ci

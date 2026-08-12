@@ -221,14 +221,29 @@ there is no musl toolchain to install, which is the reason the Dockerfile compil
 inside: `ring` builds C, so a musl target needs a musl C compiler and not only the
 Rust standard library for it.
 
+### The dashboard
+
+It is embedded at compile time, so the compile branch needs it: a binary built
+without `frontend/dist` starts, serves the API and answers 503 at its own root. The
+image therefore builds it when the context has no `frontend/dist`, with the
+`nodejs`/`npm` packages installed in the builder stage for exactly that.
+
+```
+doppel: no dashboard in frontend/dist, building it
+```
+
+Building it on the host first is faster and is what `make image` does -- a working
+checkout has it already, and `npm ci` inside a container downloads the whole
+dependency tree again. It is not required.
+
 ### When it refuses to build
 
 Two refusals, both deliberate:
 
-- **"frontend/dist is missing"** -- the compile branch will not produce a binary
-  without the dashboard, because the admin crate embeds whatever is in that
-  directory and an empty one yields a binary that answers 503 at its own root.
-  Run `make frontend`, or stage a binary.
+- **"there is no built dashboard ... and no frontend sources"** -- neither
+  `frontend/dist` nor the files `vite build` reads reached the context. That means
+  `.dockerignore` was edited, or the build ran from somewhere other than the
+  repository root. Stage a binary, or fix the context.
 - **"this builder image has no Rust toolchain"** -- something passed
   `--build-arg BUILDER=` naming an image without cargo, and there was no staged
   binary to copy. Stage one, or drop the argument.
