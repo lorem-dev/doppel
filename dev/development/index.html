@@ -1008,6 +1008,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-ci-adds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What CI adds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1161,6 +1178,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The gate">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-ci-adds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What CI adds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1266,6 +1300,12 @@ once at the end, not after every edit.</p>
 <p>Capture its output rather than recalling it:</p>
 <div class="highlight"><pre><span></span><code><span class="o">{</span><span class="w"> </span>cargo<span class="w"> </span>fmt<span class="w"> </span>--check<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cargo<span class="w"> </span>clippy<span class="w"> </span>--all-targets<span class="w"> </span>--<span class="w"> </span>-D<span class="w"> </span>warnings<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cargo<span class="w"> </span>test<span class="p">;</span><span class="w"> </span><span class="o">}</span><span class="w"> </span><span class="m">2</span>&gt;<span class="p">&amp;</span><span class="m">1</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>tee<span class="w"> </span>/tmp/gate.txt
 </code></pre></div>
+<h3 id="what-ci-adds">What CI adds<a class="headerlink" href="#what-ci-adds" title="Permanent link">&para;</a></h3>
+<p>The same gate, plus two things a laptop leaves out: the browser suite, and the
+container image. The image is built on every push to <code>main</code> and on every pull
+request aiming at it -- from source, with nothing staged, and never pushed. It used
+to be built only by the release workflow on a tag, which meant a broken Dockerfile
+surfaced at the one moment when the fix costs a second tag.</p>
 <h2 id="tests">Tests<a class="headerlink" href="#tests" title="Permanent link">&para;</a></h2>
 <p>Unit tests live beside the code. Integration tests in
 <code>crates/doppel-cli/tests/</code> start the built binary, bind ports and send signals;
