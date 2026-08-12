@@ -22,6 +22,14 @@ Capture its output rather than recalling it:
 { cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test; } 2>&1 | tee /tmp/gate.txt
 ```
 
+### What CI adds
+
+The same gate, plus two things a laptop leaves out: the browser suite, and the
+container image. The image is built on every push to `main` and on every pull
+request aiming at it -- from source, with nothing staged, and never pushed. It used
+to be built only by the release workflow on a tag, which meant a broken Dockerfile
+surfaced at the one moment when the fix costs a second tag.
+
 ## Tests
 
 Unit tests live beside the code. Integration tests in

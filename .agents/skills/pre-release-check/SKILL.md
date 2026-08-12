@@ -37,6 +37,11 @@ it still builds:
 make e2e          # the browser suite, which the frontend gate leaves out
 ```
 
+The image itself is built by CI on every push to `main` and on every pull request
+aiming at it, from source and without pushing, so a broken Dockerfile is not
+something this skill has to discover. Read that job's result rather than building
+it again by hand.
+
 Then confirm the release will not ship a page-less binary. The workflow greps each
 archive's binary for the configuration element before publishing -- read that step
 and check it is still there, since it is the only thing standing between a missing
