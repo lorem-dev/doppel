@@ -1,5 +1,7 @@
 # The dashboard
 
+![The proxy list: each proxy with its upstream, how it is resolved, the faults on it and how many mocks it has](../screenshots/screenshot-proxies.webp)
+
 The admin listener serves a browser dashboard from its own root. It lists the
 proxies, edits them, shows what the process is doing, and reloads the configuration --
 most of what the admin API does, without curl. Template files are the exception, and
@@ -74,6 +76,8 @@ carries **Enter token** and **Refresh**. Refreshing is a button rather than some
 the page does when a token arrives: a form holds a half-typed document, and replacing
 that because someone signed in elsewhere would lose work.
 
+![The token dialog over a refusal: the banner naming the access `list` needs and carrying Enter token and Refresh, and the dialog offering Continue without a token beside Use this token](../screenshots/screenshot-signin.webp)
+
 **Actions the caller may not perform are visible but disabled**, with the reason
 in the tooltip. The page asks the server what the caller may do
 (`GET /api/v1/access`) rather than guessing, so a disabled button means the server
@@ -109,6 +113,8 @@ hidden.
 Editing opens a form over the whole proxy document: the upstream, timeouts, body
 limits, resolution, injected headers, the three fault settings, per-proxy access
 overrides, and the mocks with their matching rules and responses.
+
+![Editing a proxy: name, type and upstream always on screen, an (i) beside each label, Save and Cancel pinned to the bottom](../screenshots/screenshot-proxy-edit.webp)
 
 Every field carries an (i) to its section of [Every
 parameter](parameters.md) -- the type, the bounds, an example in place -- and the
@@ -174,6 +180,8 @@ mocks:
       status: 200
       json: '{"id": "{{ id }}"}'
 ```
+
+![The same proxy as YAML: one coloured editor over the whole document, with Reformat and a documentation link above it](../screenshots/screenshot-proxy-edit-yaml.webp)
 
 The form is better for changing one field; this is better for everything else --
 pasting a proxy from a colleague, reordering mocks, copying a block out of a

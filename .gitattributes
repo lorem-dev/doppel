@@ -23,5 +23,12 @@
 # This file is small enough that a plain blob costs nothing.
 assets/icon-128.png -filter -diff -merge text=auto
 
+# The documentation's screenshots, for the same reason as the icons: a new
+# screenshot is a new whole file rather than a diff, and every UI change brings
+# one. `docs/screenshots/` is read only by the mkdocs build, whose workflow
+# checks out with `lfs: true` -- without that it would ship the pointer file as
+# a broken image.
+*.webp filter=lfs diff=lfs merge=lfs -text
+
 # An SVG is XML, and a readable diff is worth more than treating it as opaque.
 *.svg text
