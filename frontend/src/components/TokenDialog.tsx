@@ -46,7 +46,9 @@ export function TokenDialog() {
           does not expire.
         </p>
         <input
-          className={controlClass}
+          // `mt-3`, matching the gap above the buttons below: the field sat
+          // against the sentence explaining it, which read as one block.
+          className={`mt-3 ${controlClass}`}
           type="password"
           autoComplete="off"
           aria-label="Token"
