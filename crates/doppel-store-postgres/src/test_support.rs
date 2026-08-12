@@ -194,6 +194,23 @@ impl TestSchema {
         pool.close().await;
     }
 
+    /// Every row of a one-column JSON query, in the order the query asks for.
+    ///
+    /// For the migration suite, which reads the documents a backfill produced
+    /// and parses them itself rather than through the store: the store refuses
+    /// to connect to a schema whose `_sqlx_migrations` bookkeeping is not
+    /// complete, and a test that applies migration files by hand has no way to
+    /// forge that bookkeeping -- sqlx checksums it.
+    pub async fn json_rows(&self, sql: &str) -> Vec<serde_json::Value> {
+        let pool = PgPool::connect(&self.url()).await.expect("connect");
+        let rows = sqlx::raw_sql(AssertSqlSafe(sql.to_owned()))
+            .fetch_all(&pool)
+            .await
+            .expect("fetch json");
+        pool.close().await;
+        rows.iter().map(|row| row.get(0)).collect()
+    }
+
     pub async fn count(&self, table: &str) -> i64 {
         let pool = PgPool::connect(&self.url()).await.expect("connect");
         let count: i64 = sqlx::raw_sql(AssertSqlSafe(format!("SELECT count(*) FROM {table}")))

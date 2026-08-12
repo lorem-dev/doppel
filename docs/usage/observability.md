@@ -63,16 +63,52 @@ sending events, in the same position a URL carries a password.
 `GET /metrics` on the admin listener, in the Prometheus text format,
 unauthenticated because a scraper has nowhere to put a token.
 
+The one endpoint outside `/api/`. `metrics_path` defaults to `/metrics` in
+Prometheus and in every agent and annotation that scrapes one, so the path is
+settled by something larger than this project -- and a scrape of `/metrics` while
+the exposition was under `/api/v1/` was answered by the dashboard with `200
+text/html`, which reads as a parse failure or as no metrics at all.
+
+### Traffic
+
 | Metric | Type | Labels |
 |---|---|---|
-| `doppel_proxy_request_duration_seconds` | histogram | `proxy`, `method`, `status` |
+| `doppel_proxy_request_duration_seconds` | histogram | `proxy`, `method`, `status`, `replace`, `loss`, `upstream_error` |
 | `doppel_upstream_request_duration_seconds` | histogram | `proxy`, `method`, `status` |
+| `doppel_admin_request_duration_seconds` | histogram | `route`, `method`, `status` |
 | `doppel_loss_total` | counter | `proxy` |
 | `doppel_latency_injected_total` | counter | `proxy` |
 | `doppel_mock_hits_total` | counter | `proxy`, `mock` |
 
-Buckets are explicit -- 5ms to 10s -- rather than the exporter's default
-summary, because a quantile cannot be aggregated across replicas.
+`replace`, `loss` and `upstream_error` are `1` or `0`, and independent: a mock can
+answer a request its own loss roll then drops, and `upstream_error` covers a
+transport failure, a timeout, and a relayed status of 500 or above.
+
+`route` on the admin histogram is the route template -- `/api/v1/proxies/{name}`,
+never `/api/v1/proxies/alpha` -- so a hundred proxies are one series and a query
+string is none. A request that matched no route is recorded with an empty `route`.
+
+Buckets are explicit rather than the exporter's default summary, because a
+quantile cannot be aggregated across replicas. Two ladders: 5ms to 60s for
+proxied traffic, because `latency` injection is asked to be slow on purpose, and
+5ms to 5s for the admin API, where nothing has any business taking longer.
+
+### State
+
+These exist from startup, before anything has happened, because a panel and an
+alert both read a never-recorded metric as "no data" -- which is
+indistinguishable from a process nobody is scraping.
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `doppel_build_info` | gauge | `version` | Always `1`. The version is a label because it is not a number |
+| `doppel_dashboard_info` | gauge | `enabled` | Always `1`. Separate from the build: one describes the artifact, the other what this deployment turned on |
+| `doppel_proxy_last_error_timestamp_seconds` | gauge | `code` | When the proxy listener last answered with that error. Starts as `code=""`, value `0` |
+| `doppel_proxy_mocks` | gauge | `proxy` | Mocks per proxy in the configuration **now in effect**, republished on every reload and every write through the API. A proxy that leaves the configuration goes to `0` rather than keeping its last count |
+
+"Is it still failing" is `time() - doppel_proxy_last_error_timestamp_seconds`,
+which is why the metric is a timestamp and not a counter: a counter answers "how
+many" and needs a rate window to say anything about now.
 
 Every request through the proxy listener appears in the proxy histogram,
 including one that was dropped by loss injection or that resolved to no proxy

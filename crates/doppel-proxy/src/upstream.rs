@@ -147,6 +147,9 @@ pub async fn forward(
     peer: Option<IpAddr>,
     resolve_headers: &[String],
     request_id: &str,
+    // Doppel's own address, when the deployment knows it. Only redirect
+    // rewriting reads it -- see `rewritten_location`.
+    external: Option<&reqwest::Url>,
 ) -> Result<(Response, UpstreamOutcome), Error> {
     let (parts, body) = request.into_parts();
     let url = join_upstream(&proxy.base_url, parts.uri.path(), parts.uri.query())?;
@@ -211,11 +214,28 @@ pub async fn forward(
     let status = response.status();
     let mut relayed = sanitize_headers(response.headers());
     if proxy.rewrite_redirects
-        && let Some(rewritten) = rewritten_location(&relayed, &url, &proxy.base_url)
+        && let Some(rewritten) = rewritten_location(&relayed, &url, &proxy.base_url, external)
     {
         relayed.insert("location", rewritten);
     }
-    let stream = response.bytes_stream();
+    // The body, and the length it has if the upstream's own address had to come out
+    // of it. See `crate::rewrite`: text only, uncompressed only, bounded by
+    // `body_limit`, and the exact host only.
+    let (body, rewritten_length) = match external {
+        Some(external) if proxy.rewrite_urls && crate::rewrite::is_rewritable(&relayed) => {
+            crate::rewrite::rewrite_body(
+                response.bytes_stream(),
+                &proxy.base_url,
+                external,
+                proxy.body_limit,
+            )
+            .await
+        }
+        _ => (Body::from_stream(response.bytes_stream()), None),
+    };
+    if let Some(length) = rewritten_length {
+        crate::rewrite::restate_body_headers(&mut relayed, length);
+    }
 
     let mut builder = Response::builder().status(status);
     if let Some(headers) = builder.headers_mut() {
@@ -227,7 +247,7 @@ pub async fn forward(
             headers.insert("x-request-id", value);
         }
     }
-    let response = builder.body(Body::from_stream(stream)).map_err(|e| {
+    let response = builder.body(body).map_err(|e| {
         Error::new(
             ErrorCode::UpstreamError,
             format!("cannot relay response: {e}"),
@@ -300,19 +320,27 @@ fn apply_forwarded_for(target: &mut HeaderMap, original: &HeaderMap, peer: Optio
 /// default, because forgetting it is so easy.
 ///
 /// The value is resolved against the URL that was actually requested upstream,
-/// which is what the upstream meant by it, and then judged:
+/// which is what the upstream meant by it, and then judged against the proxy's
+/// base and against `external`, Doppel's own address when one is configured:
 ///
-/// - Under `base` -- same origin, and a path below its path prefix -- it is
-///   returned as a root-relative path plus query and fragment. Relative rather
-///   than absolute so Doppel never has to guess its own public name: a client
-///   resolves it against the URL it used, which is Doppel's. RFC 9110 has
-///   allowed a relative `Location` since 7231 superseded 2616.
-/// - Anywhere else it is returned in absolute form. That target is genuinely
-///   elsewhere and rewriting it would be a lie, but stating it absolutely
-///   removes a second, quieter bug: a root-relative `Location` meant against the
-///   upstream's root (`/login` under a base of `/api/v1/`) would otherwise be
-///   re-resolved against Doppel and forwarded back as `/api/v1/login`, which is
-///   a different resource nobody asked for.
+/// - **Under `base`** -- same origin, and a path below its path prefix. With no
+///   `external`, a root-relative path plus query and fragment, so Doppel never
+///   has to guess its own public name: a client resolves it against the URL it
+///   used. RFC 9110 has allowed a relative `Location` since 7231 superseded
+///   2616. With `external`, the same tail against that address, absolutely.
+/// - **Same origin, outside `base`** -- `/login` under a base of `/api/v1/`.
+///   Without `external` this is relayed absolutely, pointing at the upstream:
+///   a root-relative form would be re-resolved against Doppel and forwarded
+///   back as `/api/v1/login`, a resource nobody asked for, and there is no host
+///   to name instead. With `external` the client is kept on Doppel --
+///   `https://doppel.example.com/login` -- because a client that leaves is a
+///   client past every fault and mock, which is the whole point of the rewrite.
+///   The path is kept as the upstream wrote it, which is what `nginx`'s
+///   `proxy_redirect` does; whether Doppel serves that path is a question about
+///   the configuration, and one the operator can see.
+/// - **Anywhere else** -- another host entirely, and left alone in every case.
+///   Doppel has no route to it, and naming itself in a redirect to somewhere it
+///   does not proxy would be a lie.
 ///
 /// Not covered: `Content-Location` names where a payload lives rather than where
 /// to go next, `Refresh` is not a standard header, and `Set-Cookie`'s `Domain`
@@ -321,34 +349,30 @@ fn rewritten_location(
     relayed: &HeaderMap,
     requested: &reqwest::Url,
     base: &reqwest::Url,
+    external: Option<&reqwest::Url>,
 ) -> Option<HeaderValue> {
     let location = relayed.get("location")?.to_str().ok()?;
     let resolved = requested.join(location).ok()?;
 
     let base_path = base.path();
-    let under_base = resolved.origin() == base.origin()
+    let same_origin = resolved.origin() == base.origin();
+    let under_base = same_origin
         && resolved.path().starts_with(base_path)
         // A base path is a directory prefix, so `/api/v1x` must not count as
         // being under `/api/v1/`. `join_upstream` treats the base the same way.
         && (base_path.ends_with('/') || resolved.path().len() == base_path.len());
 
     let value = if under_base {
-        let mut tail = String::from("/");
-        tail.push_str(
-            resolved
-                .path()
-                .trim_start_matches(base_path)
-                .trim_start_matches('/'),
-        );
-        if let Some(query) = resolved.query() {
-            tail.push('?');
-            tail.push_str(query);
+        let tail = tail_after(&resolved, base_path);
+        match external {
+            Some(external) => under(external, &tail),
+            None => format!("/{tail}"),
         }
-        if let Some(fragment) = resolved.fragment() {
-            tail.push('#');
-            tail.push_str(fragment);
+    } else if same_origin {
+        match external {
+            Some(external) => under(external, &tail_after(&resolved, "/")),
+            None => resolved.to_string(),
         }
-        tail
     } else {
         resolved.to_string()
     };
@@ -359,6 +383,38 @@ fn rewritten_location(
         return None;
     }
     HeaderValue::from_str(&value).ok()
+}
+
+/// The part of `url` after `prefix`, with its query and fragment, and no
+/// leading slash.
+fn tail_after(url: &reqwest::Url, prefix: &str) -> String {
+    let mut tail = url
+        .path()
+        .trim_start_matches(prefix)
+        .trim_start_matches('/')
+        .to_owned();
+    if let Some(query) = url.query() {
+        tail.push('?');
+        tail.push_str(query);
+    }
+    if let Some(fragment) = url.fragment() {
+        tail.push('#');
+        tail.push_str(fragment);
+    }
+    tail
+}
+
+/// `tail` under `external`, keeping any path `external` itself carries -- a
+/// Doppel reached at `https://gw.example.com/doppel/` is reached there in a
+/// rewritten `Location` too.
+///
+/// Built by hand rather than with `Url::join`, which reads a leading slash as
+/// "from the root" and would drop that prefix.
+fn under(external: &reqwest::Url, tail: &str) -> String {
+    let mut out = external.as_str().trim_end_matches('/').to_owned();
+    out.push('/');
+    out.push_str(tail);
+    out
 }
 
 /// Records what the client asked for, since `Host` is not relayed: without
@@ -765,6 +821,7 @@ mod tests {
             latency: None,
             replace: 1.0,
             rewrite_redirects: true,
+            rewrite_urls: false,
             resolve_header: None,
             mocks: Vec::new(),
             body_limit: 1024 * 1024,
@@ -818,7 +875,27 @@ mod tests {
         request: axum::extract::Request,
         peer: Option<IpAddr>,
     ) -> Result<(Response, UpstreamOutcome), Error> {
-        forward(client, proxy, request, peer, &[], TEST_REQUEST_ID).await
+        forward(client, proxy, request, peer, &[], TEST_REQUEST_ID, None).await
+    }
+
+    /// `fwd` for the tests that are about `server.external_url`.
+    async fn fwd_external(
+        client: &reqwest::Client,
+        proxy: &doppel_core::CompiledProxy,
+        request: axum::extract::Request,
+        external: &str,
+    ) -> Result<(Response, UpstreamOutcome), Error> {
+        let external = reqwest::Url::parse(external).expect("a test url parses");
+        forward(
+            client,
+            proxy,
+            request,
+            None,
+            &[],
+            TEST_REQUEST_ID,
+            Some(&external),
+        )
+        .await
     }
 
     #[tokio::test]
@@ -1186,6 +1263,137 @@ mod tests {
         );
     }
 
+    /// With an external url, the same redirect names Doppel outright.
+    ///
+    /// This is what a deployment behind a port mapping or an ingress needs: the
+    /// relative form is correct but only a client that resolves it against the
+    /// URL it used benefits, and anything logging or storing the `Location` --
+    /// a test report, a browser's history, a client that just prints it -- gets
+    /// a path with no host in it.
+    #[tokio::test]
+    async fn an_external_url_puts_doppels_own_host_in_the_location() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd_external(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect/self"),
+            "https://doppel.example.com/",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            location_of(response).await,
+            "https://doppel.example.com/moved?keep=1#frag"
+        );
+    }
+
+    /// The case the relative form cannot express, and the reason this setting
+    /// exists: the upstream sends the client to its own host *outside* the
+    /// proxied path. Without an external url that is relayed as the upstream's
+    /// own absolute URL and the client leaves Doppel -- past every fault and
+    /// every mock. With one, the client stays.
+    #[tokio::test]
+    async fn a_redirect_outside_the_base_is_kept_on_doppel_when_it_has_a_name() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let mut with_prefix = proxy(&base);
+        with_prefix.base_url = url(&format!("{base}redirect/"));
+
+        let (response, _) = fwd_external(
+            &client,
+            &with_prefix,
+            request(Method::GET, "/rooted"),
+            "https://doppel.example.com/",
+        )
+        .await
+        .unwrap();
+        // The upstream said `/moved` against its own root. The path is kept as
+        // the upstream wrote it, which is what nginx's `proxy_redirect` does.
+        assert_eq!(
+            location_of(response).await,
+            "https://doppel.example.com/moved"
+        );
+    }
+
+    /// A Doppel reached under a path prefix keeps it. `Url::join` would not:
+    /// a leading slash reads as "from the root" and drops the prefix.
+    #[tokio::test]
+    async fn an_external_url_with_a_path_keeps_that_path() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd_external(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect/self"),
+            "https://gw.example.com/doppel/",
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            location_of(response).await,
+            "https://gw.example.com/doppel/moved?keep=1#frag"
+        );
+    }
+
+    /// Another host stays another host, external url or not. Doppel does not
+    /// proxy `example.invalid` and saying otherwise would send the client to
+    /// itself for something it cannot serve.
+    #[tokio::test]
+    async fn a_foreign_host_is_left_alone_even_with_an_external_url() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd_external(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect"),
+            "https://doppel.example.com/",
+        )
+        .await
+        .unwrap();
+        assert_eq!(location_of(response).await, "http://example.invalid/target");
+    }
+
+    /// `rewrite_redirects: false` still means no rewriting at all.
+    #[tokio::test]
+    async fn an_external_url_does_not_override_rewrite_redirects_false() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let (response, _) = fwd_external(
+            &client,
+            &proxy_relaying_redirects(&base),
+            request(Method::GET, "/redirect/self"),
+            "https://doppel.example.com/",
+        )
+        .await
+        .unwrap();
+        let location = location_of(response).await;
+        assert!(
+            location.starts_with("http://127.0.0.1:"),
+            "expected the upstream's own authority, got {location}"
+        );
+    }
+
     /// A `Location` relative to the current path resolves inside the base, so it
     /// comes back relative -- and correctly, which relaying would not have been:
     /// the upstream meant `sibling` next to `/redirect/relative`.
@@ -1313,6 +1521,7 @@ mod tests {
             None,
             &resolve_headers,
             TEST_REQUEST_ID,
+            None,
         )
         .await
         .unwrap();
@@ -1339,6 +1548,7 @@ mod tests {
             None,
             &[],
             "caller-chosen-id",
+            None,
         )
         .await
         .unwrap();
@@ -1362,6 +1572,7 @@ mod tests {
             None,
             &[],
             "caller-chosen-id",
+            None,
         )
         .await
         .unwrap();

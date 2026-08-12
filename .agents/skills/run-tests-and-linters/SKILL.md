@@ -5,13 +5,53 @@ description: Use before marking any task done, before opening a pull request, or
 
 # Run tests and linters
 
-The gate is three commands, in this order, all of which must pass:
+The whole gate, in one command:
+
+```bash
+make gate
+```
+
+That is `fmt-check`, `lint`, `test`, `test-frontend`, `size`, `docs`, `schema`
+and `licences`. It deliberately leaves out the browser suite -- `make e2e`
+downloads Chromium on first run -- so run that too whenever the change touches
+`frontend/` or the dashboard routes.
+
+The Rust half by hand, in this order, all of which must pass:
 
 ```bash
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 ```
+
+## The frontend half
+
+The dashboard has its own gate, and one ordering that matters: the assets are
+embedded into the binary at compile time, so they are built before anything that
+reads them.
+
+```bash
+npm --prefix frontend ci
+npm --prefix frontend run lint          # eslint
+npm --prefix frontend run typecheck     # tsc, the application
+(cd frontend && npx tsc --noEmit -p tsconfig.e2e.json)   # tsc, the specs
+npm --prefix frontend run build         # writes frontend/dist
+npm --prefix frontend test              # jest, including the bundle-size budgets
+cargo build -p doppel-cli               # re-embeds what the build just wrote
+npm --prefix frontend run e2e           # Playwright, against that binary
+```
+
+Two traps this order exists to avoid:
+
+- `npm run build` alone changes nothing about a running binary. Rebuilding the
+  frontend without rebuilding the binary is how half an hour goes into chasing a
+  fixed bug that is still in the embedded bundle.
+- The bundle-size suite measures `frontend/dist`. Running jest before the build
+  measures the previous one, or fails because there is nothing to measure.
+
+`DOPPEL_REQUIRE_DASHBOARD_ASSETS=1` on `cargo test` turns a skipped
+asset-delivery suite into a failure, exactly as `DOPPEL_REQUIRE_DATABASE` does
+for the store. `make test` sets it.
 
 ## Capture the output, do not recall it
 

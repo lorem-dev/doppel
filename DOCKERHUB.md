@@ -11,10 +11,12 @@
 
      Every `loremdev/doppel:<version>-alpine` below is rewritten to the tag
      being released before the file is pushed, so the copy-paste commands name
-     a version that exists. The version checked in is the last one released;
-     the tags table stays illustrative, like the documentation's. -->
+     a version that exists. The version checked in is a placeholder -- `1.2.3`,
+     the same shape the tags table uses -- because a real one here would be a
+     second version to remember to bump, and the only reader who ever sees this
+     file unrewritten is someone with the repository open. -->
 
-![Doppel](https://raw.githubusercontent.com/lorem-dev/doppel/main/docs/assets/icon-128.png)
+![Doppel](https://raw.githubusercontent.com/lorem-dev/doppel/main/assets/icon-128.png)
 
 # Doppel
 
@@ -60,14 +62,14 @@ start.
 ```bash
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
-  loremdev/doppel:0.1.0-alpine
+  loremdev/doppel:1.2.3-alpine
 ```
 
 `8080` carries proxied traffic, `8081` the admin API.
 
-A minimal `main.yaml`:
+A minimal `config/main.yaml`:
 
 ```yaml
 server:
@@ -115,17 +117,20 @@ A relative `./templates` also works: the image's working directory is
 ```yaml
 services:
   doppel:
-    image: loremdev/doppel:0.1.0-alpine
+    image: loremdev/doppel:1.2.3-alpine
     ports:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - ./main.yaml:/etc/doppel/main.yaml:ro
+      - ./config:/etc/doppel
       - doppel-templates:/var/lib/doppel/templates
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
+      # Only needed when the published port differs from the one Doppel binds;
+      # these publish the same number. See "Where clients reach it" below.
+      # DOPPEL_EXTERNAL_URL: "http://127.0.0.1:8080/"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/api/v1/status"]
       interval: 5s
       timeout: 3s
       start_period: 5s
@@ -135,10 +140,43 @@ volumes:
   doppel-templates:
 ```
 
-`/status` needs no token by default and answers only once the runtime is
+`/api/v1/status` needs no token by default and answers only once the runtime is
 compiled and both listeners are bound. `-f` matters: without it `curl` exits 0
 on a 500 and the check passes for answering at all rather than for answering
 correctly.
+
+## The dashboard
+
+The admin port serves a browser dashboard from its root -- the proxy set, a form
+over every field of a proxy including its mocks, status and reload -- compiled
+into the image. Publish `8081` as the quick start above does and open
+`http://127.0.0.1:8081/`.
+
+Template files are the admin API's, not the page's: it shows which file a mock
+uses and will not edit it.
+
+It is a client of the admin API and bound by the same token rules, so it offers
+only what the caller's token may actually do. `admin.dashboard: false` turns it
+off; the JSON API is unaffected either way.
+
+## Where clients reach it
+
+Doppel rewrites an upstream's redirects, and the addresses in the bodies it
+relays, to point back at itself. To do that it needs the address a client used,
+which it cannot see: it binds `8080` inside the container, and a port mapping is
+invisible from in there.
+
+Publishing the same number, as the quick start does, needs nothing. Publishing a
+different one needs telling:
+
+```bash
+docker run --rm -p 58080:8080 -p 58081:8081 \
+  -e DOPPEL_EXTERNAL_URL=http://127.0.0.1:58080/ \
+  ...
+```
+
+Without it a rewritten redirect names port 8080, which is not published, and the
+client follows it nowhere. Doppel logs the address it settled on at startup.
 
 ## Tokens
 
@@ -165,7 +203,11 @@ curl -X POST -H "X-Proxy-Authorization: Bearer $TOKEN" \
 docker exec <container> doppel config reload --socket /tmp/doppel.sock
 ```
 
-Editing a bind-mounted `main.yaml` on the host changes the file the container
+The directory is mounted rather than the file on purpose: a save renames a new
+file over the old one, and a file that is itself a mount point cannot be replaced --
+the admin API would refuse every write with "Resource busy".
+
+Editing `config/main.yaml` on the host changes the file the container
 reads, so a reload picks it up without restarting anything.
 
 ## What the image contains

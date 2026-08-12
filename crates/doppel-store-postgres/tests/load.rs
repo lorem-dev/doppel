@@ -105,124 +105,38 @@ fn parse(yaml: &str) -> doppel_core::Config {
 
 /// Write a configuration into the tables the long way, so `load` is tested
 /// against rows this test wrote rather than against `save`'s idea of them.
-/// Once `save` exists the conformance suite covers the pair; until then this
-/// is the only way `load` can be wrong in isolation and be caught.
+///
+/// "The long way" is much shorter than it was: both tables hold a JSON
+/// document, so this plants the same two shapes `load` reads instead of
+/// interpolating a column per field. The point is unchanged -- these are rows
+/// the store did not produce, so `load` can be wrong in isolation and be
+/// caught.
+///
+/// Dollar quoting rather than escaped apostrophes: a document contains `"` and
+/// may contain `'`, and `$tag$` sidesteps both.
 async fn insert(schema: &TestSchema, name: &str, config: &doppel_core::Config, revision: i64) {
-    let admin = &config.admin;
+    let mut settings = serde_json::to_value(config).expect("a config serializes");
+    settings
+        .as_object_mut()
+        .expect("a config is an object")
+        .remove("proxies");
+
     schema
         .execute(&format!(
-            "INSERT INTO configurations (name, revision, server_host, server_port, log_level, \
-             log_format, control_socket, templates_dir, sentry_dsn, admin_host, admin_port, \
-             admin_auth_header, admin_upload_limit, admin_access) VALUES \
-             ('{name}', {revision}, '{}', {}, '{}', '{}', '{}', '{}', {}, '{}', {}, '{}', {}, '{}')",
-            config.server.host,
-            config.server.port,
-            serde_json::to_value(config.logging.level).unwrap().as_str().unwrap(),
-            serde_json::to_value(config.logging.format).unwrap().as_str().unwrap(),
-            config.control.socket.display(),
-            config.templates.dir.display(),
-            config
-                .sentry
-                .as_ref()
-                .map_or("NULL".to_owned(), |s| format!("'{}'", s.dsn)),
-            admin.host,
-            admin.port,
-            admin.auth.header,
-            admin.upload.limit.get(),
-            serde_json::to_string(&admin.access).unwrap(),
+            "INSERT INTO configurations (name, revision, settings) \
+             VALUES ('{name}', {revision}, $tag${settings}$tag$)"
         ))
         .await;
 
-    for (ordinal, token) in admin.tokens.iter().enumerate() {
-        schema
-            .execute(&format!(
-                "INSERT INTO admin_tokens (config, name, \"group\", token, ordinal) \
-                 VALUES ('{name}', '{}', '{}', '{}', {ordinal})",
-                // `as_str`, not `{}`: `Token`'s `Display` is redacted, so
-                // interpolating it would write the literal `<redacted>` into
-                // every row. This is a test writing raw SQL on purpose -- the
-                // point is to plant rows the store did not produce -- so the
-                // deliberate escape hatch has to be spelled out.
-                token.name,
-                token.group,
-                token.token.as_str()
-            ))
-            .await;
-    }
-
     for (ordinal, proxy) in config.proxies.iter().enumerate() {
-        let nullable = |value: Option<String>| value.unwrap_or_else(|| "NULL".to_owned());
+        let document = serde_json::to_value(proxy).expect("a proxy serializes");
         schema
             .execute(&format!(
-                "INSERT INTO proxies (config, name, ordinal, kind, url, timeout_seconds, \
-                 body_limit, replace_ratio, resolve_kind, resolve_header, loss_percentage, \
-                 loss_status, latency_percentage, latency_min, latency_max, headers, access) \
-                 VALUES ('{name}', '{}', {ordinal}, '{}', '{}', {}, {}, {}, '{}', {}, {}, {}, \
-                 {}, {}, {}, '{}', {})",
-                proxy.name,
-                serde_json::to_value(proxy.kind).unwrap().as_str().unwrap(),
-                proxy.url,
-                nullable(proxy.timeout.map(|t| t.to_string())),
-                proxy.body_limit.get(),
-                nullable(proxy.replace.map(|r| r.to_string())),
-                serde_json::to_value(proxy.resolve.kind)
-                    .unwrap()
-                    .as_str()
-                    .unwrap(),
-                nullable(proxy.resolve.header.as_ref().map(|h| format!("'{h}'"))),
-                nullable(proxy.loss.as_ref().map(|l| l.percentage.to_string())),
-                nullable(proxy.loss.as_ref().map(|l| l.status.to_string())),
-                nullable(proxy.latency.as_ref().map(|l| l.percentage.to_string())),
-                nullable(proxy.latency.as_ref().map(|l| l.min.to_string())),
-                nullable(proxy.latency.as_ref().map(|l| l.max.to_string())),
-                serde_json::to_string(&proxy.headers).unwrap(),
-                nullable(
-                    proxy
-                        .access
-                        .as_ref()
-                        .map(|a| format!("'{}'", serde_json::to_string(a).unwrap()))
-                ),
+                "INSERT INTO proxies (config, name, ordinal, document) \
+                 VALUES ('{name}', '{}', {ordinal}, $tag${document}$tag$)",
+                proxy.name
             ))
             .await;
-
-        for (mock_ordinal, mock) in proxy.mocks.iter().enumerate() {
-            schema
-                .execute(&format!(
-                    "INSERT INTO mocks (config, proxy, name, ordinal, method, url_pattern, \
-                     status, body, json, template, request_headers, request_query, \
-                     request_body, response_headers, proxy_override) VALUES \
-                     ('{name}', '{}', '{}', {mock_ordinal}, '{}', $tag${}$tag$, {}, {}, {}, {}, \
-                     '{}', '{}', '{}', '{}', {})",
-                    proxy.name,
-                    mock.name,
-                    mock.request.method,
-                    mock.request.url,
-                    mock.response.status,
-                    nullable(
-                        mock.response
-                            .body
-                            .as_ref()
-                            .map(|b| format!("$tag${b}$tag$"))
-                    ),
-                    nullable(
-                        mock.response
-                            .json
-                            .as_ref()
-                            .map(|j| format!("$tag${j}$tag$"))
-                    ),
-                    nullable(mock.response.template.as_ref().map(|t| format!("'{t}'"))),
-                    serde_json::to_string(&mock.request.headers).unwrap(),
-                    serde_json::to_string(&mock.request.query).unwrap(),
-                    serde_json::to_string(&mock.request.body).unwrap(),
-                    serde_json::to_string(&mock.response.headers).unwrap(),
-                    nullable(
-                        mock.proxy
-                            .as_ref()
-                            .map(|p| format!("'{}'", serde_json::to_string(p).unwrap()))
-                    ),
-                ))
-                .await;
-        }
     }
 }
 
@@ -343,9 +257,14 @@ async fn an_unknown_configuration_name_is_not_found() {
 
 #[tokio::test]
 async fn a_half_written_latency_is_reported_rather_than_read_as_absent() {
-    // Three columns hold one optional section. A row with some of them set is
-    // one nothing could have written through `save`, so treating it as "no
-    // latency configured" would serve a configuration nobody wrote.
+    // `latency` is an optional section with three required fields. A stored
+    // object missing one is something nothing could have written through
+    // `save`, so reading it as "no latency configured" -- or as a zero -- would
+    // serve a configuration nobody wrote.
+    //
+    // This used to be three columns, where the same hazard was a row with some
+    // of them set. The shape changed; the hazard did not, so neither did the
+    // test.
     let Some(url) = require_database() else {
         return;
     };
@@ -362,7 +281,7 @@ async fn a_half_written_latency_is_reported_rather_than_read_as_absent() {
     )
     .await;
     schema
-        .execute("UPDATE proxies SET latency_max = NULL WHERE name = 'alpha'")
+        .execute("UPDATE proxies SET document = document #- '{latency,max}' WHERE name = 'alpha'")
         .await;
 
     let store = PostgresStore::connect(&schema.url(), "default", schema.templates_dir())
@@ -370,7 +289,11 @@ async fn a_half_written_latency_is_reported_rather_than_read_as_absent() {
         .expect("connect");
     let err = store.load_config().await.expect_err("must be refused");
     let message = format!("{err:?}");
-    assert!(message.contains("latency"), "{message}");
+    // The field serde could not read, and the proxy whose row held it. Either
+    // alone leaves an operator guessing: `max` does not say where, and the proxy
+    // name does not say what.
+    assert!(message.contains("max"), "{message}");
+    assert!(message.contains("alpha"), "{message}");
 
     schema.drop().await;
 }

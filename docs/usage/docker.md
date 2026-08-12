@@ -34,13 +34,30 @@ start.
 ```bash
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:1.2.3-alpine
 ```
 
 Two mounts, and the second is not optional if you use templates at all --
 see [Templates](#templates) below.
+
+Publishing a port other than the one Doppel binds needs one more thing:
+`DOPPEL_EXTERNAL_URL`. Doppel rewrites an upstream's redirects and the addresses
+in the bodies it relays to point at itself, and a port mapping is invisible from
+inside the container -- so `-p 58080:8080` without
+`-e DOPPEL_EXTERNAL_URL=http://127.0.0.1:58080/` produces redirects naming a port
+nobody published. See [Doppel's own address](proxying.md#doppels-own-address).
+
+**Mount the directory, not the file.** `-v "$PWD/main.yaml:/etc/doppel/main.yaml"`
+looks tidier and breaks every write: a save puts the new configuration in a
+temporary file and renames it over the old one, and nothing can rename over a mount
+point. Reads work, so the dashboard lists proxies happily and then refuses to save
+one with `Resource busy (os error 16)`. With the directory mounted, the
+configuration inside it is an ordinary file and the rename stays within the mount.
+
+Add `:ro` to the mount if nothing should write the configuration -- then the admin
+API's writes are refused for a reason it can state.
 
 The configuration must bind `0.0.0.0` rather than `127.0.0.1`, or nothing
 outside the container can reach it:
@@ -68,7 +85,7 @@ missing volume.
 docker volume create doppel-templates
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:1.2.3-alpine
 ```
@@ -100,8 +117,10 @@ curl -X POST -H "X-Proxy-Authorization: Bearer $TOKEN" \
 docker exec <container> doppel config reload --socket /tmp/doppel.sock
 ```
 
-Editing a bind-mounted `main.yaml` on the host changes the file the container
-reads, so a reload picks it up without restarting anything.
+Editing `config/main.yaml` on the host changes the file the container reads, so a
+reload picks it up without restarting anything. It works the other way too: a write
+through the admin API rewrites that file, in canonical form -- so comments in it do
+not survive an edit made from the dashboard.
 
 ## Tokens
 
@@ -133,17 +152,17 @@ services:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - ./main.yaml:/etc/doppel/main.yaml:ro
+      - ./config:/etc/doppel
       - doppel-templates:/var/lib/doppel/templates
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
     healthcheck:
-      # `/status` needs no token by default and answers only once the runtime
+      # `/api/v1/status` needs no token by default and answers only once the runtime
       # is compiled and both listeners are bound. `-f` matters: without it
       # curl exits 0 on a 500 and the check passes for answering at all rather
       # than for answering correctly. The port is the one inside the
       # container.
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/api/v1/status"]
       interval: 5s
       timeout: 3s
       start_period: 5s
@@ -170,23 +189,68 @@ an `https` upstream, and every request fails with `UPSTREAM_ERROR`.
 
 ## Building it yourself
 
-The binary is built outside the Dockerfile and copied in. Building Rust inside
-a multi-architecture `buildx` means QEMU for the non-native architecture, which
-turns a two-minute compile into most of an hour. Releases build each
-architecture on a runner of that architecture instead.
+```bash
+make image
+```
+
+That builds the dashboard, then the image. Nothing else is needed and no Rust
+toolchain has to be able to target Linux: when `dist/` holds no binary the
+Dockerfile compiles one in its own builder stage, for the platform being built,
+and the builder stage is discarded -- the published image is Alpine plus the
+binary, around 65 MB.
+
+`make image-rebuild` does the same with no npm or docker cache, and with `dist/`
+emptied first so the compile definitely happens.
+
+### Why it prefers a staged binary
+
+`docker build .` uses `dist/<platform>/doppel`, or `dist/doppel`, if either is
+there, and compiles only when neither is. That preference is what keeps releases
+fast: building Rust inside a multi-architecture `buildx` means QEMU for the
+non-native architecture, which turns a two-minute compile into most of an hour.
+The release workflow builds each architecture on a runner of that architecture,
+stages the two binaries, and points the builder stage at a base with no toolchain
+in it -- so the release never pulls a Rust image to run a `cp`.
+
+To stage one by hand, on Linux with `musl-tools` installed:
 
 ```bash
-# On Linux, with musl-tools installed:
 CC_x86_64_unknown_linux_musl=musl-gcc \
 CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc \
   cargo build --release --target x86_64-unknown-linux-musl -p doppel-cli
 mkdir -p dist && cp target/x86_64-unknown-linux-musl/release/doppel dist/
-docker build --build-arg BIN=dist/doppel -t doppel:dev .
+docker build -t doppel:dev .
 ```
 
-On macOS there is no musl toolchain to install; `cargo zigbuild` or `cross`
-will produce the binary if you want to build the image locally from there.
+It has to be a musl build. A glibc binary does not run on Alpine, and the failure
+is a bare `not found` from the shell rather than anything that says why. On macOS
+there is no musl toolchain to install, which is the reason the Dockerfile compiles
+inside: `ring` builds C, so a musl target needs a musl C compiler and not only the
+Rust standard library for it.
 
-It has to be a musl build. A glibc binary does not run on Alpine, and the
-failure is a bare `not found` from the shell rather than anything that says
-why.
+### The dashboard
+
+It is embedded at compile time, so the compile branch needs it: a binary built
+without `frontend/dist` starts, serves the API and answers 503 at its own root. The
+image therefore builds it when the context has no `frontend/dist`, with the
+`nodejs`/`npm` packages installed in the builder stage for exactly that.
+
+```
+doppel: no dashboard in frontend/dist, building it
+```
+
+Building it on the host first is faster and is what `make image` does -- a working
+checkout has it already, and `npm ci` inside a container downloads the whole
+dependency tree again. It is not required.
+
+### When it refuses to build
+
+Two refusals, both deliberate:
+
+- **"there is no built dashboard ... and no frontend sources"** -- neither
+  `frontend/dist` nor the files `vite build` reads reached the context. That means
+  `.dockerignore` was edited, or the build ran from somewhere other than the
+  repository root. Stage a binary, or fix the context.
+- **"this builder image has no Rust toolchain"** -- something passed
+  `--build-arg BUILDER=` naming an image without cargo, and there was no staged
+  binary to copy. Stage one, or drop the argument.

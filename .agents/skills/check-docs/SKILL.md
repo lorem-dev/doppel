@@ -88,6 +88,43 @@ grep -rn 'env::var\|env = "DOPPEL' crates/
 statuses, must match the table in the docs. A code added without a doc row is
 invisible to whoever has to handle it.
 
+**The parameter reference.** `docs/usage/parameters.md` is generated from
+`doppel-config.schema.json` by `scripts/parameters_doc.py`. Never edit it by hand
+-- regenerate it and read the diff:
+
+```bash
+uv run scripts/config_schema.py && uv run scripts/parameters_doc.py
+```
+
+What the generator cannot judge is whether a field's *description* still says
+something true, or whether its example is still the example worth showing. Those
+come from doc comments and `examples(...)` in `crates/doppel-core/src/config/`, so
+read them there when the behaviour changed.
+
+**The links the dashboard builds.** The (i) beside a field links into that page,
+and the link is assembled at runtime from the field's path and the running version
+-- so mkdocs cannot see it and `--strict` cannot check it. A wrong fragment is
+silent: the browser opens the page at the top and nobody notices.
+
+```bash
+uv run scripts/check_docs_links.py
+```
+
+It holds three things, and each has a failure it exists for:
+
+- every `info="..."` path in `frontend/src` has a section under the anchor
+  `frontend/src/services/docs.ts` derives from it -- a renamed field is the way
+  this breaks;
+- every documentation URL in the frontend is built through `docsUrl()`, so it
+  carries the version. A hand-written link to the site root shows whoever follows
+  it the rules of whatever has been released since;
+- every relative link and fragment inside the generated page resolves.
+
+Both checks are in `make gate` and in CI, so what is left for a human is the
+half a script cannot see: follow two or three of the (i) links in a running
+dashboard and read the sections they land on. An anchor that exists but explains
+a different field passes every check here.
+
 **`main.example.yaml`.** It is the schema made concrete and is asserted against
 by tests, so it cannot be stale -- but it can be *misleading*, which tests do
 not catch. Read it as a newcomer copying it: does the ordering of its mocks
@@ -120,3 +157,34 @@ Say what you compared, not just that you checked. "Every config field has a
 reference entry; the rule-map tests pass; two `usage/` pages named crates and
 were reworded; `mkdocs build --strict` is clean" is a useful report. "Docs look
 fine" is not.
+
+## The dashboard and the frontend
+
+`docs/usage/dashboard.md` is the operator-facing page: the two configuration
+fields, who may use it, what each screen does, the theme, and what a 503 at the
+root means. `docs/development/architecture.md` carries the developer-facing half.
+
+Check these together, because they go stale as a set:
+
+- `admin.dashboard` and `admin.title` in `docs/usage/configuration.md` and in
+  `main.example.yaml`.
+- `GET /api/v1/access` and the routes in `docs/usage/admin-api.md`, plus
+  `DASHBOARD_NOT_BUILT` in its error table. The endpoint table is the one thing
+  there that is checked by a test -- `openapi.rs` refuses a document describing a
+  route that is not served -- so a path that changed shows up in `cargo test`
+  before it shows up here. What does not is prose quoting a path, and every
+  healthcheck: the compose file, the Docker Hub overview, `observability.md`.
+- The build order in `README.md`: assets first, then the binary. A reader who
+  follows a stale version of that gets a 503 and no idea why.
+- `make help`. Every target carries its own description, so the list cannot go
+  stale on its own -- but a documented command that no longer matches a target is
+  worth catching here.
+- The four pages a reader reaches for before the dashboard's own: `docs/index.md`
+  (the feature list and the reading order), `usage/getting-started.md` (a first run
+  ends by opening it), `usage/troubleshooting.md` (the 503, disabled controls, the
+  refresh timer) and `DOCKERHUB.md` (the image serves it too). A feature documented
+  only on its own page is a feature nobody finds.
+
+The icons live in `assets/` at the repository root and are staged into
+`docs/assets/` by `scripts/mkdocs_assets.py` on every build. `docs/assets/` is
+git-ignored: a link that points there is fine, a file committed there is not.

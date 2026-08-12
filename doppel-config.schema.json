@@ -41,6 +41,13 @@
           "$ref": "#/$defs/AuthConfig",
           "description": "Which header carries the bearer token."
         },
+        "dashboard": {
+          "description": "Serve the browser dashboard from the admin listener's root.\n\nOn by default. Off means `/`, `/static/*` and `/robots.txt` are not\nrouted at all and answer 404 like any other unknown path; the JSON API is\nuntouched either way.\n\nAn `Option` and skipped when absent, for the reason given on `groups`:\nadding it must not change the canonical YAML of configurations written\nbefore it existed. Read it through\n[`AdminConfig::is_dashboard_enabled`].",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "enable": {
           "description": "Whether to run the admin listener at all.\n\nDefaults to on. Off means the port is never bound and no admin task\nstarts; the proxy and the control socket are untouched, so\n`doppel config reload` still works and is then the only way in.\n\nThe validation rules do not consult this. A configuration that is only\nsafe because nothing serves it is a trap set for whoever turns the\nlistener on later, and they will not re-read the rules first.",
           "type": "boolean"
@@ -73,6 +80,17 @@
             "null"
           ]
         },
+        "title": {
+          "description": "The heading the dashboard shows, and the browser tab's title.\n\nDefaults to `Doppel`. Useful when several Doppels are open at once and\nthe tabs are otherwise identical.\n\nAn `Option` and skipped when absent, for the same reason as `dashboard`.\nRead it through [`AdminConfig::title`].",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/AdminTitle"
+            }
+          ]
+        },
         "tokens": {
           "description": "The tokens that may call the admin API. Names and token values are\neach unique. `DOPPEL_ADMIN_TOKENS` can supply these instead.",
           "items": {
@@ -91,6 +109,15 @@
         "upload"
       ],
       "type": "object"
+    },
+    "AdminTitle": {
+      "description": "The heading the dashboard shows, at most 64 characters and free of control characters. Defaults to `Doppel`.",
+      "examples": [
+        "billing-api (staging)"
+      ],
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
     },
     "AllowedGroup": {
       "description": "A token or group name `access` may reference, or `*` for any of them.",
@@ -135,17 +162,33 @@
       "properties": {
         "socket": {
           "description": "Path to the control socket, created with mode 0600 and removed on\nshutdown. Its parent directory must already exist.\nA filesystem path. `utoipa` has no schema for `PathBuf`, so it is\ndescribed as the string it is written as.",
+          "examples": [
+            "/tmp/doppel.sock"
+          ],
           "type": "string"
         }
       },
       "type": "object"
     },
+    "ExternalUrl": {
+      "description": "An absolute http or https url naming where clients reach this Doppel, with no query string or fragment.",
+      "examples": [
+        "https://doppel.example.com/"
+      ],
+      "type": "string"
+    },
     "HeaderName": {
       "description": "An HTTP header name: a non-empty RFC 9110 token.",
+      "examples": [
+        "X-Request-Id"
+      ],
       "type": "string"
     },
     "HeaderValue": {
       "description": "An HTTP header value: visible ASCII, space and tab, with no line breaks.",
+      "examples": [
+        "staging"
+      ],
       "type": "string"
     },
     "HttpMethod": {
@@ -173,6 +216,9 @@
     },
     "HttpStatus": {
       "description": "An HTTP status code, 100 to 599.",
+      "examples": [
+        200
+      ],
       "maximum": 599,
       "minimum": 100,
       "type": "integer"
@@ -375,6 +421,9 @@
       "properties": {
         "body": {
           "description": "A template rendered and sent as `text/plain`. Exclusive with `json` and\n`template`.",
+          "examples": [
+            "widget {{ id }} is ready"
+          ],
           "type": [
             "string",
             "null"
@@ -387,12 +436,18 @@
           "description": "Header name -> template producing the value.\n\nThe value is a template, not a header value: what it renders to is\nonly a header value once a request has been served, which is checked\nthere. The name is a name now.",
           "propertyNames": {
             "description": "An HTTP header name: a non-empty RFC 9110 token.",
+            "examples": [
+              "X-Request-Id"
+            ],
             "type": "string"
           },
           "type": "object"
         },
         "json": {
           "description": "A template whose rendered output must be valid JSON, sent as\n`application/json`. Exclusive with `body` and `template`.",
+          "examples": [
+            "{\"id\": \"{{ id }}\"}"
+          ],
           "type": [
             "string",
             "null"
@@ -421,6 +476,9 @@
     },
     "Name": {
       "description": "Letters, digits, `-` and `_`, between 2 and 64 characters.",
+      "examples": [
+        "billing-api"
+      ],
       "maxLength": 64,
       "minLength": 2,
       "pattern": "^[A-Za-z0-9_-]{2,64}$",
@@ -435,6 +493,9 @@
     },
     "Port": {
       "description": "A TCP port, 1 to 65535.",
+      "examples": [
+        8080
+      ],
       "maximum": 65535,
       "minimum": 1,
       "type": "integer"
@@ -515,6 +576,9 @@
           "description": "Headers injected into every outbound request, overriding whatever the\nclient sent by the same name.",
           "propertyNames": {
             "description": "An HTTP header name: a non-empty RFC 9110 token.",
+            "examples": [
+              "X-Request-Id"
+            ],
             "type": "string"
           },
           "type": "object"
@@ -574,6 +638,13 @@
             "null"
           ]
         },
+        "rewrite_urls": {
+          "description": "Whether the upstream's own address is rewritten to Doppel's inside the\nbodies this proxy relays. Absent means enabled.\n\nThe same problem `rewrite_redirects` solves, one layer down: a page, a\nscript or a JSON document that names `https://api.example.com/v2/` sends\nthe client straight there on the next request, past every fault and every\nmock. Rewriting the body keeps it inside Doppel.\n\nOnly the exact host is replaced. `https://cdn.api.example.com/` is a\ndifferent host and is left alone, because Doppel does not proxy it and\npointing it at itself would break a page rather than keep it working.\n\nOnly text bodies, and only ones the upstream did not compress. Turn it off\nfor a client being tested against the bytes the upstream actually sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "timeout": {
           "description": "Bounds the whole upstream exchange, in seconds. Exceeding it is\n`504 UPSTREAM_TIMEOUT`. Defaults to 30.",
           "oneOf": [
@@ -610,6 +681,9 @@
     },
     "ProxyName": {
       "description": "Letters, digits, `-` and `_`, between 2 and 32 characters.",
+      "examples": [
+        "billing-api"
+      ],
       "maxLength": 32,
       "minLength": 2,
       "pattern": "^[A-Za-z0-9_-]{2,32}$",
@@ -617,6 +691,9 @@
     },
     "Ratio": {
       "description": "A probability from 0.0 to 1.0. 50% is `0.5`.",
+      "examples": [
+        0.25
+      ],
       "maximum": 1,
       "minimum": 0,
       "type": "number"
@@ -651,6 +728,9 @@
     },
     "Seconds": {
       "description": "A latency in seconds, 0 to 300.",
+      "examples": [
+        0.25
+      ],
       "maximum": 300,
       "minimum": 0,
       "type": "number"
@@ -668,6 +748,9 @@
       "properties": {
         "dsn": {
           "description": "The Sentry DSN to report to. Empty disables reporting, so a deployment\ncan blank it without removing the section.",
+          "examples": [
+            "https://key@o0.ingest.sentry.io/0"
+          ],
           "type": "string"
         }
       },
@@ -680,6 +763,17 @@
       "additionalProperties": false,
       "description": "No `workers` here. It sizes the tokio runtime, and a database-backed\nstore cannot be opened before that runtime exists -- so the value has to\nbe known before the configuration is read, which puts it on the same side\nof the boundary as the connection settings. It is `--workers` /\n`DOPPEL_WORKERS`.",
       "properties": {
+        "external_url": {
+          "description": "Where clients reach this Doppel, when that is not `host:port`.\n\nBehind a container port mapping, a load balancer or an ingress, the\naddress Doppel bound is not the address a client used -- and a rewritten\n`Location` has to name the second. Doppel cannot infer it: `Host` is a\nclaim by the caller, and building a redirect out of it hands the caller\nthe redirect.\n\nAbsent, `host` and `port` are used, with a wildcard bind (`0.0.0.0`, `::`)\nread as loopback -- which is right for a laptop or a pod reached at its\nown address, and wrong behind a port mapping or an ingress, where the\nclient used neither. Doppel logs the address it settled on at startup.\n\n`DOPPEL_EXTERNAL_URL` overrides it. Part of `server`, so a change takes a\nrestart like the rest of that section.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ExternalUrl"
+            }
+          ]
+        },
         "host": {
           "description": "An IP address, not a hostname: a name would have to be resolved,\nand which address it resolves to is not the configuration's to\ndecide. `utoipa` has no schema for `IpAddr`, so it is described\nhere as the string it is written as.",
           "examples": [
@@ -734,6 +828,9 @@
       "properties": {
         "dir": {
           "description": "Directory holding mock templates, one subdirectory per proxy. Created\nat startup if absent.\nA filesystem path. `utoipa` has no schema for `PathBuf`, so it is\ndescribed as the string it is written as.",
+          "examples": [
+            "./templates"
+          ],
           "type": "string"
         }
       },
@@ -741,12 +838,18 @@
     },
     "TimeoutSeconds": {
       "description": "An upstream timeout in whole seconds, 1 to 3600.",
+      "examples": [
+        30
+      ],
       "maximum": 3600,
       "minimum": 1,
       "type": "integer"
     },
     "Token": {
       "description": "An admin token: printable ASCII with no spaces, 32 to 255 characters. A version 4 UUID is the recommended shape.",
+      "examples": [
+        "replace-me-00000000000000000000000"
+      ],
       "maxLength": 255,
       "minLength": 32,
       "type": "string"

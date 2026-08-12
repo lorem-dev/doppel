@@ -1,5 +1,7 @@
 # Doppel
 
+![Doppel](assets/icon-128.png)
+
 Doppel is a doppelganger for your backend: an HTTP proxy that stands in front
 of a real service, or in place of one that is not there.
 
@@ -33,6 +35,9 @@ including verifying a download and the macOS quarantine case, are on
 - **Serves an admin API** -- proxy CRUD, template upload, reload, status,
   Prometheus metrics and Swagger UI -- behind token access control. See
   [Admin API](usage/admin-api.md).
+- **Serves a dashboard** on that same port's root, compiled into the binary:
+  the proxy set, a form over the whole proxy document, mock templates, status and
+  reload. See [The dashboard](usage/dashboard.md).
 - **Reports to Sentry**, optionally, behind a cargo feature.
 - **Stores its configuration** in a YAML file or in PostgreSQL, with
   `config push` and `config pull` to move between them. See
@@ -72,7 +77,9 @@ the six words the rest of it leans on and shows how a request is handled.
 6. [Changing configuration while it runs](usage/runtime-changes.md) -- reloads,
    tokens, and editing one proxy over HTTP.
 7. [The admin API](usage/admin-api.md) and
-   [PostgreSQL](usage/storage.md) for anything running in more than one place.
+   [the dashboard](usage/dashboard.md) -- driving all of the above over HTTP, or
+   in a browser.
+8. [PostgreSQL](usage/storage.md) for anything running in more than one place.
 
 with the [configuration reference](usage/configuration.md) and the
 [CLI reference](usage/cli.md) at the end for looking things up.

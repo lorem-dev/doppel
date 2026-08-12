@@ -27,6 +27,60 @@ changes things. `regenerate-config-schema` is the one exception, and only
 because the thing it writes is generated: if it produces a diff, that diff is a
 commit of its own before the release, not part of the release commit.
 
+## Then check the dashboard
+
+`run-tests-and-linters` covers the frontend gate, but a release has two questions
+of its own, because the dashboard is embedded at compile time and a binary without
+it still builds:
+
+```bash
+make e2e          # the browser suite, which the frontend gate leaves out
+```
+
+Then confirm the release will not ship a page-less binary. The workflow greps each
+archive's binary for the configuration element before publishing -- read that step
+and check it is still there, since it is the only thing standing between a missing
+artifact and a release whose root answers 503:
+
+```bash
+grep -n "carries the dashboard" .github/workflows/release.yml
+```
+
+The dashboard's own version is not bumped and must not be: `frontend/package.json`
+has no `version` field, and the page reports the binary's.
+
+## Then check the Docker Hub overview
+
+`DOCKERHUB.md` is the only page here that is published somewhere this repository
+cannot see, by the `describe` job, and nothing fails when it goes stale: the
+release ships and the overview quietly describes an older Doppel.
+
+It is not a copy of `docs/usage/docker.md`. It is written for a reader who has
+already chosen the image, so it opens with `docker run` and never mentions
+building from source. What to check, in this order:
+
+- **Against the code.** Every command, port, path, volume and environment
+  variable in it exists and still means what it says. The paths are the ones that
+  moved most recently, so read the route table rather than trusting the text.
+- **Against `docs/usage/docker.md`.** The two cover the same ground at different
+  lengths, and the failure mode is a fact that changed in one and not the other:
+  a mount, a variable, a healthcheck path. Diff them by eye, fact by fact.
+- **Against the dashboard.** It describes what the page can do, which is the
+  claim that ages fastest -- it has already been wrong once about templates.
+- **The version stays the placeholder `1.2.3`.** The `describe` job rewrites
+  every `loremdev/doppel:<version>-alpine` to the tag being released; a real
+  version checked in is a second number to bump and no reader benefits.
+- **Size.** Docker Hub truncates the overview past 25000 bytes and the short
+  description past 100, silently:
+
+```bash
+wc -c DOCKERHUB.md
+grep -n 'loremdev/doppel:' DOCKERHUB.md
+```
+
+Anything found here is a commit of its own before the release, like everything
+else this skill turns up.
+
 ## Then check the version
 
 ```bash

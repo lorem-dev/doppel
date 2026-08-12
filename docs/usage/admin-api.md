@@ -4,7 +4,7 @@ A second HTTP listener on `admin.host:admin.port`, separate from the proxy
 because the proxy's fallback handler swallows every path -- there is nowhere
 on it an admin route could live.
 
-`admin.enable: false` turns all of it off, including `/status` and `/metrics`,
+`admin.enable: false` turns all of it off, including `/api/v1/status` and `/metrics`,
 and the port is then never bound. See
 [the configuration reference](configuration.md#admin).
 
@@ -126,14 +126,102 @@ would not help.
 | POST | `/api/v1/proxies/{name}/templates/{file}` | `upload` | `204` |
 | DELETE | `/api/v1/proxies/{name}/templates/{file}` | `upload` | `204` |
 | POST | `/api/v1/config/reload` | `update` | `200` |
-| GET | `/status` | none | `200` |
+| GET | `/api/v1/access` | none | `200` |
+| GET | `/api/v1/schema` | none | `200` |
+| GET | `/api/v1/status` | none | `200` |
 | GET | `/metrics` | none | `200` |
 | GET | `/openapi.json` | none | `200` |
 | GET | `/swagger-ui` | none | `200` |
 
-`/status`, `/metrics`, `/openapi.json` and `/swagger-ui` sit outside
-`/api/v1` because they are not resources of the API; they describe or observe
-the process.
+Responses are compressed when the client asks: `br` or `gzip` from
+`Accept-Encoding`, `br` first when both are offered. The proxy listener does not
+do this -- it relays the upstream's own encoding, because that is part of what a
+client is being tested against.
+
+A trailing slash is accepted everywhere: `/metrics/` answers as `/metrics` does.
+Axum stopped redirecting between the two spellings, and a 404 for a slash is a
+poor answer for a path an operator typed. The proxy listener is deliberately not
+like this -- a proxied path is relayed byte for byte, because `/orders/` and
+`/orders` are two resources upstream.
+
+`/api/v1/status` sits outside `/api/v1` because it is not a resource of the API;
+it reports on the process. `/metrics`, `/openapi.json` and `/swagger-ui/` sit
+outside `/api/` altogether: those paths are what a scraper, a client generator
+and a browser look for by default, and none of the three is a resource of the API
+either.
+
+Everything the API serves is under `/api/`. That is a boundary rather than a
+convention: with `admin.dashboard` on, a `GET` outside `/api/` and `/static/` is
+answered with the dashboard's page, so a client-side route survives being reloaded
+or bookmarked. Inside `/api/` an unknown path still answers `404` in the envelope,
+so a mistyped endpoint cannot hand a client an HTML document to parse, and a `POST`
+to a path that does not exist is refused rather than answered with a page.
+
+The dashboard also serves `/robots.txt` and its hashed assets under `/static/`.
+None of that is in the OpenAPI document, which describes the API; see
+[The dashboard](dashboard.md).
+
+### What the caller may do
+
+`GET /api/v1/access` reports the calling token's own rights. It answers `200` for
+everybody, anonymous included: an endpoint whose purpose is to say "you may do
+nothing" cannot itself require a right, and it discloses nothing that attempting
+the six actions would not.
+
+```json
+{
+  "caller": { "kind": "token", "name": "ci", "group": "ops" },
+  "global": {
+    "list": true, "read": true, "create": false,
+    "update": false, "delete": false, "upload": false
+  },
+  "proxies": {
+    "alpha": { "read": true, "update": false, "delete": false, "upload": false }
+  }
+}
+```
+
+- `caller` is `{"kind": "anonymous"}` for a request with no token, or with one
+  this configuration does not recognise -- the two are deliberately not
+  distinguished.
+- `global` is the six actions as `admin.access` decides them for this caller.
+- `proxies` gives the four overridable actions per proxy, with that proxy's own
+  `access` block applied. It is **absent** -- not empty -- when the caller may not
+  `list`: the map is keyed by proxy name, so returning it would be a proxy listing
+  by another route.
+
+Every value is the same decision the endpoint itself would make, evaluated by the
+same code. It exists so a client can disable an action instead of offering it and
+being refused; it is not a substitute for handling `401` and `403`, since rights
+can change under a running page.
+
+### The configuration schema
+
+`GET /api/v1/schema` returns the configuration document as a JSON Schema
+(2020-12), from the process that is going to read it. No token, for the same
+reason as above: it describes the shape of a configuration, never the contents of
+one, and the identical bytes are published in the repository and attached to every
+release.
+
+```bash
+curl -s http://127.0.0.1:8081/api/v1/schema | jq '.["$defs"].ProxyName'
+```
+
+```json
+{
+  "description": "Letters, digits, `-` and `_`, between 2 and 32 characters.",
+  "maxLength": 32,
+  "minLength": 2,
+  "pattern": "^[A-Za-z0-9_-]{2,32}$",
+  "type": "string"
+}
+```
+
+Use it to check a document before pushing it, and to build an editor that knows
+the rules: it is generated from the same Rust types that enforce them, so it
+cannot describe a field that does not exist or a bound nobody applies. See
+[Editor support](configuration.md#editor-support) for the other two copies and
+when to prefer which.
 
 ### Bodies
 
@@ -148,9 +236,17 @@ back:
 version of something that already exists, and accepting one on a create would
 let a client that meant to send a `PUT` overwrite a proxy it never read.
 
-A `PUT` whose body names a different proxy than the path is refused. The name
-is also the template directory, so a rename through `PUT` would strand the old
-directory.
+A `PUT` whose body names a different proxy than the path **renames it**. The name
+is also where the templates live, so the rename moves them: the proxy answers at the
+new path, the old one is a `404`, and every template file the proxy had is under the
+new name. A name another proxy already holds is refused with `400`
+`CONFIG_INVALID`.
+
+The configuration is written before the templates are moved, because the write is
+what authorises moving them. If the move then fails -- a permission problem, a full
+disk -- the reply says so in full: the proxy has the new name and its templates are
+still under the old one, so a mock naming a template file fails to render until they
+are moved by hand.
 
 ## Templates
 
@@ -172,6 +268,24 @@ at all.
 Deleting a proxy removes its templates. Updating one removes the templates no
 remaining mock names. Both happen *after* the configuration write, so a
 rejected change leaves every file in place.
+
+### A write is in force when it answers
+
+`POST`, `PUT` and `DELETE` promote the stored configuration to the running one
+before they reply, so a `200` means the process is serving what you just wrote:
+the next request through the proxy listener goes to the new upstream, and
+`GET /api/v1/status` reports the new revision. No reload in between.
+
+It used to take one, and that was a trap worth naming: the write returned `200`,
+the API read the new document back, and the traffic kept going where it went
+before -- the API agreeing with the operator while the process disagreed with
+both.
+
+If the promotion itself fails -- the store became unreadable, or another writer
+left the document invalid between the save and the load -- the response says so
+and names both halves: the configuration is stored, the process is still running
+the previous one, and `POST /api/v1/config/reload` retries. The write is not
+undone, because it is not this process's to undo.
 
 ## Reload
 
@@ -200,11 +314,17 @@ the configuration file out of band could add a token for themselves and reload
 it into effect.
 
 Same effect as `doppel config reload`, and the two share one implementation
-and one mutex, so they cannot swap runtimes in the wrong order.
+and one mutex -- with the writes above, which promote through the same path, so
+none of the three can swap runtimes in the wrong order.
+
+What is left for it, now that a write applies itself: a configuration changed
+**behind** the API. An operator editing `main.yaml`, `doppel config push`, another
+instance writing to the same database -- none of those pass through a handler, so
+none of them can promote themselves.
 
 ## Status
 
-`GET /status` reports what the process is serving right now -- from the
+`GET /api/v1/status` reports what the process is serving right now -- from the
 running runtime, not from the store, because a configuration written but not
 reloaded is not what this process is doing.
 
@@ -244,6 +364,7 @@ and an oversized body all carry the envelope rather than an empty body.
 | `METHOD_NOT_ALLOWED` | 405 | The path exists and does not accept that verb; the response also carries `Allow` |
 | `PROXY_NOT_RESOLVED` | 404 | No proxy matched and there is no default |
 | `NO_PROXIES_CONFIGURED` | 503 | The configuration names no proxies at all. See [No proxies configured](proxying.md#no-proxies-configured) |
+| `DASHBOARD_NOT_BUILT` | 503 | `GET /` on a binary compiled without the dashboard's assets. See [When the root answers 503](dashboard.md#when-the-root-answers-503) |
 | `CONFLICT` | 409 | The name exists, or the store is under sustained contention |
 | `REVISION_MISMATCH` | 409 | The proxy changed since it was read |
 | `UPLOAD_TOO_LARGE` | 413 | A template body over `admin.upload.limit`, or a configuration document over 1 MiB |
@@ -263,9 +384,14 @@ tell "that already exists" from "you are holding a stale copy".
 ## OpenAPI
 
 `GET /openapi.json` serves a document generated from the handlers themselves,
-so it cannot describe an endpoint this binary does not serve. `GET
-/swagger-ui` serves a browser UI over it, with the assets built into the
-binary rather than fetched at runtime.
+so it cannot describe an endpoint this binary does not serve. `GET /swagger-ui/`
+serves a browser UI over it, with the assets built into the binary rather than
+fetched at runtime.
+
+The UI sits outside `/api/` because it is a page rather than an endpoint: it is
+served to a browser, it belongs beside the dashboard's own pages, and an ingress
+routing `/api/*` to a JSON service would otherwise hand a browser HTML through a
+JSON path.
 
 Both are unauthenticated: they describe the API rather than expose any of it,
 and a client cannot authenticate before it knows how.

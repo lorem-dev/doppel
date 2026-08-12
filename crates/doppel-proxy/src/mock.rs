@@ -183,6 +183,7 @@ mod tests {
             latency: None,
             replace: 1.0,
             rewrite_redirects: true,
+            rewrite_urls: false,
             resolve_header: None,
             mocks,
             body_limit: 1024 * 1024,

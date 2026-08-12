@@ -205,6 +205,9 @@ impl<const MAX_LEN: usize> utoipa::PartialSchema for Name<MAX_LEN> {
             .description(Some(format!(
                 "Letters, digits, `-` and `_`, between {MIN} and {MAX_LEN} characters."
             )))
+            // Short enough to be legal for a proxy name as well as for the longer
+            // names that share this builder.
+            .examples([serde_json::json!("billing-api")])
             .into()
     }
 }

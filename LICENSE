@@ -210,10 +210,17 @@ This project uses the following third-party libraries. Each library
 retains its original copyright and is distributed under its respective
 license.
 
-The 26 crates below are the ones this workspace names directly. A
-released binary links its dependencies statically, so it also contains their
-dependencies: the complete list, generated from the resolve graph, is in
+The packages below are the ones this project names directly: the crates in
+`Cargo.toml`, and the npm packages in `frontend/package.json` whose code is
+compiled into the dashboard. A released binary links its crates statically and
+embeds that dashboard, so it also contains everything those depend on: the
+complete list, generated from both resolve graphs, is in
 [THIRD-PARTY.md](THIRD-PARTY.md).
+
+Build-time npm packages -- vite, jest, eslint, tailwind's compiler and the
+tooling underneath them -- are deliberately absent. They run on a developer's
+machine and ship nowhere, so listing them would claim a redistribution that does
+not happen.
 
 | Package | Ecosystem | Version | License |
 |---|---|---|---|
@@ -243,4 +250,9 @@ dependencies: the complete list, generated from the resolve graph, is in
 | tracing-subscriber | crates.io | 0.3.23 | MIT |
 | utoipa | crates.io | 5.5.0 | MIT OR Apache-2.0 |
 | utoipa-swagger-ui | crates.io | 9.0.2 | MIT OR Apache-2.0 |
-
+| prismjs | npm | 1.30.0 | MIT |
+| react | npm | 19.2.8 | MIT |
+| react-dom | npm | 19.2.8 | MIT |
+| react-router | npm | 8.3.0 | MIT |
+| react-simple-code-editor | npm | 0.14.1 | MIT |
+| zustand | npm | 5.0.14 | MIT |

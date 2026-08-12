@@ -202,19 +202,42 @@ pub(crate) async fn create(
         .await
         .map_err(|err| store_error(&err))?;
 
+    // The proxy exists in the store; this is what makes it exist in the process.
+    crate::status::apply_to_runtime(&state).await?;
+
     Ok(with_etag(StatusCode::CREATED, created, Some(location)))
+}
+
+/// The rename landed in the configuration and the templates did not follow.
+///
+/// The configuration is written first, deliberately: the write is what authorises
+/// moving anything. So a failure here leaves a proxy under its new name whose
+/// template files are still under the old one, and the mocks naming them render
+/// errors until somebody moves them. That is worth saying in full rather than
+/// reporting as a store failure, because the fix is a one-line `mv` and the message
+/// is the only place a reader could learn which two names to use.
+fn renamed_but_stranded(from: &str, to: &str, err: &StoreError) -> Error {
+    Error::new(
+        ErrorCode::StoreError,
+        format!(
+            "`{from}` was renamed to `{to}` in the configuration, but its templates \
+             could not be moved: {err}. The templates are still stored under `{from}`, \
+             so any mock of `{to}` naming a template file will fail to render until \
+             they are moved."
+        ),
+    )
 }
 
 #[utoipa::path(
     put, path = "/api/v1/proxies/{name}", tag = "proxies",
     params(
-        ("name" = String, Path, description = "Proxy name; the body must repeat it"),
+        ("name" = String, Path, description = "Proxy name; a different name in the body renames it"),
         ("If-Match" = Option<String>, Header, description = "The revision read earlier, quoted"),
     ),
     request_body = ProxyRequest,
     responses(
         (status = 200, description = "Replaced; the new revision is in the body and `ETag`", body = ProxyView),
-        (status = 400, description = "Malformed body, a rename, or two disagreeing revisions", body = ErrorBody),
+        (status = 400, description = "Malformed body, a taken name, or two disagreeing revisions", body = ErrorBody),
         (status = 401, body = ErrorBody), (status = 403, body = ErrorBody),
         (status = 404, body = ErrorBody),
         (status = 409, description = "The proxy changed since it was read", body = ErrorBody),
@@ -234,24 +257,15 @@ pub(crate) async fn update(
     drop(policy);
 
     let request = parse_request(&read_body(body, &headers, MAX_DOCUMENT_BYTES).await?)?;
-    if request.proxy.name != *name {
-        // A proxy's name is also its template directory. Renaming through PUT
-        // would strand the old directory and leave the new proxy pointing at
-        // templates that are not there, which is not what anyone typing a
-        // different name into a body is asking for.
-        return Err(Error::new(
-            ErrorCode::ConfigInvalid,
-            format!(
-                "body names proxy `{}` but the path names `{name}`; \
-                 a proxy cannot be renamed through an update",
-                request.proxy.name
-            ),
-        )
-        .into());
-    }
     let expected = required_revision(&headers, request.revision.as_deref())?;
 
     let proxy = request.proxy;
+    // A name in the body that differs from the path is a rename, not a mistake. It
+    // used to be refused, because a proxy's name is also where its templates live
+    // and a rename that left them behind would point every mock at a file that is
+    // not there -- so the rename moves them, below.
+    let renamed = (proxy.name.as_str() != name).then(|| proxy.name.to_string());
+
     let updated = commit(state.store(), |config| {
         let index = position(config, &name).ok_or_else(|| not_found(&name))?;
         // Re-checked on every attempt, against whatever the store holds now.
@@ -260,19 +274,46 @@ pub(crate) async fn update(
         if Revision::of_proxy(&config.proxies[index]) != expected {
             return Err(stale(&name));
         }
+        if let Some(new_name) = &renamed
+            && position(config, new_name).is_some()
+        {
+            // Caught here rather than left to validation, which would report it
+            // against a position in the document -- `proxies[3].name` -- when what
+            // the caller needs to know is that the name is taken.
+            return Err(Error::new(
+                ErrorCode::ConfigInvalid,
+                format!("a proxy named `{new_name}` already exists"),
+            ));
+        }
         config.proxies[index] = proxy.clone();
         Ok(view(&proxy))
     })
     .await?;
 
+    // Both of these follow the configuration write, and in this order. The write is
+    // what authorises touching the templates at all -- the same reason `delete` waits
+    // for it -- and a rename has to happen before the files are pruned, because after
+    // it they are the new name's.
+    if let Some(new_name) = &renamed {
+        state
+            .store()
+            .rename_templates(name.as_str(), new_name)
+            .await
+            .map_err(|err| renamed_but_stranded(&name, new_name, &err))?;
+    }
     // The update landed, so the mocks it removed are gone and the files only
-    // they named can no longer be rendered. Same order as delete, for the
-    // same reason: the configuration write is what authorises dropping them.
+    // they named can no longer be rendered.
     state
         .store()
-        .retain_templates(name.as_str(), &crate::templates::declared(&updated.proxy))
+        .retain_templates(
+            renamed.as_deref().unwrap_or(name.as_str()),
+            &crate::templates::declared(&updated.proxy),
+        )
         .await
         .map_err(|err| store_error(&err))?;
+
+    // Without this the upstream changes in the document and the traffic does not.
+    crate::status::apply_to_runtime(&state).await?;
 
     Ok(with_etag(StatusCode::OK, updated, None))
 }
@@ -329,6 +370,10 @@ pub(crate) async fn remove(
         .retain_templates(name.as_str(), &[])
         .await
         .map_err(|err| store_error(&err))?;
+
+    // A deleted proxy that is still being served is the worst of the three: the
+    // operator has been told it is gone.
+    crate::status::apply_to_runtime(&state).await?;
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }

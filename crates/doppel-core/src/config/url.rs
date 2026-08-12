@@ -28,19 +28,29 @@ pub enum UrlError {
     HasQueryOrFragment,
 }
 
+/// The rules both base urls in this configuration are held to: absolute, a
+/// scheme Doppel speaks, and no query or fragment.
+///
+/// Shared so the two cannot drift. A query on Doppel's own external url would
+/// be dropped from every rewritten `Location` for the same reason it is dropped
+/// from an upstream: the path is rebuilt, and there is nowhere for it to go.
+fn parse_base(value: &str) -> Result<reqwest::Url, UrlError> {
+    let url = reqwest::Url::parse(value).map_err(|err| UrlError::NotAbsolute {
+        reason: err.to_string(),
+    })?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(UrlError::BadScheme(url.scheme().to_owned()));
+    }
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(UrlError::HasQueryOrFragment);
+    }
+    Ok(url)
+}
+
 impl UpstreamUrl {
     /// Check a string and keep it parsed, or say why not.
     pub fn parse(value: &str) -> Result<Self, UrlError> {
-        let url = reqwest::Url::parse(value).map_err(|err| UrlError::NotAbsolute {
-            reason: err.to_string(),
-        })?;
-        if !matches!(url.scheme(), "http" | "https") {
-            return Err(UrlError::BadScheme(url.scheme().to_owned()));
-        }
-        if url.query().is_some() || url.fragment().is_some() {
-            return Err(UrlError::HasQueryOrFragment);
-        }
-        Ok(Self(url))
+        parse_base(value).map(Self)
     }
 
     #[must_use]
@@ -115,6 +125,86 @@ impl utoipa::PartialSchema for UpstreamUrl {
 }
 
 impl utoipa::ToSchema for UpstreamUrl {}
+
+/// Where clients reach *this* Doppel, when it is not where Doppel is listening.
+///
+/// Doppel cannot work this out for itself. It knows the address it bound, which
+/// behind a container port mapping, a load balancer or an ingress is not the
+/// address a client used -- and `Host` is a claim by the caller, not something
+/// to build a redirect out of. So it is configured: `server.external_url`, or
+/// `DOPPEL_EXTERNAL_URL` over the top of it.
+///
+/// Held to the same rules as an upstream base, and used the same way: a path is
+/// a prefix, so `https://gw.example.com/doppel/` is a Doppel reached under a
+/// prefix and rewritten locations keep it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExternalUrl(reqwest::Url);
+
+impl ExternalUrl {
+    /// Check a string and keep it parsed, or say why not.
+    pub fn parse(value: &str) -> Result<Self, UrlError> {
+        parse_base(value).map(Self)
+    }
+
+    #[must_use]
+    pub fn into_url(self) -> reqwest::Url {
+        self.0
+    }
+
+    #[must_use]
+    pub fn as_url(&self) -> &reqwest::Url {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl fmt::Display for ExternalUrl {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl FromStr for ExternalUrl {
+    type Err = UrlError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl Serialize for ExternalUrl {
+    /// The parsed form, for the reason `UpstreamUrl` serializes that way: the
+    /// revision is computed over what this writes.
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.0.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ExternalUrl {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(d)?;
+        Self::parse(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl utoipa::PartialSchema for ExternalUrl {
+    fn schema() -> utoipa::openapi::RefOr<utoipa::openapi::schema::Schema> {
+        utoipa::openapi::schema::ObjectBuilder::new()
+            .schema_type(utoipa::openapi::schema::Type::String)
+            .description(Some(
+                "An absolute http or https url naming where clients reach this \
+                 Doppel, with no query string or fragment.",
+            ))
+            .examples([serde_json::json!("https://doppel.example.com/")])
+            .into()
+    }
+}
+
+impl utoipa::ToSchema for ExternalUrl {}
 
 #[cfg(test)]
 mod tests {

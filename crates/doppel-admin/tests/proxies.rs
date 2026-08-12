@@ -293,7 +293,76 @@ async fn an_unparsable_revision_is_rejected() {
 }
 
 #[tokio::test]
-async fn update_that_renames_the_proxy_is_rejected() {
+async fn an_update_may_rename_the_proxy_and_takes_its_templates_along() {
+    // A proxy's name is where its templates live, which is why this used to be
+    // refused. The rename moves them instead.
+    let harness = Harness::new();
+    // Written straight to the store: uploading through the API needs a mock to
+    // declare the file first, and what is under test here is the move.
+    harness.write_template("alpha", "put.json.j2", "{\"ok\": true}");
+
+    let revision = Call::get("/api/v1/proxies/alpha")
+        .send(harness.router())
+        .await
+        .revision();
+    // The renamed document keeps the mock that declares the file: an update whose
+    // mocks no longer name a template is *supposed* to prune it, and pruning is not
+    // what this test is about.
+    let renamed = serde_json::json!({
+        "proxy": {
+            "name": "renamed",
+            "type": "http",
+            "url": "https://alpha.example.com/api/",
+            "resolve": { "type": "header", "header": "X-Proxy-Name" },
+            "mocks": [{
+                "name": "put-widget",
+                "request": { "method": "PUT", "url": "^/widgets/1$" },
+                "response": { "status": 200, "template": "put.json.j2" },
+            }],
+        }
+    });
+    let reply = Call::put("/api/v1/proxies/alpha")
+        .token(ROOT)
+        .if_match(format!("\"{revision}\""))
+        .json(renamed)
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reply.status, 200, "{}", reply.body);
+    assert_eq!(reply.json()["proxy"]["name"], "renamed");
+    assert_eq!(harness.stored().proxies[0].name.as_str(), "renamed");
+
+    // The old path is gone and the new one answers.
+    assert_eq!(
+        Call::get("/api/v1/proxies/alpha")
+            .send(harness.router())
+            .await
+            .status,
+        404
+    );
+    assert_eq!(
+        Call::get("/api/v1/proxies/renamed")
+            .send(harness.router())
+            .await
+            .status,
+        200
+    );
+
+    // And the template followed the name rather than being stranded under the old
+    // one, which is the whole reason a rename needs more than a config write.
+    let files = Call::get("/api/v1/proxies/renamed/templates")
+        .token(ROOT)
+        .send(harness.router())
+        .await
+        .json();
+    assert_eq!(files["templates"][0]["name"], "put.json.j2", "{files}");
+}
+
+#[tokio::test]
+async fn a_rename_onto_a_name_in_use_is_refused_by_name() {
+    // Validation would report this as `proxies[1].name: duplicate`, which describes
+    // a position in a document the caller never sent. What they need to know is that
+    // the name is taken.
     let harness = Harness::new();
     let revision = Call::get("/api/v1/proxies/alpha")
         .send(harness.router())
@@ -303,16 +372,30 @@ async fn update_that_renames_the_proxy_is_rejected() {
     let reply = Call::put("/api/v1/proxies/alpha")
         .token(ROOT)
         .if_match(format!("\"{revision}\""))
+        .json(proxy_json("beta", "https://alpha.example.com/api/"))
+        .send(harness.router())
+        .await;
+
+    assert_eq!(reply.status, 400, "{}", reply.body);
+    assert_eq!(reply.error_code(), "CONFIG_INVALID");
+    assert!(reply.body.contains("already exists"), "{}", reply.body);
+    // Nothing moved: both names still name what they did.
+    assert_eq!(harness.stored().proxies[0].name.as_str(), "alpha");
+}
+
+#[tokio::test]
+async fn a_rename_still_needs_the_revision_it_was_read_at() {
+    // The rename is an update like any other, so the compare-and-swap applies to it.
+    let harness = Harness::new();
+    let reply = Call::put("/api/v1/proxies/alpha")
+        .token(ROOT)
+        .if_match("\"0000000000000000\"")
         .json(proxy_json("renamed", "https://alpha.example.com/api/"))
         .send(harness.router())
         .await;
 
-    // The name is the template directory. A rename through PUT would leave
-    // the old directory orphaned and the new proxy with no templates, which
-    // is not what anyone typing a new name into a body means.
-    assert_eq!(reply.status, 400, "{}", reply.body);
-    assert_eq!(reply.error_code(), "CONFIG_INVALID");
-    assert_eq!(harness.stored().proxies[0].name, "alpha");
+    assert_eq!(reply.status, 409, "{}", reply.body);
+    assert_eq!(harness.stored().proxies[0].name.as_str(), "alpha");
 }
 
 #[tokio::test]

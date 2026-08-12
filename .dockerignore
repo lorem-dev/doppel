@@ -1,9 +1,45 @@
-# The image copies one already-built binary in; nothing else in the repository
-# belongs in the build context. Keeping it small matters more than usual here:
-# `target/` alone is tens of gigabytes on a working checkout, and every byte of
-# the context is sent to the daemon before the first instruction runs.
+# The image prefers an already-built binary and only compiles one when none was
+# staged, so the context is what those two paths need and nothing else. Keeping it
+# small matters more than usual here: `target/` alone is tens of gigabytes on a
+# working checkout, and every byte of the context is sent to the daemon before the
+# first instruction runs.
 *
 
-# The staged binary, which the `docker` release job puts here and the local
-# build instructions in the Dockerfile copy here too.
+# This file itself, because the Dockerfile copies it. That is not decoration:
+# `COPY .dockerignore dist/<platform>/doppel* /staged/` is how "copy the binary if
+# it is there" is expressed, and it needs one source that always matches or the
+# COPY fails when no binary was staged.
+!.dockerignore
+
+# The staged binary, which the `docker` release job puts here and the local build
+# instructions in the Dockerfile copy here too. When it is present nothing below
+# is compiled.
 !dist/
+
+# What the fallback build needs: the workspace, and the dashboard it embeds.
+!Cargo.toml
+!Cargo.lock
+!rust-toolchain.toml
+!crates/
+
+# The dashboard, either already built or buildable. `frontend/dist` is generated, so
+# it is listed explicitly; the sources beside it are what the image builds from when
+# it is not there, which is why this list is exactly what `vite build` reads and not
+# the whole directory -- `node_modules` is bigger than everything else here together.
+#
+# `assets/favicon.ico` is in the list because the build's `prebuild` step copies it
+# into `public/`: one icon, one source of truth, and the copy is git-ignored.
+!frontend/dist/
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/vite.config.ts
+!frontend/tsconfig.json
+!frontend/src/
+!frontend/scripts/
+!assets/favicon.ico
+
+# Nothing inside the workspace that the build does not read. `target/` is the one
+# that matters; the rest keeps the context honest.
+crates/**/target/
+**/*.rs.bk

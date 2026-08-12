@@ -58,8 +58,20 @@ the templates directory the integration tests bind and write themselves.
 To bring both up, for trying the two together rather than for testing:
 
 ```bash
+cp main.example.yaml main.yaml   # once; main.yaml is git-ignored
+make frontend                    # the dashboard the image embeds
 docker compose --profile doppel up -d --wait
 ```
+
+The copy matters twice over. It is the file the container mounts, and it is yours
+to edit -- a port, an upstream, a token -- without any of that showing up as a
+change to `main.example.yaml`, which the documentation quotes. It is also not
+optional in a way that fails clearly: a bind mount whose source does not exist
+makes Docker create a directory at that path, and Doppel then reports
+`cannot read /etc/doppel/main.yaml: Is a directory`.
+
+Doppel's own ports are offset -- `58080` and `58081` -- so a container and a
+`cargo run` can be up at once.
 
 Each test creates its own schema and drops it afterwards, so the suites can run
 in parallel against one database.

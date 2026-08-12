@@ -158,3 +158,33 @@ remove it from `DOPPEL_ADMIN_TOKENS`.
 
 Anything not covered here is worth an issue on the
 [tracker](https://github.com/lorem-dev/doppel/issues).
+
+## The dashboard
+
+### The admin root answers 503
+
+`DASHBOARD_NOT_BUILT`. This binary was compiled without the dashboard's static
+assets -- a source build that skipped the frontend. Released binaries and the
+published image always carry it.
+
+```bash
+npm --prefix frontend ci && npm --prefix frontend run build
+cargo build --release -p doppel-cli
+```
+
+The order is the whole answer: the assets are embedded at compile time, so
+building them without rebuilding the binary changes nothing about what it serves.
+If Node is not available and the JSON API is enough, `admin.dashboard: false`
+stops the route being served at all, which is a clearer answer than a 503.
+
+### The page loads but every button is disabled
+
+The caller has no rights to spend. The dashboard asks `GET /api/v1/access` what it
+may do and disables what the server would refuse; the tooltip on each control says
+so. Enter a token, or check `admin.access` -- the same two causes as a 401 above,
+since it is the same decision.
+
+### A change made elsewhere is not on screen
+
+It will be within a minute: the list refetches on a timer, and the timer is paused
+while the tab is hidden. Switching back to the tab refetches immediately.

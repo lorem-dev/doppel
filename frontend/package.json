@@ -1,0 +1,51 @@
+{
+  "name": "doppel-dashboard",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "The browser dashboard Doppel's admin listener serves from its root.",
+  "scripts": {
+    "prebuild": "node scripts/copy-favicon.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "jest",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "^4.1.1",
+    "prismjs": "^1.30.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.0",
+    "react-simple-code-editor": "^0.14.1",
+    "yaml": "^2.9.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@swc/core": "^1.15.47",
+    "@swc/jest": "^0.2.39",
+    "@tailwindcss/vite": "^4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
+    "@types/html-minifier-terser": "^7.0.2",
+    "@types/jest": "^30.0.0",
+    "@types/prismjs": "^1.26.5",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "eslint": "^10.8.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "html-minifier-terser": "^7.2.0",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.67.0",
+    "vite": "^8.2.1"
+  }
+}

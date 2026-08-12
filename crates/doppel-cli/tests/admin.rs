@@ -70,6 +70,10 @@ impl Admin {
     fn anonymous_get(&self, path: &str) -> (u16, String) {
         self.request("GET", path, None, None)
     }
+
+    fn put(&self, path: &str, body: &str) -> (u16, String) {
+        self.request("PUT", path, Some(SECRET_TOKEN), Some(body))
+    }
 }
 
 fn start() -> (Server, Admin, common::Upstream) {
@@ -100,7 +104,7 @@ fn status_and_metrics_are_scrapeable_without_a_token() {
     let (server, admin, _up) = start();
     server.get("/anything");
 
-    let (status, body) = admin.anonymous_get("/status");
+    let (status, body) = admin.anonymous_get("/api/v1/status");
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"revision\""), "{body}");
     assert!(body.contains("\"p1\""), "{body}");
@@ -133,8 +137,15 @@ fn a_write_without_a_token_is_refused() {
     assert!(body.contains("UNAUTHORIZED"), "{body}");
 }
 
+/// A proxy created over HTTP serves traffic straight away.
+///
+/// It used to take a reload, and this test used to say so -- "written to the
+/// store, but not yet running". That was the defect an operator reported from the
+/// other end: a write returns 200, the API reads the new document back, and the
+/// traffic keeps going where it went before, with nothing anywhere saying the two
+/// disagree.
 #[test]
-fn a_proxy_created_over_http_serves_traffic_after_a_reload() {
+fn a_proxy_created_over_http_serves_traffic_without_a_reload() {
     let (server, admin, up) = start();
 
     // `p1` is the default resolver, so the new one resolves by header.
@@ -151,18 +162,18 @@ fn a_proxy_created_over_http_serves_traffic_after_a_reload() {
     );
     assert_eq!(status, 201, "{body}");
 
-    // Written to the store, but not yet running.
-    let (_, before) = admin.anonymous_get("/status");
-    assert!(!before.contains("\"p2\""), "{before}");
+    // In the running configuration, with no reload in between.
+    let (_, running) = admin.anonymous_get("/api/v1/status");
+    assert!(running.contains("\"p2\""), "{running}");
 
+    // And actually serving: the header picks it.
+    let (status, body) = server.get_with_header("/anything", "X-Proxy-Name", "p2");
+    assert_eq!(status, 200, "{body}");
+
+    // A reload afterwards is the idempotent case -- same store, same revision.
     let (status, body) = admin.request("POST", "/api/v1/config/reload", Some(SECRET_TOKEN), None);
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"proxies\":2"), "{body}");
-
-    let (_, after) = admin.anonymous_get("/status");
-    assert!(after.contains("\"p2\""), "{after}");
-
-    // And it actually serves: the header picks it.
     let (status, body) = server.get_with_header("/anything", "X-Proxy-Name", "p2");
     assert_eq!(status, 200, "{body}");
 }
@@ -612,4 +623,64 @@ fn a_name_the_environment_claims_cannot_be_issued_over_the_socket() {
     assert!(!output.status.success(), "{stdout}");
     assert!(stdout.contains("supplied by the environment"), "{stdout}");
     assert!(stdout.contains("would never authenticate"), "{stdout}");
+}
+
+/// The case an operator reported: an upstream changed through the admin API, and
+/// the proxy kept forwarding to the old one.
+///
+/// The whole chain through the built binary, both listeners and two upstreams, so
+/// "in force" means what a client sees rather than what an endpoint reports. The
+/// unit tests can only check the runtime's own view of itself.
+#[test]
+fn an_upstream_changed_through_the_api_is_what_the_proxy_forwards_to() {
+    let first = upstream();
+    let second = upstream();
+    let server = Server::start(first.port);
+    let admin = Admin {
+        port: server.admin_port(),
+    };
+
+    // Where it goes now.
+    let (status, body) = server.get("/thing");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("upstream saw /thing"), "{body}");
+
+    // The revision the update has to carry, from the proxy as stored.
+    let (status, read) = admin.get("/api/v1/proxies/p1");
+    assert_eq!(status, 200, "{read}");
+    let revision = serde_json::from_str::<serde_json::Value>(&read).unwrap()["revision"]
+        .as_str()
+        .expect("a revision")
+        .to_owned();
+
+    let (status, body) = admin.put(
+        "/api/v1/proxies/p1",
+        &format!(
+            r#"{{"revision":"{revision}","proxy":{{"name":"p1","type":"http","url":"http://127.0.0.1:{}/"}}}}"#,
+            second.port
+        ),
+    );
+    assert_eq!(status, 200, "{body}");
+
+    // No reload in between. The proxy forwards to the new upstream, which is the
+    // only observation that distinguishes a write that landed in the store from
+    // one that is in force.
+    let (status, body) = server.get("/thing");
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains("upstream saw /thing"),
+        "the second upstream answers the same shape: {body}"
+    );
+
+    // And the running configuration says so too.
+    let (status, status_body) = admin.anonymous_get("/api/v1/status");
+    assert_eq!(status, 200, "{status_body}");
+    assert!(
+        status_body.contains(&format!("127.0.0.1:{}", second.port)),
+        "status must name the new upstream: {status_body}"
+    );
+    assert!(
+        !status_body.contains(&format!("127.0.0.1:{}", first.port)),
+        "status must not still name the old one: {status_body}"
+    );
 }

@@ -27,6 +27,7 @@ pub enum ErrorCode {
     RevisionMismatch,
     RevisionRequired,
     InvalidRequestPath,
+    DashboardNotBuilt,
 }
 
 impl ErrorCode {
@@ -35,7 +36,10 @@ impl ErrorCode {
     pub fn status(self) -> u16 {
         match self {
             Self::ProxyNotResolved | Self::NotFound => 404,
-            Self::NoProxiesConfigured => 503,
+            // Both mean "this binary cannot serve that, and no request will change
+            // it": one because nothing is configured to proxy to, the other because
+            // the binary was built without the dashboard's static assets.
+            Self::NoProxiesConfigured | Self::DashboardNotBuilt => 503,
             Self::TemplateRenderError
             | Self::TemplateNotFound
             | Self::BodyExtractionError
@@ -99,6 +103,7 @@ impl ErrorCode {
             Self::RevisionMismatch => "REVISION_MISMATCH",
             Self::RevisionRequired => "REVISION_REQUIRED",
             Self::InvalidRequestPath => "INVALID_REQUEST_PATH",
+            Self::DashboardNotBuilt => "DASHBOARD_NOT_BUILT",
         }
     }
 }
@@ -136,6 +141,7 @@ impl<'de> Deserialize<'de> for ErrorCode {
             "REVISION_MISMATCH" => Ok(Self::RevisionMismatch),
             "REVISION_REQUIRED" => Ok(Self::RevisionRequired),
             "INVALID_REQUEST_PATH" => Ok(Self::InvalidRequestPath),
+            "DASHBOARD_NOT_BUILT" => Ok(Self::DashboardNotBuilt),
             other => Err(serde::de::Error::custom(format!(
                 "unknown error code `{other}`"
             ))),
@@ -224,6 +230,7 @@ mod tests {
         (ErrorCode::RevisionMismatch, "REVISION_MISMATCH", 409),
         (ErrorCode::RevisionRequired, "REVISION_REQUIRED", 428),
         (ErrorCode::InvalidRequestPath, "INVALID_REQUEST_PATH", 400),
+        (ErrorCode::DashboardNotBuilt, "DASHBOARD_NOT_BUILT", 503),
     ];
 
     /// See `ALL_CODES`'s doc comment: this match's lack of a wildcard arm is
@@ -249,7 +256,8 @@ mod tests {
             | ErrorCode::StoreError
             | ErrorCode::RevisionMismatch
             | ErrorCode::RevisionRequired
-            | ErrorCode::InvalidRequestPath => {
+            | ErrorCode::InvalidRequestPath
+            | ErrorCode::DashboardNotBuilt => {
                 let count = ALL_CODES.iter().filter(|(c, _, _)| *c == code).count();
                 assert_eq!(count, 1, "{code:?} must appear exactly once in ALL_CODES");
             }

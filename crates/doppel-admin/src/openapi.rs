@@ -28,6 +28,8 @@ use crate::state::AdminState;
         crate::templates::list,
         crate::templates::upload,
         crate::templates::remove,
+        crate::rights::rights,
+        crate::schema::schema,
         crate::status::reload,
         crate::status::status,
         crate::status::exposition,
@@ -38,6 +40,10 @@ use crate::state::AdminState;
         crate::proxies::ProxyRequest,
         crate::templates::TemplateEntry,
         crate::templates::TemplateList,
+        crate::rights::AccessReport,
+        crate::rights::ActionRights,
+        crate::rights::ProxyRights,
+        crate::rights::CallerView,
         crate::status::Status,
         crate::status::ProxyStatus,
         crate::status::ReloadReport,
@@ -78,6 +84,13 @@ impl Modify for TokenScheme {
 
 /// `/openapi.json` and `/swagger-ui`.
 ///
+/// Both outside `/api/`, and unversioned. Neither is a resource of the API: the
+/// document *describes* every version this binary knows, and the UI is a page
+/// served to a browser. `/api/` exists to keep endpoints from colliding with the
+/// dashboard's pages, and these two are on the pages' side of that line -- which
+/// is also where every tool looks for them, `/openapi.json` being the
+/// conventional path the way `/metrics` is.
+///
 /// The Swagger UI assets are vendored into the binary rather than fetched by
 /// the build script, which is the crate's default. A build that reaches the
 /// network cannot run in an offline or egress-restricted environment, and the
@@ -106,7 +119,9 @@ mod tests {
         ("post", "/api/v1/proxies/{name}/templates/{file}"),
         ("delete", "/api/v1/proxies/{name}/templates/{file}"),
         ("post", "/api/v1/config/reload"),
-        ("get", "/status"),
+        ("get", "/api/v1/access"),
+        ("get", "/api/v1/schema"),
+        ("get", "/api/v1/status"),
         ("get", "/metrics"),
     ];
 

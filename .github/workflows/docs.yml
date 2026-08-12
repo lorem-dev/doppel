@@ -63,6 +63,11 @@ jobs:
           # mike reads and rewrites the gh-pages branch, so it needs history
           # rather than the default shallow clone of one ref.
           fetch-depth: 0
+          # The icons are tracked through git-lfs, and the build hook copies them
+          # into the docs tree. Without this the published site would carry a
+          # pointer file where the logo goes -- which renders as a broken image
+          # rather than failing the build.
+          lfs: true
 
       # Pinned to an exact release, unlike every other action here. astral-sh
       # publishes `v9.0.0` but stopped publishing the sliding major tag after

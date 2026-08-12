@@ -50,8 +50,24 @@ use std::time::{Duration, Instant};
 /// something else, and reporting that beats retrying forever.
 const PORT_RACE_ATTEMPTS: usize = 3;
 
+/// A port nothing is listening on, by asking the kernel for one and giving it
+/// straight back.
+///
+/// Bound on the **wildcard**, not on loopback, and that is the whole point.
+/// `SO_REUSEADDR` is set by `std` on every `TcpListener`, and macOS then allows
+/// `127.0.0.1:P` to be bound while another process holds `0.0.0.0:P` -- the more
+/// specific address wins for connections to it. A loopback probe could therefore
+/// draw a port a server under test was already serving on, shadow it for the
+/// microseconds before this listener is dropped, and reset whatever connection
+/// arrived in that window: `ECONNRESET` on the client, no request in the server's
+/// log, the server still alive and listening. That was the `mocks` suite's flake,
+/// which uses `main.example.yaml` and its `host: 0.0.0.0`.
+///
+/// A wildcard probe cannot: the kernel refuses a second wildcard bind on a busy
+/// port with `EADDRINUSE`, so a collision becomes the lost-port race that
+/// `start_with_env` already retries instead of a corrupted request.
 pub fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
+    TcpListener::bind("0.0.0.0:0")
         .unwrap()
         .local_addr()
         .unwrap()
@@ -77,11 +93,34 @@ pub fn upstream() -> Upstream {
             let Ok(mut stream) = stream else { continue };
             let request = read_request_head(&mut stream);
             let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
-            let body = format!("upstream saw {path}");
-            let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
-            );
+            // One route that is not an echo: a redirect to the upstream's own
+            // authority, which is what makes a client leave Doppel unless the
+            // `Location` is rewritten. Real services answer these constantly --
+            // a trailing slash, a canonical host, a login page.
+            let response = if path == "/page" {
+                // A page that names its own host, which is what makes a client
+                // leave Doppel on the next click unless the body is rewritten.
+                let body = format!(
+                    "<a href=\"http://127.0.0.1:{port}/next\">next</a>\
+                     <img src=\"http://cdn.127.0.0.1:{port}/logo.png\">"
+                );
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\netag: \"upstream-etag\"\r\n\
+                     content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            } else if path == "/redirect-self" {
+                format!(
+                    "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:{port}/moved\r\n\
+                     content-length: 0\r\nconnection: close\r\n\r\n"
+                )
+            } else {
+                let body = format!("upstream saw {path}");
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            };
             let _ = stream.write_all(response.as_bytes());
         }
     });
@@ -349,6 +388,27 @@ impl Server {
         let response = reqwest::blocking::get(url).unwrap();
         let status = response.status().as_u16();
         (status, response.text().unwrap())
+    }
+
+    /// A GET that does not follow a redirect, and reports the `Location`.
+    ///
+    /// `reqwest::blocking::get` follows up to ten by default, which would send
+    /// the test wherever the header points and hide the header itself -- the
+    /// thing under test.
+    pub fn get_unfollowed(&self, path: &str) -> (u16, Option<String>) {
+        let url = format!("http://127.0.0.1:{}{path}", self.port);
+        let response = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .unwrap();
+        let location = response
+            .headers()
+            .get("location")
+            .map(|value| value.to_str().unwrap().to_owned());
+        (response.status().as_u16(), location)
     }
 
     /// A GET carrying one header, for the suites that resolve a proxy by
