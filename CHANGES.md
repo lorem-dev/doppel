@@ -25,6 +25,12 @@ release promotes it to a version heading; the `bump-version` skill does that.
   looks for; under `/api/v1/` the dashboard answered scrapes with HTML.
 - The admin listener accepts a trailing slash on every path. The proxy listener
   still relays one verbatim.
+- The admin listener compresses its responses, `br` or `gzip`, so the dashboard
+  is 74 KB on the wire instead of 140 KB, and `index.html` is minified.
+- The Swagger UI is `/swagger-ui/` and the OpenAPI document `/openapi.json`,
+  both outside `/api/`: a page and a description, not resources of the API.
+- A write through the admin API is in force when it answers: it promotes the
+  stored configuration before replying, so no reload is needed.
 - A rewritten `Location` names Doppel's host instead of being relative, and now
   covers a redirect to the upstream's own host outside the proxied path.
 
