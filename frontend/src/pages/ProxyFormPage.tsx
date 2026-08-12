@@ -10,7 +10,9 @@ import { Section } from '../components/Section'
 import { Spinner } from '../components/Spinner'
 import type { ProxyConfig } from '../types/proxy'
 import { ApiError, complaintAbout } from '../types/error'
+import { complain, numericAttrs } from '../schema/rules'
 import { useMay } from '../store/access'
+import { useRule, useValueRule } from '../store/schema'
 import { useToasts } from '../store/toast'
 import { createProxy, readProxy, updateProxy } from '../services/proxies'
 
@@ -80,16 +82,19 @@ function numberOr(value: string): number | undefined {
  * what keeps that true: it reads `doppel-config.schema.json` and fails when the
  * configuration format grows a field this file does not mention.
  *
- * Nothing here re-implements the configuration's rules. The client checks only
- * what a form can know on its own -- a required box is empty, a number is not a
- * number -- and everything else is the server's answer, mapped back onto the
- * field it is about.
+ * Nothing here re-implements the configuration's rules. The bounds it checks as
+ * someone types -- a pattern, a length, a range -- are read out of the schema the
+ * server serves, so there is one statement of each rule and the page cannot hold a
+ * stale or laxer copy of it. Anything that needs more than one field is the
+ * server's answer on save, mapped back onto the field it is about.
  */
 export default function ProxyFormPage() {
   const { name } = useParams()
   const editing = name !== undefined
   const navigate = useNavigate()
   const may = useMay()
+  const rule = useRule()
+  const valueRule = useValueRule()
   const push = useToasts((state) => state.push)
 
   const [draft, setDraft] = useState<ProxyConfig>(BLANK)
@@ -126,6 +131,18 @@ export default function ProxyFormPage() {
     (field: string): string | undefined =>
       error ? complaintAbout(error, field) : undefined,
     [error],
+  )
+
+  /**
+   * What the schema says is wrong with this field's current value.
+   *
+   * Shown in preference to the server's complaint about the same field: it is about
+   * the text that is there now, while the server's is about the text that was there
+   * when the save was refused.
+   */
+  const complaintFor = useCallback(
+    (path: string, value: unknown): string | undefined => complain(rule(path), value),
+    [rule],
   )
 
   const save = () => {
@@ -179,7 +196,11 @@ export default function ProxyFormPage() {
         </Banner>
       ) : null}
 
-      <Field label="Name" hint="Letters, digits, - and _, 2 to 32 characters." error={errorFor('name')}>
+      <Field
+        label="Name"
+        hint="Letters, digits, - and _, 2 to 32 characters."
+        error={complaintFor('name', draft.name) ?? errorFor('name')}
+      >
         <input
           className={controlClass}
           value={draft.name}
@@ -206,16 +227,25 @@ export default function ProxyFormPage() {
         summary={forwardingSummary(draft)}
       >
       <div className="flex gap-3">
-        <Field label="Timeout (seconds)" hint="Absent means no per-proxy timeout." error={errorFor('timeout')}>
+        <Field
+          label="Timeout (seconds)"
+          hint="Absent means no per-proxy timeout."
+          error={complaintFor('timeout', draft.timeout) ?? errorFor('timeout')}
+        >
           <input
             className={controlClass}
             type="number"
+            {...numericAttrs(rule('timeout'))}
             value={draft.timeout ?? ''}
             disabled={!allowed || saving}
             onChange={(event) => patch({ timeout: numberOr(event.target.value) })}
           />
         </Field>
-        <Field label="Body limit" hint="Bytes, or 4Mi." error={errorFor('body_limit')}>
+        <Field
+          label="Body limit"
+          hint="Bytes, or 4Mi."
+          error={complaintFor('body_limit', draft.body_limit) ?? errorFor('body_limit')}
+        >
           <input
             className={controlClass}
             value={draft.body_limit ?? ''}
@@ -266,6 +296,7 @@ export default function ProxyFormPage() {
         keyLabel="header name"
         valueLabel="value"
         disabled={!allowed || saving}
+        valueRule={valueRule('headers')}
         value={draft.headers}
         onChange={(next) => patch({ headers: next })}
       />
@@ -276,12 +307,13 @@ export default function ProxyFormPage() {
           <Field
             label="Replace"
             hint="A fraction: 0.25 replaces a quarter of matching requests with a mock."
-            error={errorFor('replace')}
+            error={complaintFor('replace', draft.replace) ?? errorFor('replace')}
           >
             <input
               className={controlClass}
               type="number"
               step="0.01"
+              {...numericAttrs(rule('replace'))}
               value={draft.replace ?? ''}
               disabled={!allowed || saving}
               onChange={(event) => patch({ replace: numberOr(event.target.value) })}
@@ -308,11 +340,16 @@ export default function ProxyFormPage() {
         </div>
 
         <div className="flex gap-3">
-          <Field label="Loss rate" hint="A fraction. Leave empty for none." error={errorFor('percentage')}>
+          <Field
+            label="Loss rate"
+            hint="A fraction. Leave empty for none."
+            error={complaintFor('loss.percentage', draft.loss?.percentage) ?? errorFor('percentage')}
+          >
             <input
               className={controlClass}
               type="number"
               step="0.01"
+              {...numericAttrs(rule('loss.percentage'))}
               value={draft.loss?.percentage ?? ''}
               disabled={!allowed || saving}
               onChange={(event) => {
@@ -326,10 +363,14 @@ export default function ProxyFormPage() {
               }}
             />
           </Field>
-          <Field label="Loss status" error={errorFor('status')}>
+          <Field
+            label="Loss status"
+            error={complaintFor('loss.status', draft.loss?.status) ?? errorFor('status')}
+          >
             <input
               className={controlClass}
               type="number"
+              {...numericAttrs(rule('loss.status'))}
               value={draft.loss?.status ?? ''}
               disabled={!allowed || saving || !draft.loss}
               onChange={(event) =>
@@ -344,11 +385,16 @@ export default function ProxyFormPage() {
         </div>
 
         <div className="flex gap-3">
-          <Field label="Latency rate" hint="A fraction of requests to delay.">
+          <Field
+            label="Latency rate"
+            hint="A fraction of requests to delay."
+            error={complaintFor('latency.percentage', draft.latency?.percentage)}
+          >
             <input
               className={controlClass}
               type="number"
               step="0.01"
+              {...numericAttrs(rule('latency.percentage'))}
               value={draft.latency?.percentage ?? ''}
               disabled={!allowed || saving}
               onChange={(event) => {
@@ -366,11 +412,15 @@ export default function ProxyFormPage() {
               }}
             />
           </Field>
-          <Field label="Minimum (seconds)" error={errorFor('min')}>
+          <Field
+            label="Minimum (seconds)"
+            error={complaintFor('latency.min', draft.latency?.min) ?? errorFor('min')}
+          >
             <input
               className={controlClass}
               type="number"
               step="0.1"
+              {...numericAttrs(rule('latency.min'))}
               value={draft.latency?.min ?? ''}
               disabled={!allowed || saving || !draft.latency}
               onChange={(event) =>
@@ -382,11 +432,15 @@ export default function ProxyFormPage() {
               }
             />
           </Field>
-          <Field label="Maximum (seconds)" error={errorFor('max')}>
+          <Field
+            label="Maximum (seconds)"
+            error={complaintFor('latency.max', draft.latency?.max) ?? errorFor('max')}
+          >
             <input
               className={controlClass}
               type="number"
               step="0.1"
+              {...numericAttrs(rule('latency.max'))}
               value={draft.latency?.max ?? ''}
               disabled={!allowed || saving || !draft.latency}
               onChange={(event) =>
@@ -447,6 +501,8 @@ export default function ProxyFormPage() {
             index={index}
             disabled={!allowed || saving}
             errorFor={errorFor}
+            rule={rule}
+            valueRule={valueRule}
             onChange={(next) => {
               const mocks = [...(draft.mocks ?? [])]
               mocks[index] = next

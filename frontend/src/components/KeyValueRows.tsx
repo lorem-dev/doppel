@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import { Button } from './Button'
 import { controlClass } from './Field'
+import type { Rule } from '../schema/rules'
+import { complain } from '../schema/rules'
 
 /**
  * A string-to-string map as rows.
@@ -25,6 +27,7 @@ export function KeyValueRows({
   value,
   onChange,
   disabled,
+  valueRule,
 }: {
   label: string
   keyLabel: string
@@ -33,6 +36,14 @@ export function KeyValueRows({
   value: Record<string, string> | undefined
   onChange: (next: Record<string, string> | undefined) => void
   disabled?: boolean
+  /**
+   * What the schema says a value here has to look like.
+   *
+   * A selector map has a pattern worth checking as it is typed; a header map has
+   * no pattern at all, so nothing is shown for one. Absent until the schema
+   * arrives, and absent for good if it never does.
+   */
+  valueRule?: Rule
 }) {
   const [rows, setRows] = useState<Array<[string, string]>>(() => toRows(value))
 
@@ -66,33 +77,44 @@ export function KeyValueRows({
         {label}
       </legend>
       <div className="flex flex-col gap-2">
-        {rows.map(([key, value], index) => (
-          <div key={index} className="flex items-center gap-2">
-            <input
-              className={controlClass}
-              aria-label={`${label} ${keyLabel} ${index + 1}`}
-              placeholder={keyLabel}
-              value={key}
-              disabled={disabled}
-              onChange={(event) => set(index, [event.target.value, value])}
-            />
-            <input
-              className={controlClass}
-              aria-label={`${label} ${valueLabel} ${index + 1}`}
-              placeholder={valueLabel}
-              value={value}
-              disabled={disabled}
-              onChange={(event) => set(index, [key, event.target.value])}
-            />
-            <Button
-              variant="danger"
-              disabled={disabled}
-              onClick={() => publish(rows.filter((_, at) => at !== index))}
-            >
-              Remove
-            </Button>
-          </div>
-        ))}
+        {rows.map(([key, value], index) => {
+          const complaint = complain(valueRule, value)
+          return (
+            <div key={index} className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <input
+                  className={controlClass}
+                  aria-label={`${label} ${keyLabel} ${index + 1}`}
+                  placeholder={keyLabel}
+                  value={key}
+                  disabled={disabled}
+                  onChange={(event) => set(index, [event.target.value, value])}
+                />
+                <input
+                  className={controlClass}
+                  aria-label={`${label} ${valueLabel} ${index + 1}`}
+                  placeholder={valueLabel}
+                  value={value}
+                  disabled={disabled}
+                  aria-invalid={complaint ? true : undefined}
+                  onChange={(event) => set(index, [key, event.target.value])}
+                />
+                <Button
+                  variant="danger"
+                  disabled={disabled}
+                  onClick={() => publish(rows.filter((_, at) => at !== index))}
+                >
+                  Remove
+                </Button>
+              </div>
+              {complaint ? (
+                <span role="alert" className="text-xs text-red-700 dark:text-red-300">
+                  {valueLabel}: {complaint}
+                </span>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
       <div className={rows.length ? 'mt-2' : ''}>
         <Button

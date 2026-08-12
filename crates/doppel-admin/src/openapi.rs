@@ -29,6 +29,7 @@ use crate::state::AdminState;
         crate::templates::upload,
         crate::templates::remove,
         crate::rights::rights,
+        crate::schema::schema,
         crate::status::reload,
         crate::status::status,
         crate::status::exposition,
@@ -117,6 +118,7 @@ mod tests {
         ("delete", "/api/v1/proxies/{name}/templates/{file}"),
         ("post", "/api/v1/config/reload"),
         ("get", "/api/v1/access"),
+        ("get", "/api/v1/schema"),
         ("get", "/api/v1/status"),
         ("get", "/api/v1/metrics"),
     ];

@@ -7,6 +7,8 @@ import { Section } from './Section'
 import { Spinner } from './Spinner'
 import type { Syntax } from './CodeEditor'
 import type { HttpMethod, MockConfig } from '../types/proxy'
+import type { Rule } from '../schema/rules'
+import { complain, numericAttrs } from '../schema/rules'
 
 const CodeEditor = lazy(() => import('./CodeEditor'))
 
@@ -43,6 +45,8 @@ export function MockEditor({
   onRemove,
   disabled,
   errorFor,
+  rule,
+  valueRule,
 }: {
   mock: MockConfig
   /** This mock's position, which is how the server names it in a complaint. */
@@ -51,10 +55,22 @@ export function MockEditor({
   onRemove: () => void
   disabled?: boolean
   errorFor: (field: string) => string | undefined
+  /**
+   * The schema's bounds on a field of a mock, by path within a proxy document.
+   *
+   * Passed in rather than read from the store here: every mock in a form would
+   * otherwise subscribe to the schema separately, and the form already has it.
+   */
+  rule: (path: string) => Rule | undefined
+  valueRule: (path: string) => Rule | undefined
 }) {
   const source = sourceOf(mock)
   // Asked for by path, so the proxy's own `name` does not answer for every mock's.
   const complaint = (field: string) => errorFor(`mocks[${index}].${field}`)
+  // The schema describes one mock, so the path has no index in it: every mock in
+  // the list is the same shape.
+  const bounds = (field: string) => rule(`mocks[].${field}`)
+  const checked = (field: string, value: unknown) => complain(bounds(field), value)
 
   const setResponse = (patch: Partial<MockConfig['response']>) => {
     onChange({ ...mock, response: { ...mock.response, ...patch } })
@@ -78,7 +94,7 @@ export function MockEditor({
     <div className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
       <div className="flex items-end gap-2">
         <div className="grow">
-          <Field label="Mock name" error={complaint('name')}>
+          <Field label="Mock name" error={checked('name', mock.name) ?? complaint('name')}>
             <input
               className={controlClass}
               value={mock.name}
@@ -117,7 +133,7 @@ export function MockEditor({
           <Field
             label="Path pattern"
             hint="A regex, matched unanchored. Named groups become template variables."
-            error={complaint('url')}
+            error={checked('request.url', mock.request.url) ?? complaint('url')}
           >
             <input
               className={controlClass}
@@ -137,6 +153,7 @@ export function MockEditor({
         keyLabel="variable"
         valueLabel="header name"
         disabled={disabled}
+        valueRule={valueRule('mocks[].request.headers')}
         value={mock.request.headers}
         onChange={(next) => onChange({ ...mock, request: { ...mock.request, headers: next } })}
       />
@@ -145,6 +162,7 @@ export function MockEditor({
         keyLabel="variable"
         valueLabel="selector"
         disabled={disabled}
+        valueRule={valueRule('mocks[].request.query')}
         value={mock.request.query}
         onChange={(next) => onChange({ ...mock, request: { ...mock.request, query: next } })}
       />
@@ -153,16 +171,21 @@ export function MockEditor({
         keyLabel="variable"
         valueLabel="selector"
         disabled={disabled}
+        valueRule={valueRule('mocks[].request.body')}
         value={mock.request.body}
         onChange={(next) => onChange({ ...mock, request: { ...mock.request, body: next } })}
       />
       </Section>
 
       <div className="flex gap-3">
-        <Field label="Status" error={complaint('status')}>
+        <Field
+          label="Status"
+          error={checked('response.status', mock.response.status) ?? complaint('status')}
+        >
           <input
             className={controlClass}
             type="number"
+            {...numericAttrs(bounds('response.status'))}
             value={mock.response.status}
             disabled={disabled}
             onChange={(event) => setResponse({ status: Number(event.target.value) })}
@@ -187,7 +210,7 @@ export function MockEditor({
         <Field
           label="Template file"
           hint="A file under this proxy's template directory, written on the Templates page."
-          error={complaint('template')}
+          error={checked('response.template', mock.response.template) ?? complaint('template')}
         >
           <input
             className={controlClass}
@@ -213,6 +236,7 @@ export function MockEditor({
         keyLabel="header name"
         valueLabel="template"
         disabled={disabled}
+        valueRule={valueRule('mocks[].response.headers')}
         value={mock.response.headers}
         onChange={(next) => setResponse({ headers: next })}
       />

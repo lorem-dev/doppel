@@ -7,6 +7,7 @@ pub mod openapi;
 pub mod proxies;
 pub mod response;
 pub mod rights;
+pub mod schema;
 pub mod state;
 pub mod status;
 pub mod templates;
@@ -30,6 +31,7 @@ pub fn router(state: AdminState) -> axum::Router {
         .merge(templates::routes())
         .merge(status::routes())
         .merge(rights::routes())
+        .merge(schema::routes())
         .merge(openapi::routes());
 
     if dashboard {

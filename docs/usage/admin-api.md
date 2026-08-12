@@ -127,6 +127,7 @@ would not help.
 | DELETE | `/api/v1/proxies/{name}/templates/{file}` | `upload` | `204` |
 | POST | `/api/v1/config/reload` | `update` | `200` |
 | GET | `/api/v1/access` | none | `200` |
+| GET | `/api/v1/schema` | none | `200` |
 | GET | `/api/v1/status` | none | `200` |
 | GET | `/api/v1/metrics` | none | `200` |
 | GET | `/api/openapi.json` | none | `200` |
@@ -180,6 +181,34 @@ Every value is the same decision the endpoint itself would make, evaluated by th
 same code. It exists so a client can disable an action instead of offering it and
 being refused; it is not a substitute for handling `401` and `403`, since rights
 can change under a running page.
+
+### The configuration schema
+
+`GET /api/v1/schema` returns the configuration document as a JSON Schema
+(2020-12), from the process that is going to read it. No token, for the same
+reason as above: it describes the shape of a configuration, never the contents of
+one, and the identical bytes are published in the repository and attached to every
+release.
+
+```bash
+curl -s http://127.0.0.1:8081/api/v1/schema | jq '.["$defs"].ProxyName'
+```
+
+```json
+{
+  "description": "Letters, digits, `-` and `_`, between 2 and 32 characters.",
+  "maxLength": 32,
+  "minLength": 2,
+  "pattern": "^[A-Za-z0-9_-]{2,32}$",
+  "type": "string"
+}
+```
+
+Use it to check a document before pushing it, and to build an editor that knows
+the rules: it is generated from the same Rust types that enforce them, so it
+cannot describe a field that does not exist or a bound nobody applies. See
+[Editor support](configuration.md#editor-support) for the other two copies and
+when to prefer which.
 
 ### Bodies
 

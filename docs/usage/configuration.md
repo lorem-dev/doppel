@@ -23,6 +23,17 @@ That URL follows `main`. Every release also attaches the schema as an asset, so
 a deployment that pins a version can validate against the schema for exactly
 that version rather than for whatever is current.
 
+A running Doppel serves its own:
+
+```bash
+curl -s http://127.0.0.1:8081/api/v1/schema | jq .
+```
+
+No token, because it describes the shape of a configuration rather than the
+contents of one. This is the copy to check a document against before pushing it,
+since it comes from the process that is going to read it -- the dashboard uses it
+for exactly that, both while a field is being typed and in its YAML editor.
+
 The schema is generated from the same Rust types this page documents -- see
 [`doppel config schema`](cli.md#config-schema) -- so it cannot describe a field
 that does not exist, and CI fails if the checked-in copy falls behind.
