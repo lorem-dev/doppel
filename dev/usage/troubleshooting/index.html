@@ -685,6 +685,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../storage/" class="md-nav__link">
         
   
@@ -749,6 +777,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1017,6 +1073,56 @@
     <span class="md-ellipsis">
       
         token add says the name is supplied by the environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-admin-root-answers-503" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The admin root answers 503
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-page-loads-but-every-button-is-disabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The page loads but every button is disabled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-change-made-elsewhere-is-not-on-screen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A change made elsewhere is not on screen
       
     </span>
   </a>
@@ -1357,6 +1463,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-admin-root-answers-503" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The admin root answers 503
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-page-loads-but-every-button-is-disabled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The page loads but every button is disabled
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-change-made-elsewhere-is-not-on-screen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A change made elsewhere is not on screen
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1474,6 +1630,26 @@ remove it from <code>DOPPEL_ADMIN_TOKENS</code>.</p>
 <hr />
 <p>Anything not covered here is worth an issue on the
 <a href="https://github.com/lorem-dev/doppel/issues">tracker</a>.</p>
+<h2 id="the-dashboard">The dashboard<a class="headerlink" href="#the-dashboard" title="Permanent link">&para;</a></h2>
+<h3 id="the-admin-root-answers-503">The admin root answers 503<a class="headerlink" href="#the-admin-root-answers-503" title="Permanent link">&para;</a></h3>
+<p><code>DASHBOARD_NOT_BUILT</code>. This binary was compiled without the dashboard's static
+assets -- a source build that skipped the frontend. Released binaries and the
+published image always carry it.</p>
+<div class="highlight"><pre><span></span><code>npm<span class="w"> </span>--prefix<span class="w"> </span>frontend<span class="w"> </span>ci<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>npm<span class="w"> </span>--prefix<span class="w"> </span>frontend<span class="w"> </span>run<span class="w"> </span>build
+cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>doppel-cli
+</code></pre></div>
+<p>The order is the whole answer: the assets are embedded at compile time, so
+building them without rebuilding the binary changes nothing about what it serves.
+If Node is not available and the JSON API is enough, <code>admin.dashboard: false</code>
+stops the route being served at all, which is a clearer answer than a 503.</p>
+<h3 id="the-page-loads-but-every-button-is-disabled">The page loads but every button is disabled<a class="headerlink" href="#the-page-loads-but-every-button-is-disabled" title="Permanent link">&para;</a></h3>
+<p>The caller has no rights to spend. The dashboard asks <code>GET /api/v1/access</code> what it
+may do and disables what the server would refuse; the tooltip on each control says
+so. Enter a token, or check <code>admin.access</code> -- the same two causes as a 401 above,
+since it is the same decision.</p>
+<h3 id="a-change-made-elsewhere-is-not-on-screen">A change made elsewhere is not on screen<a class="headerlink" href="#a-change-made-elsewhere-is-not-on-screen" title="Permanent link">&para;</a></h3>
+<p>It will be within a minute: the list refetches on a timer, and the timer is paused
+while the tab is hidden. Switching back to the tab refetches immediately.</p>
 
 
 

@@ -774,6 +774,34 @@
   
   
     <li class="md-nav__item">
+      <a href="usage/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="usage/storage/" class="md-nav__link">
         
   
@@ -838,6 +866,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="usage/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1117,6 +1173,7 @@
 
 
 <h1 id="doppel">Doppel<a class="headerlink" href="#doppel" title="Permanent link">&para;</a></h1>
+<p><img alt="Doppel" src="assets/icon-128.png" /></p>
 <p>Doppel is a doppelganger for your backend: an HTTP proxy that stands in front
 of a real service, or in place of one that is not there.</p>
 <p>It forwards traffic upstream, injects controlled faults on the way, and can
@@ -1144,6 +1201,9 @@ including verifying a download and the macOS quarantine case, are on
 <li><strong>Serves an admin API</strong> -- proxy CRUD, template upload, reload, status,
   Prometheus metrics and Swagger UI -- behind token access control. See
   <a href="usage/admin-api/">Admin API</a>.</li>
+<li><strong>Serves a dashboard</strong> on that same port's root, compiled into the binary:
+  the proxy set, a form over the whole proxy document, mock templates, status and
+  reload. See <a href="usage/dashboard/">The dashboard</a>.</li>
 <li><strong>Reports to Sentry</strong>, optionally, behind a cargo feature.</li>
 <li><strong>Stores its configuration</strong> in a YAML file or in PostgreSQL, with
   <code>config push</code> and <code>config pull</code> to move between them. See
@@ -1178,7 +1238,9 @@ the six words the rest of it leans on and shows how a request is handled.</p>
 <li><a href="usage/runtime-changes/">Changing configuration while it runs</a> -- reloads,
    tokens, and editing one proxy over HTTP.</li>
 <li><a href="usage/admin-api/">The admin API</a> and
-   <a href="usage/storage/">PostgreSQL</a> for anything running in more than one place.</li>
+   <a href="usage/dashboard/">the dashboard</a> -- driving all of the above over HTTP, or
+   in a browser.</li>
+<li><a href="usage/storage/">PostgreSQL</a> for anything running in more than one place.</li>
 </ol>
 <p>with the <a href="usage/configuration/">configuration reference</a> and the
 <a href="usage/cli/">CLI reference</a> at the end for looking things up.</p>

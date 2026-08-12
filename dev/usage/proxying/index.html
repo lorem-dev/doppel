@@ -632,6 +632,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#urls-in-a-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Urls in a body
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#doppels-own-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Doppel's own address
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#faults" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -809,6 +831,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../storage/" class="md-nav__link">
         
   
@@ -873,6 +923,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1146,6 +1224,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#urls-in-a-body" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Urls in a body
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#doppels-own-address" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Doppel's own address
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#faults" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1301,10 +1401,11 @@ replayed to it anyway.</p>
 <span class="w">    </span><span class="nt">rewrite_redirects</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">    </span><span class="c1"># the default</span>
 </code></pre></div>
 <p>With a base of <code>https://api.example.com/v2/</code>, an upstream answering
-<code>Location: https://api.example.com/v2/orders/7</code> produces <code>Location: /orders/7</code>
-to the client. Query and fragment survive.</p>
-<p>Relative rather than absolute, so Doppel never has to guess its own public
-name: the client resolves it against the URL it used, which is Doppel's.</p>
+<code>Location: https://api.example.com/v2/orders/7</code> produces
+<code>Location: http://127.0.0.1:8080/orders/7</code> to the client. Query and fragment
+survive.</p>
+<p>The host in that answer is Doppel's own, and where it comes from is
+<a href="#doppels-own-address">Doppel's own address</a> below.</p>
 <div class="admonition warning">
 <p class="admonition-title">Why this is on by default</p>
 <p><code>Host</code> is not relayed, so the upstream answers with its <em>own</em> authority in
@@ -1315,11 +1416,78 @@ stopped testing anything.</p>
 <p><code>nginx</code> has <code>proxy_redirect</code> for this and Apache <code>ProxyPassReverse</code>, both on
 by default, for the same reason.</p>
 </div>
-<p>A target that is <strong>not</strong> under the proxy's base is genuinely elsewhere and is
-left pointing there, stated as an absolute URL. That covers a subtler case too:
-an upstream answering <code>Location: /login</code> under a base of <code>/v2/</code> means its own
-root, so relaying the header as-is would have the client come back asking for
-<code>/v2/login</code> -- a different resource nobody named.</p>
+<p>A target on the upstream's own host but <strong>outside</strong> the proxy's base is kept on
+Doppel too, with the path the upstream wrote: an upstream answering
+<code>Location: /login</code> under a base of <code>/v2/</code> produces
+<code>Location: http://127.0.0.1:8080/login</code>. This is what <code>nginx</code>'s <code>proxy_redirect</code>
+does, and it is the case the relative form could not express -- relayed as-is,
+the client would come back asking for <code>/v2/login</code>, a different resource nobody
+named, and pointed at the upstream it leaves Doppel altogether.</p>
+<p>Whether Doppel serves that path is a question about the configuration rather than
+about the rewrite: <code>/login</code> reaches <code>&lt;base&gt;/login</code>, so a proxy whose base has a
+prefix will forward it under that prefix. That is visible in the logs and fixable
+in the configuration, which the silent escape was not.</p>
+<p>A target on <strong>another host</strong> is left pointing there, absolutely. Doppel does not
+proxy it, and naming itself in a redirect to somewhere it cannot serve would be a
+lie.</p>
+<h2 id="urls-in-a-body">Urls in a body<a class="headerlink" href="#urls-in-a-body" title="Permanent link">&para;</a></h2>
+<p>The same problem one layer down, and on by default for the same reason:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">proxies</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">backend</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://api.example.com/v2/&quot;</span>
+<span class="w">    </span><span class="nt">rewrite_urls</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">    </span><span class="c1"># the default</span>
+</code></pre></div>
+<p>A page, a script or a JSON document that names <code>https://api.example.com/v2/orders</code>
+sends the client straight to the upstream on its next request -- past every
+injected fault and every mock, with nothing logged. Doppel replaces its own address
+into the body instead: that URL becomes <code>http://127.0.0.1:8080/orders</code>, and one on
+the same host outside the proxied path keeps its own path, exactly as a rewritten
+redirect does. <code>nginx</code> calls this <code>sub_filter</code>.</p>
+<p><strong>Only the exact host.</strong> <code>https://cdn.api.example.com/</code> is a different host, is not
+proxied by this proxy, and is left alone -- pointing it here would break the page
+rather than keep it working. A host that merely starts the same, like
+<code>https://api.example.com.evil.test/</code>, is left alone too.</p>
+<p>Three more limits, each of which relays the body untouched rather than guessing:</p>
+<ul>
+<li><strong>Text only</strong>, by <code>Content-Type</code>: <code>text/*</code>, JSON, JavaScript, XML and the <code>+json</code>
+  and <code>+xml</code> suffixes. An image cannot carry a URL that matters, and buffering one
+  to look is how a proxy runs out of memory.</li>
+<li><strong>Uncompressed only.</strong> A body with a <code>Content-Encoding</code> is relayed as it came;
+  the client asked the upstream for that encoding.</li>
+<li><strong>Bounded by <code>body_limit</code>.</strong> Rewriting needs the whole body, so it is buffered up
+  to that ceiling; a bigger body streams on from where the buffering stopped.</li>
+</ul>
+<p>A rewritten body loses the <code>ETag</code> and digest headers that described the upstream's
+version of it, and carries the length it now has. A conditional request with the
+upstream's validator would otherwise be answered <code>304</code> for content the client has
+never seen.</p>
+<p>Set <code>rewrite_urls: false</code> for a client being tested against the bytes the upstream
+actually sent.</p>
+<h2 id="doppels-own-address">Doppel's own address<a class="headerlink" href="#doppels-own-address" title="Permanent link">&para;</a></h2>
+<p>Rewriting a <code>Location</code> means naming the address the client used, and Doppel
+cannot work that out for itself -- <code>Host</code> is a claim by the caller, and building
+a redirect out of it hands the caller the redirect.</p>
+<p>In order:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">server</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.0.0.0</span>
+<span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
+<span class="w">  </span><span class="nt">external_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://doppel.example.com/&quot;</span><span class="w">   </span><span class="c1"># optional</span>
+</code></pre></div>
+<ol>
+<li><code>DOPPEL_EXTERNAL_URL</code>, which overrides everything below it.</li>
+<li><code>server.external_url</code>.</li>
+<li><code>server.host</code> and <code>server.port</code>, which is right for the common case and needs
+   no configuration: a laptop on <code>127.0.0.1:8080</code>, a pod on its own address.
+   A wildcard bind (<code>0.0.0.0</code>, <code>::</code>) becomes loopback, because <code>0.0.0.0</code> names
+   every address this host has and therefore none of them.</li>
+</ol>
+<p>The third is a guess, and the one place this is wrong: behind a container port
+mapping (<code>-p 18080:8080</code>), a load balancer or an ingress, the client used neither
+that address nor that port. Set <code>external_url</code>, or the variable -- and Doppel logs
+which address it settled on at startup, so it is one line away from being checked
+rather than assumed.</p>
+<p>A path is kept as a prefix: <code>https://gw.example.com/doppel/</code> is a Doppel reached
+under a prefix, and its rewritten locations carry it.</p>
 <p>Set <code>rewrite_redirects: false</code> to relay the header byte for byte. That is what a
 client being tested <em>for its redirect handling</em> needs; it is not what a client
 being tested against a degraded backend needs.</p>

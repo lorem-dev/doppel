@@ -681,6 +681,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../usage/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../usage/storage/" class="md-nav__link">
         
   
@@ -745,6 +773,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../usage/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1035,6 +1091,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1143,6 +1227,34 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#layers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1187,7 +1299,7 @@ a network, rendering without HTTP, and the proxy logic without an admin API.</p>
 </tr>
 <tr>
 <td><code>doppel-admin</code></td>
-<td>The admin HTTP API: token access control, proxy CRUD, template files, reload, status, metrics, the OpenAPI document</td>
+<td>The admin HTTP API: token access control, proxy CRUD, template files, reload, status, metrics, the OpenAPI document, and the dashboard the build script embeds</td>
 </tr>
 <tr>
 <td><code>doppel-store-postgres</code></td>
@@ -1254,7 +1366,7 @@ a handler gets the configuration it judges by.</p>
 <p><code>ConfigStore</code> is the boundary. <code>FileStore</code> serialises writers with an advisory
 lock on a sibling <code>&lt;config&gt;.lock</code> file; <code>PostgresStore</code> uses a conditional
 <code>UPDATE</code> inside a transaction. Reads on the PostgreSQL side take one
-<code>REPEATABLE READ</code> snapshot, because a configuration is five tables and a
+<code>REPEATABLE READ</code> snapshot, because a configuration spans two tables and a
 per-statement snapshot would assemble one from two of them.</p>
 <p>One conformance suite runs against both, which is what keeps the trait's
 promises true rather than merely intended. It lives in
@@ -1268,6 +1380,62 @@ needs a token the operator may be trying to create.</p>
 <p>The socket is bound inside a private directory and published with a hard link,
 which is atomic <em>and</em> exclusive: a second bind fails loudly rather than
 silently taking over a live channel.</p>
+<h2 id="the-dashboard">The dashboard<a class="headerlink" href="#the-dashboard" title="Permanent link">&para;</a></h2>
+<p>A React application in <code>frontend/</code>, built by vite into <code>frontend/dist</code>, walked at
+compile time by <code>crates/doppel-admin/build.rs</code> and embedded with <code>include_bytes!</code>.
+The listener serves <code>index.html</code> at <code>/</code>, the hashed assets under <code>/static/</code>, and
+<code>robots.txt</code>; the operator-facing half of this is in
+<a href="../../usage/dashboard/">The dashboard</a>.</p>
+<p>Three decisions are worth knowing before changing any of it.</p>
+<p><strong>The assets are embedded, not served from disk.</strong> So <code>npm run build</code> alone
+changes nothing about a running binary -- the binary has to be rebuilt after it.
+The build script watches <code>frontend/dist</code>, so <code>cargo build</code> does re-embed; the trap
+is forgetting the <code>cargo build</code>. A binary compiled without <code>frontend/dist</code>
+compiles fine and answers 503 at <code>/</code>, which keeps
+<code>cargo install --path crates/doppel-cli</code> working on a machine with no Node. CI
+sets <code>DOPPEL_REQUIRE_DASHBOARD_ASSETS</code> so that concession cannot silently apply
+there, and the release refuses to publish a binary that lacks the page.</p>
+<p><strong>The image builds either way.</strong> <code>docker build .</code> uses a binary staged in <code>dist/</code>
+when there is one and compiles inside its own builder stage when there is not --
+which is what lets <code>make image</code> work on a machine that cannot link musl. The
+release stages binaries built on native runners and points the builder stage at a
+base with no toolchain, so it never pulls a Rust image to run a <code>cp</code>. The compile
+branch refuses to run without <code>frontend/dist</code>, because a binary built without it
+answers 503 at its own root.</p>
+<p><strong>Settings reach the page through the HTML, not an endpoint.</strong> The listener
+substitutes <code>{title, public, version, authHeader, refreshMs}</code> into a
+<code>application/json</code> script element per request. Every one of those is known when
+the HTML is written, and a fetch would mean the page cannot draw its own header
+until a round trip finishes. The JSON has its less-than characters escaped, which
+is what makes a hostile <code>admin.title</code> a non-event and what allows a content
+security policy with no <code>unsafe-inline</code> -- the one inline stylesheet the page
+carries, the code editor's, is named by hash instead.</p>
+<p><strong>The page never decides what the caller may do.</strong> <code>GET /api/v1/access</code> reports
+that, evaluated by the same function that enforces it, so a control is disabled
+because the server would have refused rather than because the page guessed.</p>
+<h3 id="layers">Layers<a class="headerlink" href="#layers" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code>frontend/src/
+  components/   presentational; may not import a service
+  pages/        one screen each: fetches, holds its own state, renders components
+  services/     the only code that talks to the API
+  store/        state that outlives one screen (zustand)
+  types/        the API&#39;s shapes, and the one error type
+</code></pre></div>
+<p>The rule that a component may not reach a service is in <code>eslint.config.js</code>, not
+only in review: the first component to grow a <code>fetch</code> becomes the one nothing can
+be tested without.</p>
+<p>Tests split by what each tool is good for. jest covers services, stores and the
+components that do not route; anything that navigates is covered by Playwright,
+against a real browser and a real binary -- react-router ships ESM only and uses
+<code>import.meta</code>, which cannot survive jest's transform to CommonJS. That split is
+not a workaround for a build problem alone: the three bugs the suite found on its
+first run were a stale rights subscription, a field name that disagreed with the
+API, and a CommonJS interop failure that appeared only in the built bundle. None
+were reachable from a unit test.</p>
+<p><code>frontend/src/__tests__/bundle-size.test.ts</code> holds the payload to a measured
+budget, and asserts that the entry chunk does not contain prism -- a size limit
+alone would let the highlighter hide in the entry's slack, and then every visitor
+pays for it to list proxies.</p>
 
 
 

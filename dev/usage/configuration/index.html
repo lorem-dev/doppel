@@ -16,7 +16,7 @@
         <link rel="prev" href="../observability/">
       
       
-        <link rel="next" href="../cli/">
+        <link rel="next" href="../parameters/">
       
       
         
@@ -685,6 +685,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../storage/" class="md-nav__link">
         
   
@@ -1141,6 +1169,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -1720,6 +1776,13 @@ client. <code>main.example.yaml</code> already carries it.</p>
 <p>That URL follows <code>main</code>. Every release also attaches the schema as an asset, so
 a deployment that pins a version can validate against the schema for exactly
 that version rather than for whatever is current.</p>
+<p>A running Doppel serves its own:</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-s<span class="w"> </span>http://127.0.0.1:8081/api/v1/schema<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>.
+</code></pre></div>
+<p>No token, because it describes the shape of a configuration rather than the
+contents of one. This is the copy to check a document against before pushing it,
+since it comes from the process that is going to read it -- the dashboard uses it
+for exactly that, both while a field is being typed and in its YAML editor.</p>
 <p>The schema is generated from the same Rust types this page documents -- see
 <a href="../cli/#config-schema"><code>doppel config schema</code></a> -- so it cannot describe a field
 that does not exist, and CI fails if the checked-in copy falls behind.</p>
@@ -1802,6 +1865,12 @@ loaded.</p>
 <td>required</td>
 <td>Must differ from <code>admin.port</code></td>
 </tr>
+<tr>
+<td><code>external_url</code></td>
+<td>absolute URL</td>
+<td><code>host:port</code></td>
+<td>Where clients reach Doppel, for rewriting a redirect or a body. <code>DOPPEL_EXTERNAL_URL</code> overrides it. See <a href="../proxying/#doppels-own-address">Doppel's own address</a></td>
+</tr>
 </tbody>
 </table>
 <p>Worker threads are <strong>not</strong> configured here. They size the tokio runtime, and a
@@ -1841,6 +1910,8 @@ absent.</p>
 <p>The admin listener's address, its tokens, and who may do what.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">enable</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">dashboard</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Doppel&quot;</span>
 <span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;0.0.0.0&quot;</span>
 <span class="w">  </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8081</span>
 <span class="w">  </span><span class="nt">public</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
@@ -1863,13 +1934,20 @@ absent.</p>
 </code></pre></div>
 <p><code>enable</code> defaults to <code>true</code>. Set it to <code>false</code> to run the proxy with no admin
 application at all: the port is never bound, so it cannot collide with
-anything, and <code>/status</code>, <code>/metrics</code>, <code>/openapi.json</code> and the whole API are
+anything, and <code>/api/v1/status</code>, <code>/metrics</code>, <code>/openapi.json</code> and the whole API are
 gone with it. The proxy listener and the control socket are untouched, which
 makes <code>doppel config reload</code> the only remaining way in.</p>
 <p>The validation rules do not consult it. A configuration that is only safe
 because nothing serves it is a trap set for whoever turns the listener on
 later, and they will not re-read the rules first -- so rule V34 still refuses
 a public write action with the listener off.</p>
+<p><code>dashboard</code> defaults to <code>true</code> and serves the browser dashboard from this
+listener's root: <code>/</code>, <code>/static/{path}</code> and <code>/robots.txt</code>. <code>false</code> leaves those
+three unrouted -- they answer 404 like any other unknown path -- and changes
+nothing about the JSON API. <code>title</code> is the heading that dashboard shows and the
+browser tab's name, at most 64 characters and free of control characters,
+defaulting to <code>Doppel</code>. Both take effect on restart, since the routes are built
+once. See <a href="../dashboard/">The dashboard</a>.</p>
 <p>Toggling it takes effect on restart, not on reload; a reload reports <code>admin</code>
 among the sections it could not apply.</p>
 <p><code>auth.header</code> defaults to <code>X-Proxy-Authorization</code> and expects <code>Bearer {token}</code>.</p>
@@ -1951,7 +2029,7 @@ allowed -- a configuration with no secrets in it may reasonably do so -- but
 it has to be a choice, not what happens when the section is left out.</p>
 <p>Setting a <em>write</em> action to <code>public</code> is refused outright (rule V34); no
 configuration wants an unauthenticated caller rewriting the proxy set.</p>
-<p><code>GET /status</code> stays unauthenticated regardless: it reports names, upstreams
+<p><code>GET /api/v1/status</code> stays unauthenticated regardless: it reports names, upstreams
 and counts, and strips any credentials from the upstream before printing
 it.</p>
 <p><code>upload.limit</code> is a byte count. It must be greater than zero.</p>
@@ -2069,7 +2147,13 @@ the choice is the operator's.</p>
 <td><code>rewrite_redirects</code></td>
 <td>boolean</td>
 <td><code>true</code></td>
-<td>Point a redirect back at Doppel when its target is under this proxy's base. See <a href="../proxying/#redirects">Redirects</a></td>
+<td>Point a redirect back at Doppel when its target is on the upstream's host. See <a href="../proxying/#redirects">Redirects</a></td>
+</tr>
+<tr>
+<td><code>rewrite_urls</code></td>
+<td>boolean</td>
+<td><code>true</code></td>
+<td>Replace the upstream's own address with Doppel's in the text bodies it relays. Exact host only. See <a href="../proxying/#urls-in-a-body">Urls in a body</a></td>
 </tr>
 <tr>
 <td><code>mocks</code></td>

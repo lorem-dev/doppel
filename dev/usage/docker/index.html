@@ -645,6 +645,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Building it yourself">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-it-prefers-a-staged-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it prefers a staged binary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-it-refuses-to-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When it refuses to build
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -831,6 +870,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../storage/" class="md-nav__link">
         
   
@@ -895,6 +962,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1209,6 +1304,45 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Building it yourself">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-it-prefers-a-staged-binary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it prefers a staged binary
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#when-it-refuses-to-build" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When it refuses to build
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1275,12 +1409,26 @@ proxied somewhere unintended would be worse than a container that refuses to
 start.</p>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-p<span class="w"> </span><span class="m">8080</span>:8080<span class="w"> </span>-p<span class="w"> </span><span class="m">8081</span>:8081<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/main.yaml:/etc/doppel/main.yaml:ro&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/config:/etc/doppel&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>doppel-templates:/var/lib/doppel/templates<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>loremdev/doppel:1.2.3-alpine
 </code></pre></div>
 <p>Two mounts, and the second is not optional if you use templates at all --
 see <a href="#templates">Templates</a> below.</p>
+<p>Publishing a port other than the one Doppel binds needs one more thing:
+<code>DOPPEL_EXTERNAL_URL</code>. Doppel rewrites an upstream's redirects and the addresses
+in the bodies it relays to point at itself, and a port mapping is invisible from
+inside the container -- so <code>-p 58080:8080</code> without
+<code>-e DOPPEL_EXTERNAL_URL=http://127.0.0.1:58080/</code> produces redirects naming a port
+nobody published. See <a href="../proxying/#doppels-own-address">Doppel's own address</a>.</p>
+<p><strong>Mount the directory, not the file.</strong> <code>-v "$PWD/main.yaml:/etc/doppel/main.yaml"</code>
+looks tidier and breaks every write: a save puts the new configuration in a
+temporary file and renames it over the old one, and nothing can rename over a mount
+point. Reads work, so the dashboard lists proxies happily and then refuses to save
+one with <code>Resource busy (os error 16)</code>. With the directory mounted, the
+configuration inside it is an ordinary file and the rename stays within the mount.</p>
+<p>Add <code>:ro</code> to the mount if nothing should write the configuration -- then the admin
+API's writes are refused for a reason it can state.</p>
 <p>The configuration must bind <code>0.0.0.0</code> rather than <code>127.0.0.1</code>, or nothing
 outside the container can reach it:</p>
 <div class="highlight"><pre><span></span><code><span class="nt">server</span><span class="p">:</span>
@@ -1301,7 +1449,7 @@ missing volume.</p>
 <div class="highlight"><pre><span></span><code>docker<span class="w"> </span>volume<span class="w"> </span>create<span class="w"> </span>doppel-templates
 docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-p<span class="w"> </span><span class="m">8080</span>:8080<span class="w"> </span>-p<span class="w"> </span><span class="m">8081</span>:8081<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/main.yaml:/etc/doppel/main.yaml:ro&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">/config:/etc/doppel&quot;</span><span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>-v<span class="w"> </span>doppel-templates:/var/lib/doppel/templates<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>loremdev/doppel:1.2.3-alpine
 </code></pre></div>
@@ -1323,8 +1471,10 @@ curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </spa
 <span class="c1"># Or the same binary, inside the container.</span>
 docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>&lt;container&gt;<span class="w"> </span>doppel<span class="w"> </span>config<span class="w"> </span>reload<span class="w"> </span>--socket<span class="w"> </span>/tmp/doppel.sock
 </code></pre></div>
-<p>Editing a bind-mounted <code>main.yaml</code> on the host changes the file the container
-reads, so a reload picks it up without restarting anything.</p>
+<p>Editing <code>config/main.yaml</code> on the host changes the file the container reads, so a
+reload picks it up without restarting anything. It works the other way too: a write
+through the admin API rewrites that file, in canonical form -- so comments in it do
+not survive an edit made from the dashboard.</p>
 <h2 id="tokens">Tokens<a class="headerlink" href="#tokens" title="Permanent link">&para;</a></h2>
 <p><code>DOPPEL_ADMIN_TOKENS</code> is the natural fit here -- it keeps secrets out of the
 configuration file that gets mounted in:</p>
@@ -1346,17 +1496,17 @@ the timeout instead.</p>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8080:8080&quot;</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;8081:8081&quot;</span>
 <span class="w">    </span><span class="nt">volumes</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./main.yaml:/etc/doppel/main.yaml:ro</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./config:/etc/doppel</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">doppel-templates:/var/lib/doppel/templates</span>
 <span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">DOPPEL_ADMIN_TOKENS</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;ci&quot;:{&quot;token&quot;:&quot;...&quot;,&quot;group&quot;:&quot;admin&quot;}}&#39;</span>
 <span class="w">    </span><span class="nt">healthcheck</span><span class="p">:</span>
-<span class="w">      </span><span class="c1"># `/status` needs no token by default and answers only once the runtime</span>
+<span class="w">      </span><span class="c1"># `/api/v1/status` needs no token by default and answers only once the runtime</span>
 <span class="w">      </span><span class="c1"># is compiled and both listeners are bound. `-f` matters: without it</span>
 <span class="w">      </span><span class="c1"># curl exits 0 on a 500 and the check passes for answering at all rather</span>
 <span class="w">      </span><span class="c1"># than for answering correctly. The port is the one inside the</span>
 <span class="w">      </span><span class="c1"># container.</span>
-<span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;curl&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;-fsS&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;-o&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;/dev/null&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;http://127.0.0.1:8081/status&quot;</span><span class="p p-Indicator">]</span>
+<span class="w">      </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;CMD&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;curl&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;-fsS&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;-o&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;/dev/null&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;http://127.0.0.1:8081/api/v1/status&quot;</span><span class="p p-Indicator">]</span>
 <span class="w">      </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
 <span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3s</span>
 <span class="w">      </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
@@ -1377,22 +1527,56 @@ host instead.</p>
 <p><code>ca-certificates</code> is not optional: without a trust store a proxy cannot verify
 an <code>https</code> upstream, and every request fails with <code>UPSTREAM_ERROR</code>.</p>
 <h2 id="building-it-yourself">Building it yourself<a class="headerlink" href="#building-it-yourself" title="Permanent link">&para;</a></h2>
-<p>The binary is built outside the Dockerfile and copied in. Building Rust inside
-a multi-architecture <code>buildx</code> means QEMU for the non-native architecture, which
-turns a two-minute compile into most of an hour. Releases build each
-architecture on a runner of that architecture instead.</p>
-<div class="highlight"><pre><span></span><code><span class="c1"># On Linux, with musl-tools installed:</span>
-<span class="nv">CC_x86_64_unknown_linux_musl</span><span class="o">=</span>musl-gcc<span class="w"> </span><span class="se">\</span>
+<div class="highlight"><pre><span></span><code>make<span class="w"> </span>image
+</code></pre></div>
+<p>That builds the dashboard, then the image. Nothing else is needed and no Rust
+toolchain has to be able to target Linux: when <code>dist/</code> holds no binary the
+Dockerfile compiles one in its own builder stage, for the platform being built,
+and the builder stage is discarded -- the published image is Alpine plus the
+binary, around 65 MB.</p>
+<p><code>make image-rebuild</code> does the same with no npm or docker cache, and with <code>dist/</code>
+emptied first so the compile definitely happens.</p>
+<h3 id="why-it-prefers-a-staged-binary">Why it prefers a staged binary<a class="headerlink" href="#why-it-prefers-a-staged-binary" title="Permanent link">&para;</a></h3>
+<p><code>docker build .</code> uses <code>dist/&lt;platform&gt;/doppel</code>, or <code>dist/doppel</code>, if either is
+there, and compiles only when neither is. That preference is what keeps releases
+fast: building Rust inside a multi-architecture <code>buildx</code> means QEMU for the
+non-native architecture, which turns a two-minute compile into most of an hour.
+The release workflow builds each architecture on a runner of that architecture,
+stages the two binaries, and points the builder stage at a base with no toolchain
+in it -- so the release never pulls a Rust image to run a <code>cp</code>.</p>
+<p>To stage one by hand, on Linux with <code>musl-tools</code> installed:</p>
+<div class="highlight"><pre><span></span><code><span class="nv">CC_x86_64_unknown_linux_musl</span><span class="o">=</span>musl-gcc<span class="w"> </span><span class="se">\</span>
 <span class="nv">CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER</span><span class="o">=</span>musl-gcc<span class="w"> </span><span class="se">\</span>
 <span class="w">  </span>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>--target<span class="w"> </span>x86_64-unknown-linux-musl<span class="w"> </span>-p<span class="w"> </span>doppel-cli
 mkdir<span class="w"> </span>-p<span class="w"> </span>dist<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>cp<span class="w"> </span>target/x86_64-unknown-linux-musl/release/doppel<span class="w"> </span>dist/
-docker<span class="w"> </span>build<span class="w"> </span>--build-arg<span class="w"> </span><span class="nv">BIN</span><span class="o">=</span>dist/doppel<span class="w"> </span>-t<span class="w"> </span>doppel:dev<span class="w"> </span>.
+docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>doppel:dev<span class="w"> </span>.
 </code></pre></div>
-<p>On macOS there is no musl toolchain to install; <code>cargo zigbuild</code> or <code>cross</code>
-will produce the binary if you want to build the image locally from there.</p>
-<p>It has to be a musl build. A glibc binary does not run on Alpine, and the
-failure is a bare <code>not found</code> from the shell rather than anything that says
-why.</p>
+<p>It has to be a musl build. A glibc binary does not run on Alpine, and the failure
+is a bare <code>not found</code> from the shell rather than anything that says why. On macOS
+there is no musl toolchain to install, which is the reason the Dockerfile compiles
+inside: <code>ring</code> builds C, so a musl target needs a musl C compiler and not only the
+Rust standard library for it.</p>
+<h3 id="the-dashboard">The dashboard<a class="headerlink" href="#the-dashboard" title="Permanent link">&para;</a></h3>
+<p>It is embedded at compile time, so the compile branch needs it: a binary built
+without <code>frontend/dist</code> starts, serves the API and answers 503 at its own root. The
+image therefore builds it when the context has no <code>frontend/dist</code>, with the
+<code>nodejs</code>/<code>npm</code> packages installed in the builder stage for exactly that.</p>
+<div class="highlight"><pre><span></span><code>doppel: no dashboard in frontend/dist, building it
+</code></pre></div>
+<p>Building it on the host first is faster and is what <code>make image</code> does -- a working
+checkout has it already, and <code>npm ci</code> inside a container downloads the whole
+dependency tree again. It is not required.</p>
+<h3 id="when-it-refuses-to-build">When it refuses to build<a class="headerlink" href="#when-it-refuses-to-build" title="Permanent link">&para;</a></h3>
+<p>Two refusals, both deliberate:</p>
+<ul>
+<li><strong>"there is no built dashboard ... and no frontend sources"</strong> -- neither
+  <code>frontend/dist</code> nor the files <code>vite build</code> reads reached the context. That means
+  <code>.dockerignore</code> was edited, or the build ran from somewhere other than the
+  repository root. Stage a binary, or fix the context.</li>
+<li><strong>"this builder image has no Rust toolchain"</strong> -- something passed
+  <code>--build-arg BUILDER=</code> naming an image without cargo, and there was no staged
+  binary to copy. Stage one, or drop the argument.</li>
+</ul>
 
 
 

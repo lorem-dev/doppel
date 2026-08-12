@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://lorem-dev.github.io/doppel/dev/usage/storage/">
       
       
-        <link rel="prev" href="../admin-api/">
+        <link rel="prev" href="../dashboard/">
       
       
         <link rel="next" href="../observability/">
@@ -682,6 +682,34 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -923,6 +951,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1392,9 +1448,8 @@ initial migration rather than appended, because nothing is deployed and a
 history of one file is easier to read than a history of corrections. After the
 release, migrations are append-only.</p>
 <h3 id="the-schema">The schema<a class="headerlink" href="#the-schema" title="Permanent link">&para;</a></h3>
-<p>Five tables. Deliberately between one opaque blob and full normalisation:
-<strong>anything with its own identity and lifecycle is a row, and a leaf map
-hanging off one is a JSONB column on that row.</strong></p>
+<p>Three tables. <strong>Anything SQL actually uses is a column; everything else is the
+document, as JSON.</strong></p>
 <table>
 <thead>
 <tr>
@@ -1405,19 +1460,11 @@ hanging off one is a JSONB column on that row.</strong></p>
 <tbody>
 <tr>
 <td><code>configurations</code></td>
-<td>One row per named configuration: the revision, and the settings that are single values</td>
-</tr>
-<tr>
-<td><code>admin_tokens</code></td>
-<td>One row per token</td>
+<td>One row per named configuration: <code>name</code>, <code>revision</code>, and <code>settings</code> -- the whole document except its proxies</td>
 </tr>
 <tr>
 <td><code>proxies</code></td>
-<td>One row per proxy; <code>headers</code> and <code>access</code> are JSONB on it</td>
-</tr>
-<tr>
-<td><code>mocks</code></td>
-<td>One row per mock; the selector maps and response headers are JSONB on it</td>
+<td>One row per proxy: <code>name</code>, <code>ordinal</code>, and <code>document</code> -- the proxy with its mocks inside</td>
 </tr>
 <tr>
 <td><code>templates</code></td>
@@ -1425,12 +1472,28 @@ hanging off one is a JSONB column on that row.</strong></p>
 </tr>
 </tbody>
 </table>
-<p>A blob would make the row opaque, and rewriting a whole document to change one
-field throws away the per-proxy concurrency the admin API is built on. A table
-per leaf map would buy joins nobody will write.</p>
-<p><code>ordinal</code> columns preserve document order. That is not decoration: mock
-patterns are unanchored, so a general one placed before a specific one shadows
-it, and a store that reordered them would change which mock answers a request.</p>
+<p>It was five tables with a column per configuration field, and the change is
+worth explaining because it looks like a step backwards.</p>
+<p>Nothing ever queried <code>admin_host</code> or <code>latency_min</code> in SQL. What that
+normalisation bought was a migration for every field the configuration format
+gained -- three of them between 0.3.0 and 0.4.1, each one <code>ADD COLUMN</code> and
+nothing else, plus a matching edit in the loader, the writer, and two
+hand-written statements that a test existed solely to keep in step. A field
+added to the format now reaches the database with no schema change at all.</p>
+<p>What did <em>not</em> change is the part that matters: a proxy is still its own row,
+addressed by name and carrying its own revision, so the per-proxy concurrency
+the admin API is built on is untouched. A single blob per configuration would
+have thrown that away.</p>
+<p>The rows are parsed by the same code that parses <code>main.yaml</code>, so a row edited by
+hand is held to exactly the rules a configuration file is held to -- a value the
+format refuses is refused here too, reported against the field and the proxy that
+carry it.</p>
+<p><code>ordinal</code> preserves document order. That is not decoration: mock patterns are
+unanchored, so a general one placed before a specific one shadows it, and a store
+that reordered them would change which mock answers a request.</p>
+<p>One thing moved rather than disappeared. The old schema had a unique index on
+<code>(config, token)</code>, making duplicate token values impossible in the database; rule
+V26 refuses them on every write instead, and every write goes through validation.</p>
 <p><code>templates</code> has no cascading foreign key on purpose. Deleting a proxy's files
 is a decision the store makes explicitly and <em>after</em> the configuration write --
 the write is what authorises dropping them -- and a cascade would move that
@@ -1453,7 +1516,7 @@ not make it safer. The conditional <code>UPDATE</code> takes the row lock itself
 second writer that blocks on it re-evaluates its own <code>WHERE</code> against the row
 as the winner left it -- finds the revision moved, matches nothing, and is
 told it lost.</p>
-<p>A load is also one transaction, at <code>REPEATABLE READ</code>. A configuration is five
+<p>A load is also one transaction, at <code>REPEATABLE READ</code>. A configuration spans two
 tables, and each query used to take its own connection and its own snapshot,
 so a save committing in between produced a configuration assembled from two of
 them. The revision check at the end of a load caught it and reported "the rows
@@ -1476,7 +1539,7 @@ the first uploaded, which is materialised onto disk as part of the same
 sequence.</p>
 <p>So: a rolling change is a write followed by a reload on each instance. There
 is no coordination between them, and nothing stops two instances running
-different revisions in between; <code>GET /status</code> on each reports which one it is
+different revisions in between; <code>GET /api/v1/status</code> on each reports which one it is
 holding.</p>
 <h2 id="moving-between-the-stores">Moving between the stores<a class="headerlink" href="#moving-between-the-stores" title="Permanent link">&para;</a></h2>
 <div class="highlight"><pre><span></span><code><span class="c1"># file -&gt; database</span>

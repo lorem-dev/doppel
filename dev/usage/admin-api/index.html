@@ -16,7 +16,7 @@
         <link rel="prev" href="../runtime-changes/">
       
       
-        <link rel="next" href="../storage/">
+        <link rel="next" href="../dashboard/">
       
       
         
@@ -779,6 +779,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#what-the-caller-may-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the caller may do
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-configuration-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The configuration schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#bodies" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -802,6 +824,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Templates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-write-is-in-force-when-it-answers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A write is in force when it answers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -853,6 +892,34 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -929,6 +996,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1209,6 +1304,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#what-the-caller-may-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the caller may do
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-configuration-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The configuration schema
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#bodies" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1232,6 +1349,23 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="Templates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-write-is-in-force-when-it-answers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A write is in force when it answers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1300,7 +1434,7 @@
 <p>A second HTTP listener on <code>admin.host:admin.port</code>, separate from the proxy
 because the proxy's fallback handler swallows every path -- there is nowhere
 on it an admin route could live.</p>
-<p><code>admin.enable: false</code> turns all of it off, including <code>/status</code> and <code>/metrics</code>,
+<p><code>admin.enable: false</code> turns all of it off, including <code>/api/v1/status</code> and <code>/metrics</code>,
 and the port is then never bound. See
 <a href="../configuration/#admin">the configuration reference</a>.</p>
 <p>Everything the API writes goes through the configuration store. No handler
@@ -1472,7 +1606,19 @@ would not help.</p>
 </tr>
 <tr>
 <td>GET</td>
-<td><code>/status</code></td>
+<td><code>/api/v1/access</code></td>
+<td>none</td>
+<td><code>200</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/schema</code></td>
+<td>none</td>
+<td><code>200</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/v1/status</code></td>
 <td>none</td>
 <td><code>200</code></td>
 </tr>
@@ -1496,9 +1642,80 @@ would not help.</p>
 </tr>
 </tbody>
 </table>
-<p><code>/status</code>, <code>/metrics</code>, <code>/openapi.json</code> and <code>/swagger-ui</code> sit outside
-<code>/api/v1</code> because they are not resources of the API; they describe or observe
-the process.</p>
+<p>Responses are compressed when the client asks: <code>br</code> or <code>gzip</code> from
+<code>Accept-Encoding</code>, <code>br</code> first when both are offered. The proxy listener does not
+do this -- it relays the upstream's own encoding, because that is part of what a
+client is being tested against.</p>
+<p>A trailing slash is accepted everywhere: <code>/metrics/</code> answers as <code>/metrics</code> does.
+Axum stopped redirecting between the two spellings, and a 404 for a slash is a
+poor answer for a path an operator typed. The proxy listener is deliberately not
+like this -- a proxied path is relayed byte for byte, because <code>/orders/</code> and
+<code>/orders</code> are two resources upstream.</p>
+<p><code>/api/v1/status</code> sits outside <code>/api/v1</code> because it is not a resource of the API;
+it reports on the process. <code>/metrics</code>, <code>/openapi.json</code> and <code>/swagger-ui/</code> sit
+outside <code>/api/</code> altogether: those paths are what a scraper, a client generator
+and a browser look for by default, and none of the three is a resource of the API
+either.</p>
+<p>Everything the API serves is under <code>/api/</code>. That is a boundary rather than a
+convention: with <code>admin.dashboard</code> on, a <code>GET</code> outside <code>/api/</code> and <code>/static/</code> is
+answered with the dashboard's page, so a client-side route survives being reloaded
+or bookmarked. Inside <code>/api/</code> an unknown path still answers <code>404</code> in the envelope,
+so a mistyped endpoint cannot hand a client an HTML document to parse, and a <code>POST</code>
+to a path that does not exist is refused rather than answered with a page.</p>
+<p>The dashboard also serves <code>/robots.txt</code> and its hashed assets under <code>/static/</code>.
+None of that is in the OpenAPI document, which describes the API; see
+<a href="../dashboard/">The dashboard</a>.</p>
+<h3 id="what-the-caller-may-do">What the caller may do<a class="headerlink" href="#what-the-caller-may-do" title="Permanent link">&para;</a></h3>
+<p><code>GET /api/v1/access</code> reports the calling token's own rights. It answers <code>200</code> for
+everybody, anonymous included: an endpoint whose purpose is to say "you may do
+nothing" cannot itself require a right, and it discloses nothing that attempting
+the six actions would not.</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;caller&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;kind&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;token&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ci&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;group&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;ops&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;global&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;list&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;read&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;create&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;update&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;delete&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;upload&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;proxies&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;alpha&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;read&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;update&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;delete&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;upload&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<ul>
+<li><code>caller</code> is <code>{"kind": "anonymous"}</code> for a request with no token, or with one
+  this configuration does not recognise -- the two are deliberately not
+  distinguished.</li>
+<li><code>global</code> is the six actions as <code>admin.access</code> decides them for this caller.</li>
+<li><code>proxies</code> gives the four overridable actions per proxy, with that proxy's own
+  <code>access</code> block applied. It is <strong>absent</strong> -- not empty -- when the caller may not
+  <code>list</code>: the map is keyed by proxy name, so returning it would be a proxy listing
+  by another route.</li>
+</ul>
+<p>Every value is the same decision the endpoint itself would make, evaluated by the
+same code. It exists so a client can disable an action instead of offering it and
+being refused; it is not a substitute for handling <code>401</code> and <code>403</code>, since rights
+can change under a running page.</p>
+<h3 id="the-configuration-schema">The configuration schema<a class="headerlink" href="#the-configuration-schema" title="Permanent link">&para;</a></h3>
+<p><code>GET /api/v1/schema</code> returns the configuration document as a JSON Schema
+(2020-12), from the process that is going to read it. No token, for the same
+reason as above: it describes the shape of a configuration, never the contents of
+one, and the identical bytes are published in the repository and attached to every
+release.</p>
+<div class="highlight"><pre><span></span><code>curl<span class="w"> </span>-s<span class="w"> </span>http://127.0.0.1:8081/api/v1/schema<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span><span class="s1">&#39;.[&quot;$defs&quot;].ProxyName&#39;</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Letters, digits, `-` and `_`, between 2 and 32 characters.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;maxLength&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">32</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;minLength&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">2</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;^[A-Za-z0-9_-]{2,32}$&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;string&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>Use it to check a document before pushing it, and to build an editor that knows
+the rules: it is generated from the same Rust types that enforce them, so it
+cannot describe a field that does not exist or a bound nobody applies. See
+<a href="../configuration/#editor-support">Editor support</a> for the other two copies and
+when to prefer which.</p>
 <h3 id="bodies">Bodies<a class="headerlink" href="#bodies" title="Permanent link">&para;</a></h3>
 <p>Create and update take the same shape, so what a client reads is what it sends
 back:</p>
@@ -1507,9 +1724,16 @@ back:</p>
 <p><code>revision</code> is required on update and refused on create -- a revision names a
 version of something that already exists, and accepting one on a create would
 let a client that meant to send a <code>PUT</code> overwrite a proxy it never read.</p>
-<p>A <code>PUT</code> whose body names a different proxy than the path is refused. The name
-is also the template directory, so a rename through <code>PUT</code> would strand the old
-directory.</p>
+<p>A <code>PUT</code> whose body names a different proxy than the path <strong>renames it</strong>. The name
+is also where the templates live, so the rename moves them: the proxy answers at the
+new path, the old one is a <code>404</code>, and every template file the proxy had is under the
+new name. A name another proxy already holds is refused with <code>400</code>
+<code>CONFIG_INVALID</code>.</p>
+<p>The configuration is written before the templates are moved, because the write is
+what authorises moving them. If the move then fails -- a permission problem, a full
+disk -- the reply says so in full: the proxy has the new name and its templates are
+still under the old one, so a mock naming a template file fails to render until they
+are moved by hand.</p>
 <h2 id="templates">Templates<a class="headerlink" href="#templates" title="Permanent link">&para;</a></h2>
 <p>Upload takes a raw body, not multipart: the resource is one file and its name
 is already in the path.</p>
@@ -1527,6 +1751,20 @@ at all.</p>
 <p>Deleting a proxy removes its templates. Updating one removes the templates no
 remaining mock names. Both happen <em>after</em> the configuration write, so a
 rejected change leaves every file in place.</p>
+<h3 id="a-write-is-in-force-when-it-answers">A write is in force when it answers<a class="headerlink" href="#a-write-is-in-force-when-it-answers" title="Permanent link">&para;</a></h3>
+<p><code>POST</code>, <code>PUT</code> and <code>DELETE</code> promote the stored configuration to the running one
+before they reply, so a <code>200</code> means the process is serving what you just wrote:
+the next request through the proxy listener goes to the new upstream, and
+<code>GET /api/v1/status</code> reports the new revision. No reload in between.</p>
+<p>It used to take one, and that was a trap worth naming: the write returned <code>200</code>,
+the API read the new document back, and the traffic kept going where it went
+before -- the API agreeing with the operator while the process disagreed with
+both.</p>
+<p>If the promotion itself fails -- the store became unreadable, or another writer
+left the document invalid between the save and the load -- the response says so
+and names both halves: the configuration is stored, the process is still running
+the previous one, and <code>POST /api/v1/config/reload</code> retries. The write is not
+undone, because it is not this process's to undo.</p>
 <h2 id="reload">Reload<a class="headerlink" href="#reload" title="Permanent link">&para;</a></h2>
 <p><code>POST /api/v1/config/reload</code> promotes the stored configuration to the running
 one, and answers with the revision now in effect, the proxy count, and any
@@ -1547,9 +1785,14 @@ here would let that document authorise its own promotion: anyone able to write
 the configuration file out of band could add a token for themselves and reload
 it into effect.</p>
 <p>Same effect as <code>doppel config reload</code>, and the two share one implementation
-and one mutex, so they cannot swap runtimes in the wrong order.</p>
+and one mutex -- with the writes above, which promote through the same path, so
+none of the three can swap runtimes in the wrong order.</p>
+<p>What is left for it, now that a write applies itself: a configuration changed
+<strong>behind</strong> the API. An operator editing <code>main.yaml</code>, <code>doppel config push</code>, another
+instance writing to the same database -- none of those pass through a handler, so
+none of them can promote themselves.</p>
 <h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
-<p><code>GET /status</code> reports what the process is serving right now -- from the
+<p><code>GET /api/v1/status</code> reports what the process is serving right now -- from the
 running runtime, not from the store, because a configuration written but not
 reloaded is not what this process is doing.</p>
 <div class="highlight"><pre><span></span><code><span class="p">{</span>
@@ -1620,6 +1863,11 @@ and an oversized body all carry the envelope rather than an empty body.</p>
 <td>The configuration names no proxies at all. See <a href="../proxying/#no-proxies-configured">No proxies configured</a></td>
 </tr>
 <tr>
+<td><code>DASHBOARD_NOT_BUILT</code></td>
+<td>503</td>
+<td><code>GET /</code> on a binary compiled without the dashboard's assets. See <a href="../dashboard/#when-the-root-answers-503">When the root answers 503</a></td>
+</tr>
+<tr>
 <td><code>CONFLICT</code></td>
 <td>409</td>
 <td>The name exists, or the store is under sustained contention</td>
@@ -1681,9 +1929,13 @@ intermediary cares about the status, and a client acting on the body needs to
 tell "that already exists" from "you are holding a stale copy".</p>
 <h2 id="openapi">OpenAPI<a class="headerlink" href="#openapi" title="Permanent link">&para;</a></h2>
 <p><code>GET /openapi.json</code> serves a document generated from the handlers themselves,
-so it cannot describe an endpoint this binary does not serve. <code>GET
-/swagger-ui</code> serves a browser UI over it, with the assets built into the
-binary rather than fetched at runtime.</p>
+so it cannot describe an endpoint this binary does not serve. <code>GET /swagger-ui/</code>
+serves a browser UI over it, with the assets built into the binary rather than
+fetched at runtime.</p>
+<p>The UI sits outside <code>/api/</code> because it is a page rather than an endpoint: it is
+served to a browser, it belongs beside the dashboard's own pages, and an ingress
+routing <code>/api/*</code> to a JSON service would otherwise hand a browser HTML through a
+JSON path.</p>
 <p>Both are unauthenticated: they describe the API rather than expose any of it,
 and a client cannot authenticate before it knows how.</p>
 

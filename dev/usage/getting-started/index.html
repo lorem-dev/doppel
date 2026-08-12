@@ -586,6 +586,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#or-do-all-of-that-in-a-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Or do all of that in a browser
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -798,6 +809,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../storage/" class="md-nav__link">
         
   
@@ -862,6 +901,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1145,6 +1212,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#or-do-all-of-that-in-a-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Or do all of that in a browser
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1252,6 +1330,14 @@ forwarding it:</p>
 <p>Everything else still goes upstream. See <a href="../mocks/">Mocks and templating</a> for
 variables, templates, and the ordering rule that matters once you have more
 than one mock.</p>
+<h2 id="or-do-all-of-that-in-a-browser">Or do all of that in a browser<a class="headerlink" href="#or-do-all-of-that-in-a-browser" title="Permanent link">&para;</a></h2>
+<p>The admin port serves a dashboard from its root:</p>
+<div class="highlight"><pre><span></span><code>http://127.0.0.1:8081/
+</code></pre></div>
+<p>The proxy set, a form over every field of a proxy, the mock templates, and the
+reload button -- the same admin API this page drives with curl, with the same
+token rules. <code>admin.dashboard: false</code> turns it off. See
+<a href="../dashboard/">The dashboard</a>.</p>
 
 
 

@@ -685,6 +685,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../storage/" class="md-nav__link">
         
   
@@ -824,6 +852,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#traffic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traffic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#no-path-labels" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -874,6 +924,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1143,6 +1221,28 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#traffic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Traffic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#no-path-labels" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1269,6 +1369,12 @@ sending events, in the same position a URL carries a password.</p>
 <h2 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h2>
 <p><code>GET /metrics</code> on the admin listener, in the Prometheus text format,
 unauthenticated because a scraper has nowhere to put a token.</p>
+<p>The one endpoint outside <code>/api/</code>. <code>metrics_path</code> defaults to <code>/metrics</code> in
+Prometheus and in every agent and annotation that scrapes one, so the path is
+settled by something larger than this project -- and a scrape of <code>/metrics</code> while
+the exposition was under <code>/api/v1/</code> was answered by the dashboard with <code>200
+text/html</code>, which reads as a parse failure or as no metrics at all.</p>
+<h3 id="traffic">Traffic<a class="headerlink" href="#traffic" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
@@ -1281,12 +1387,17 @@ unauthenticated because a scraper has nowhere to put a token.</p>
 <tr>
 <td><code>doppel_proxy_request_duration_seconds</code></td>
 <td>histogram</td>
-<td><code>proxy</code>, <code>method</code>, <code>status</code></td>
+<td><code>proxy</code>, <code>method</code>, <code>status</code>, <code>replace</code>, <code>loss</code>, <code>upstream_error</code></td>
 </tr>
 <tr>
 <td><code>doppel_upstream_request_duration_seconds</code></td>
 <td>histogram</td>
 <td><code>proxy</code>, <code>method</code>, <code>status</code></td>
+</tr>
+<tr>
+<td><code>doppel_admin_request_duration_seconds</code></td>
+<td>histogram</td>
+<td><code>route</code>, <code>method</code>, <code>status</code></td>
 </tr>
 <tr>
 <td><code>doppel_loss_total</code></td>
@@ -1305,8 +1416,59 @@ unauthenticated because a scraper has nowhere to put a token.</p>
 </tr>
 </tbody>
 </table>
-<p>Buckets are explicit -- 5ms to 10s -- rather than the exporter's default
-summary, because a quantile cannot be aggregated across replicas.</p>
+<p><code>replace</code>, <code>loss</code> and <code>upstream_error</code> are <code>1</code> or <code>0</code>, and independent: a mock can
+answer a request its own loss roll then drops, and <code>upstream_error</code> covers a
+transport failure, a timeout, and a relayed status of 500 or above.</p>
+<p><code>route</code> on the admin histogram is the route template -- <code>/api/v1/proxies/{name}</code>,
+never <code>/api/v1/proxies/alpha</code> -- so a hundred proxies are one series and a query
+string is none. A request that matched no route is recorded with an empty <code>route</code>.</p>
+<p>Buckets are explicit rather than the exporter's default summary, because a
+quantile cannot be aggregated across replicas. Two ladders: 5ms to 60s for
+proxied traffic, because <code>latency</code> injection is asked to be slow on purpose, and
+5ms to 5s for the admin API, where nothing has any business taking longer.</p>
+<h3 id="state">State<a class="headerlink" href="#state" title="Permanent link">&para;</a></h3>
+<p>These exist from startup, before anything has happened, because a panel and an
+alert both read a never-recorded metric as "no data" -- which is
+indistinguishable from a process nobody is scraping.</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Type</th>
+<th>Labels</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>doppel_build_info</code></td>
+<td>gauge</td>
+<td><code>version</code></td>
+<td>Always <code>1</code>. The version is a label because it is not a number</td>
+</tr>
+<tr>
+<td><code>doppel_dashboard_info</code></td>
+<td>gauge</td>
+<td><code>enabled</code></td>
+<td>Always <code>1</code>. Separate from the build: one describes the artifact, the other what this deployment turned on</td>
+</tr>
+<tr>
+<td><code>doppel_proxy_last_error_timestamp_seconds</code></td>
+<td>gauge</td>
+<td><code>code</code></td>
+<td>When the proxy listener last answered with that error. Starts as <code>code=""</code>, value <code>0</code></td>
+</tr>
+<tr>
+<td><code>doppel_proxy_mocks</code></td>
+<td>gauge</td>
+<td><code>proxy</code></td>
+<td>Mocks per proxy in the configuration <strong>now in effect</strong>, republished on every reload and every write through the API. A proxy that leaves the configuration goes to <code>0</code> rather than keeping its last count</td>
+</tr>
+</tbody>
+</table>
+<p>"Is it still failing" is <code>time() - doppel_proxy_last_error_timestamp_seconds</code>,
+which is why the metric is a timestamp and not a counter: a counter answers "how
+many" and needs a rate window to say anything about now.</p>
 <p>Every request through the proxy listener appears in the proxy histogram,
 including one that was dropped by loss injection or that resolved to no proxy
 at all; otherwise a rise in failures would read as a fall in traffic. A

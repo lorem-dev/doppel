@@ -683,6 +683,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../usage/dashboard/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../usage/storage/" class="md-nav__link">
         
   
@@ -747,6 +775,34 @@
     
   
     Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../usage/parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
   
 
     
@@ -1237,8 +1293,18 @@ Doppel itself, behind a <code>doppel</code> profile, so a bare <code>up</code> d
 running the proxy during a test run would put a second process on the ports and
 the templates directory the integration tests bind and write themselves.</p>
 <p>To bring both up, for trying the two together rather than for testing:</p>
-<div class="highlight"><pre><span></span><code>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>doppel<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--wait
+<div class="highlight"><pre><span></span><code>cp<span class="w"> </span>main.example.yaml<span class="w"> </span>main.yaml<span class="w">   </span><span class="c1"># once; main.yaml is git-ignored</span>
+make<span class="w"> </span>frontend<span class="w">                    </span><span class="c1"># the dashboard the image embeds</span>
+docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>doppel<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>--wait
 </code></pre></div>
+<p>The copy matters twice over. It is the file the container mounts, and it is yours
+to edit -- a port, an upstream, a token -- without any of that showing up as a
+change to <code>main.example.yaml</code>, which the documentation quotes. It is also not
+optional in a way that fails clearly: a bind mount whose source does not exist
+makes Docker create a directory at that path, and Doppel then reports
+<code>cannot read /etc/doppel/main.yaml: Is a directory</code>.</p>
+<p>Doppel's own ports are offset -- <code>58080</code> and <code>58081</code> -- so a container and a
+<code>cargo run</code> can be up at once.</p>
 <p>Each test creates its own schema and drops it afterwards, so the suites can run
 in parallel against one database.</p>
 <table>
