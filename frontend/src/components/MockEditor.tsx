@@ -2,7 +2,7 @@ import { Suspense, lazy } from 'react'
 
 import { Button } from './Button'
 import { Field, inputClass } from './Field'
-import { KeyValueRows, fromRows, toRows } from './KeyValueRows'
+import { KeyValueRows } from './KeyValueRows'
 import { Spinner } from './Spinner'
 import type { Syntax } from './CodeEditor'
 import type { HttpMethod, MockConfig } from '../types/proxy'
@@ -135,26 +135,24 @@ export function MockEditor({
         keyLabel="variable"
         valueLabel="header name"
         disabled={disabled}
-        rows={toRows(mock.request.headers)}
-        onChange={(rows) =>
-          onChange({ ...mock, request: { ...mock.request, headers: fromRows(rows) } })
-        }
+        value={mock.request.headers}
+        onChange={(next) => onChange({ ...mock, request: { ...mock.request, headers: next } })}
       />
       <KeyValueRows
         label="Variables from the query"
         keyLabel="variable"
         valueLabel="selector"
         disabled={disabled}
-        rows={toRows(mock.request.query)}
-        onChange={(rows) => onChange({ ...mock, request: { ...mock.request, query: fromRows(rows) } })}
+        value={mock.request.query}
+        onChange={(next) => onChange({ ...mock, request: { ...mock.request, query: next } })}
       />
       <KeyValueRows
         label="Variables from the body"
         keyLabel="variable"
         valueLabel="selector"
         disabled={disabled}
-        rows={toRows(mock.request.body)}
-        onChange={(rows) => onChange({ ...mock, request: { ...mock.request, body: fromRows(rows) } })}
+        value={mock.request.body}
+        onChange={(next) => onChange({ ...mock, request: { ...mock.request, body: next } })}
       />
 
       <div className="flex gap-2">
@@ -212,8 +210,8 @@ export function MockEditor({
         keyLabel="header name"
         valueLabel="template"
         disabled={disabled}
-        rows={toRows(mock.response.headers)}
-        onChange={(rows) => setResponse({ headers: fromRows(rows) })}
+        value={mock.response.headers}
+        onChange={(next) => setResponse({ headers: next })}
       />
     </div>
   )

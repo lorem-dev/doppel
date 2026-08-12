@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router'
 import { Banner } from '../components/Banner'
 import { Button } from '../components/Button'
 import { Field, inputClass } from '../components/Field'
-import { KeyValueRows, fromRows, toRows } from '../components/KeyValueRows'
+import { KeyValueRows } from '../components/KeyValueRows'
 import { MockEditor, emptyMock } from '../components/MockEditor'
 import { Spinner } from '../components/Spinner'
 import type { ProxyConfig } from '../types/proxy'
@@ -224,8 +224,8 @@ export default function ProxyFormPage() {
         keyLabel="header name"
         valueLabel="value"
         disabled={!allowed || saving}
-        rows={toRows(draft.headers)}
-        onChange={(rows) => patch({ headers: fromRows(rows) })}
+        value={draft.headers}
+        onChange={(next) => patch({ headers: next })}
       />
 
       <fieldset className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">

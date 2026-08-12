@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { Button } from './Button'
 import { inputClass } from './Field'
 
@@ -8,26 +10,54 @@ import { inputClass } from './Field'
  * index rather than by the key itself: keying by the key would remount the input
  * on every keystroke that changes it, and the field would lose focus after one
  * character.
+ *
+ * The rows are local state, and that is the whole design rather than a
+ * convenience. A row being typed is not yet a map entry -- it has no key -- so
+ * deriving the rows from the map on every render made "Add" do nothing at all: the
+ * new row had an empty key, the map could not hold it, and the next render had
+ * nothing to show. The map is what leaves this component; the rows are what lives
+ * in it.
  */
 export function KeyValueRows({
   label,
   keyLabel,
   valueLabel,
-  rows,
+  value,
   onChange,
   disabled,
 }: {
   label: string
   keyLabel: string
   valueLabel: string
-  rows: Array<[string, string]>
-  onChange: (rows: Array<[string, string]>) => void
+  /** The map as it stands. Incomplete rows are this component's business. */
+  value: Record<string, string> | undefined
+  onChange: (next: Record<string, string> | undefined) => void
   disabled?: boolean
 }) {
+  const [rows, setRows] = useState<Array<[string, string]>>(() => toRows(value))
+
+  // Reseeded when the map arrives holding something the rows do not describe -- a
+  // proxy being loaded, or a form being reset. Compared against what the rows
+  // produce rather than against the previous prop, because this component's own
+  // edit arrives back as a prop on the very next render and must not disturb a row
+  // being typed.
+  //
+  // Adjusted during render rather than in an effect: React re-renders immediately
+  // without committing the stale pass, so there is no flash of the old rows, and an
+  // effect that set state here would run a render behind and fight the input.
+  if (!sameMap(fromRows(rows), value)) {
+    setRows(toRows(value))
+  }
+
+  const publish = (next: Array<[string, string]>) => {
+    setRows(next)
+    onChange(fromRows(next))
+  }
+
   const set = (index: number, pair: [string, string]) => {
     const next = [...rows]
     next[index] = pair
-    onChange(next)
+    publish(next)
   }
 
   return (
@@ -55,7 +85,7 @@ export function KeyValueRows({
             <Button
               variant="danger"
               disabled={disabled}
-              onClick={() => onChange(rows.filter((_, at) => at !== index))}
+              onClick={() => publish(rows.filter((_, at) => at !== index))}
             >
               Remove
             </Button>
@@ -64,7 +94,7 @@ export function KeyValueRows({
       </div>
       <Button
         disabled={disabled}
-        onClick={() => onChange([...rows, ['', '']])}
+        onClick={() => publish([...rows, ['', '']])}
         aria-label={`Add ${label}`}
       >
         Add
@@ -73,8 +103,21 @@ export function KeyValueRows({
   )
 }
 
+/** Whether two of these maps hold the same pairs. */
+function sameMap(
+  left: Record<string, string> | undefined,
+  right: Record<string, string> | undefined,
+): boolean {
+  const a = left ?? {}
+  const b = right ?? {}
+  const keys = Object.keys(a)
+  return (
+    keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
+  )
+}
+
 /** A map as rows, for editing. */
-export function toRows(map: Record<string, string> | undefined): Array<[string, string]> {
+function toRows(map: Record<string, string> | undefined): Array<[string, string]> {
   return Object.entries(map ?? {})
 }
 
@@ -84,7 +127,7 @@ export function toRows(map: Record<string, string> | undefined): Array<[string, 
  * An empty key cannot be sent: the server would refuse the document, and the row
  * is what an operator leaves behind after clicking Add and changing their mind.
  */
-export function fromRows(rows: Array<[string, string]>): Record<string, string> | undefined {
+function fromRows(rows: Array<[string, string]>): Record<string, string> | undefined {
   const map: Record<string, string> = {}
   for (const [key, value] of rows) {
     if (key.trim()) {

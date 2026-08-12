@@ -5,3 +5,34 @@
    on <html> that overrides what the operating system says. `system` is the
    absence of both classes plus a matchMedia listener. */
 @custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  /*
+   * The page's own colours, and the reason this block exists: without it the
+   * background stayed the browser's white while every component switched to its
+   * dark text, so a dark theme rendered a white page with near-invisible
+   * headings. Components can only colour themselves; the page has to be coloured
+   * here.
+   */
+  body {
+    @apply bg-white text-slate-900 antialiased;
+  }
+
+  .dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
+
+  /*
+   * Native controls follow this and nothing else: a select, a scrollbar, a text
+   * caret and a focus ring are drawn by the browser, and on a dark page they stay
+   * light without it. Set on the element rather than in a media query, because
+   * the choice may disagree with the operating system.
+   */
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+}
