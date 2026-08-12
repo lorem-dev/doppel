@@ -50,8 +50,24 @@ use std::time::{Duration, Instant};
 /// something else, and reporting that beats retrying forever.
 const PORT_RACE_ATTEMPTS: usize = 3;
 
+/// A port nothing is listening on, by asking the kernel for one and giving it
+/// straight back.
+///
+/// Bound on the **wildcard**, not on loopback, and that is the whole point.
+/// `SO_REUSEADDR` is set by `std` on every `TcpListener`, and macOS then allows
+/// `127.0.0.1:P` to be bound while another process holds `0.0.0.0:P` -- the more
+/// specific address wins for connections to it. A loopback probe could therefore
+/// draw a port a server under test was already serving on, shadow it for the
+/// microseconds before this listener is dropped, and reset whatever connection
+/// arrived in that window: `ECONNRESET` on the client, no request in the server's
+/// log, the server still alive and listening. That was the `mocks` suite's flake,
+/// which uses `main.example.yaml` and its `host: 0.0.0.0`.
+///
+/// A wildcard probe cannot: the kernel refuses a second wildcard bind on a busy
+/// port with `EADDRINUSE`, so a collision becomes the lost-port race that
+/// `start_with_env` already retries instead of a corrupted request.
 pub fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
+    TcpListener::bind("0.0.0.0:0")
         .unwrap()
         .local_addr()
         .unwrap()
