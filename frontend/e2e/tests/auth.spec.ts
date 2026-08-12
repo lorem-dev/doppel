@@ -12,7 +12,7 @@ test.describe('a private configuration', () => {
 
   test('asks for a token, and takes no for an answer', async ({ page }) => {
     await page.goto(doppel.baseURL)
-    const dialog = page.getByRole('form', { name: 'Admin token' })
+    const dialog = page.getByRole('form', { name: 'Access token' })
     await expect(dialog).toBeVisible()
 
     await page.getByRole('button', { name: 'Continue without a token' }).click()
@@ -29,7 +29,7 @@ test.describe('a private configuration', () => {
     await page.goto(doppel.baseURL)
     await page.getByRole('button', { name: 'Continue without a token' }).click()
     await page.reload()
-    await expect(page.getByRole('form', { name: 'Admin token' })).toBeHidden()
+    await expect(page.getByRole('form', { name: 'Access token' })).toBeHidden()
   })
 
   test('enables the writes once a token is given, and names the caller', async ({ page }) => {
@@ -136,7 +136,7 @@ test.describe('a private configuration', () => {
     await expect(page.getByRole('button', { name: 'Add a proxy' })).toBeDisabled()
     // Not a wall: what is public is still on screen.
     await expect(page.getByRole('cell', { name: 'alpha', exact: true })).toBeVisible()
-    await expect(page.getByRole('form', { name: 'Admin token' })).toBeHidden()
+    await expect(page.getByRole('form', { name: 'Access token' })).toBeHidden()
   })
 })
 
@@ -149,7 +149,7 @@ test.describe('a public configuration', () => {
 
   test('never mentions tokens', async ({ page }) => {
     await page.goto(doppel.baseURL)
-    await expect(page.getByRole('form', { name: 'Admin token' })).toBeHidden()
+    await expect(page.getByRole('form', { name: 'Access token' })).toBeHidden()
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeHidden()
     // And everything is permitted, because it is.
     await expect(page.getByRole('button', { name: 'Add a proxy' })).toBeEnabled()
@@ -173,7 +173,7 @@ test.describe('a public configuration', () => {
     )
     await page.reload()
 
-    await expect(page.getByRole('form', { name: 'Admin token' })).toBeHidden()
+    await expect(page.getByRole('form', { name: 'Access token' })).toBeHidden()
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeHidden()
     await expect(page.getByRole('button', { name: 'Sign out' })).toBeHidden()
     // Still anonymous, still allowed everything: the caller the API reports is the

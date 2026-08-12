@@ -29,7 +29,7 @@ export function TokenDialog() {
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/40 p-4">
       <form
         className="w-full max-w-md rounded border border-slate-200 bg-white p-4 shadow-lg dark:border-slate-700 dark:bg-slate-900"
-        aria-label="Admin token"
+        aria-label="Access token"
         onSubmit={(event) => {
           event.preventDefault()
           if (value.trim()) {
@@ -39,7 +39,7 @@ export function TokenDialog() {
         }}
       >
         <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
-          Admin token
+          Access token
         </h2>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           One of <code>admin.tokens</code>. Kept in this browser for an hour; the token itself

@@ -57,6 +57,26 @@ export function loadToken(now: number = Date.now()): string | undefined {
   return stored.token
 }
 
+/**
+ * Push the stored token's hour out to start from now.
+ *
+ * Called on every request the page makes with a token, so the hour is a sliding
+ * window rather than a countdown from when it was typed. An operator who is using
+ * the dashboard is not asked for the token again in the middle of doing so, and one
+ * who walked away still loses it an hour after their last request -- which is the
+ * claim the lifetime was always making.
+ *
+ * Silent when there is nothing stored, or when what is stored has already aged out:
+ * `loadToken` is what decides that, and this must not resurrect an entry it would
+ * have deleted.
+ */
+export function touchToken(now: number = Date.now()): void {
+  const token = loadToken(now)
+  if (token !== undefined) {
+    localStorage.setItem(TOKEN_KEY, JSON.stringify({ token, savedAt: now } satisfies StoredToken))
+  }
+}
+
 export function saveToken(token: string, now: number = Date.now()): void {
   const stored: StoredToken = { token, savedAt: now }
   localStorage.setItem(TOKEN_KEY, JSON.stringify(stored))

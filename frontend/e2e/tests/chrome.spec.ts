@@ -11,13 +11,65 @@ test.beforeAll(async () => {
 })
 test.afterAll(() => doppel.stop())
 
-test('the header shows admin.title and the tab takes it too', async ({ page }) => {
+test("the header shows admin.title, in the wordmark's own shape", async ({ page }) => {
   await page.goto(doppel.baseURL)
   await expect(page.getByRole('heading', { name: 'Doppel (e2e)' })).toBeVisible()
   await expect(page).toHaveTitle('Doppel (e2e)')
-  // A named deployment gets its name, not the wordmark: the name is what tells
-  // four open tabs apart.
-  await expect(page.locator('h1 .font-serif')).toHaveCount(0)
+
+  // A named deployment gets its own name -- that is what tells four open tabs
+  // apart -- drawn the way `Doppelganger` is, because it is the same heading in the
+  // same page and should not read as a different one.
+  const heading = page.getByRole('heading', { level: 1 })
+  const style = await heading
+    .locator('span')
+    .first()
+    .evaluate((node) => {
+      const computed = getComputedStyle(node)
+      return { size: computed.fontSize, style: computed.fontStyle, select: computed.userSelect }
+    })
+  expect(style.size).toBe('18px')
+  expect(style.style).toBe('italic')
+  expect(style.select).toBe('none')
+
+  // Two tones, split on the space: `Doppel` in the strong one, `(e2e)` in the
+  // light one, exactly as the wordmark splits its own two halves.
+  const [first, second] = await Promise.all([
+    paintedRgb(page, 'h1 span span:nth-child(1)', 'color'),
+    paintedRgb(page, 'h1 span span:nth-child(2)', 'color'),
+  ])
+  expect(first).not.toEqual(second)
+  // Every character survives the split.
+  await expect(heading).toHaveText('Doppel (e2e)')
+})
+
+test('a named deployment says it was built with Doppel, and links to Doppel', async ({ page }) => {
+  // The footer belongs to somebody else's tool now: the version line says what it
+  // was built with, the documentation link says whose documentation it is, and the
+  // repository link goes -- on `billing-api (staging)`, "Repository" reads as a
+  // link to the billing API's own, which it is not.
+  await page.goto(doppel.baseURL)
+
+  await expect(page.getByText(/Built with Doppel \d+\.\d+\.\d+/)).toBeVisible()
+  await expect(page.getByText(/\(c\) \d{4} Lorem Dev/)).toBeVisible()
+  await expect(page.getByRole('link', { name: /Doppel Documentation/ })).toBeVisible()
+  await expect(page.getByRole('link', { name: /^Repository/ })).toHaveCount(0)
+})
+
+test("an unnamed deployment keeps the project's own footer", async ({ page }) => {
+  const doppel = await startDoppel(PUBLIC_CONFIG)
+  try {
+    await page.goto(doppel.baseURL)
+
+    // Nobody named this one, so it is Doppel's own page: the copyright reads as
+    // Doppel's and both links are its own.
+    await expect(page.getByText(/Built with Doppel/)).toHaveCount(0)
+    await expect(page.getByText(/\(c\) \d{4} Lorem Dev . Doppel \d+\.\d+\.\d+/)).toBeVisible()
+    await expect(page.getByRole('link', { name: /^Repository/ })).toBeVisible()
+    await expect(page.getByRole('link', { name: /Doppel Documentation/ })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: /^Documentation/ })).toBeVisible()
+  } finally {
+    doppel.stop()
+  }
 })
 
 test('an unnamed deployment gets the wordmark, in two tones and one size', async ({ page }) => {

@@ -5,7 +5,7 @@
 
 import { ApiError, TRANSPORT_CODE } from '../types/error'
 import { runtimeConfig } from './runtimeConfig'
-import { loadToken } from './auth'
+import { loadToken, touchToken } from './auth'
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -39,6 +39,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const token = loadToken()
   if (token) {
     headers[authHeader] = `Bearer ${token}`
+    // The hour starts again from this request. Here rather than in a store, so
+    // every call the page makes counts -- the list refetching itself once a minute
+    // keeps a token alive while the tab is open and being looked at, and the pause
+    // on a hidden tab is what stops that from being forever.
+    touchToken()
   }
   if (options.body !== undefined) {
     headers['Content-Type'] = 'application/json'

@@ -1,4 +1,4 @@
-import { TOKEN_LIFETIME_MS, clearToken, isRefused, loadToken, refuse, saveToken } from '../auth'
+import { TOKEN_LIFETIME_MS, clearToken, isRefused, loadToken, refuse, saveToken, touchToken } from '../auth'
 
 beforeEach(() => {
   localStorage.clear()
@@ -58,5 +58,35 @@ describe('declining the dialog', () => {
     refuse()
     expect(localStorage.getItem('doppel.token.refused')).toBeNull()
     expect(sessionStorage.getItem('doppel.token.refused')).toBe('yes')
+  })
+})
+
+describe('touchToken', () => {
+  it('slides the hour so an operator using the page is not asked again', () => {
+    saveToken('token-being-used-000000000000000000', 1_000)
+
+    // Fifty-nine minutes later: still valid, and the request pushes the window.
+    touchToken(1_000 + 59 * 60 * 1000)
+
+    // Two minutes after that -- past the original hour -- the token is still there,
+    // because the hour now runs from the last request rather than from the sign-in.
+    expect(loadToken(1_000 + 61 * 60 * 1000)).toBe('token-being-used-000000000000000000')
+  })
+
+  it('does not resurrect a token that has already aged out', () => {
+    saveToken('token-left-to-expire-00000000000000', 1_000)
+
+    // An hour and a minute with no requests. `loadToken` has deleted it, and
+    // touching must not write it back: the whole point of the lifetime is that an
+    // unattended browser stops holding a working token.
+    touchToken(1_000 + 61 * 60 * 1000)
+
+    expect(loadToken(1_000 + 61 * 60 * 1000)).toBeUndefined()
+    expect(localStorage.getItem('doppel.token')).toBeNull()
+  })
+
+  it('says nothing when there is no token at all', () => {
+    touchToken(5_000)
+    expect(localStorage.getItem('doppel.token')).toBeNull()
   })
 })

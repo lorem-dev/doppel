@@ -2,6 +2,7 @@ import { NavLink } from 'react-router'
 
 import { Button } from './Button'
 import { ThemeToggle } from './ThemeToggle'
+import { Title } from './Title'
 import { Wordmark } from './Wordmark'
 import { runtimeConfig } from '../services/runtimeConfig'
 import { useAccess } from '../store/access'
@@ -45,7 +46,7 @@ export function Header() {
       */}
       <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
         <NavLink to="/" end className="rounded-sm hover:opacity-80">
-          {titleIsDefault ? <Wordmark /> : title}
+          {titleIsDefault ? <Wordmark /> : <Title title={title} />}
         </NavLink>
       </h1>
 
