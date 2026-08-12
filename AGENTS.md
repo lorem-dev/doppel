@@ -53,12 +53,27 @@ touches `frontend/` or the dashboard routes.
 
 ### Verification workflow
 
-Run the full gate (`cargo fmt --check`, `cargo clippy`, `cargo test`) as a single
-dedicated step at the END of a change -- not after every task. While iterating,
-write only the minimal tests needed to guarantee the code works, and run just the
-focused test for what you changed (at most a quick `cargo test -p <crate>`).
-The comprehensive gate above is the single final check before a change is
-considered done or a pull request opened.
+Run `make gate` as a single dedicated step at the END of a change -- not after
+every task, and not while iterating. It builds the dashboard, runs both Rust
+suites, jest, the bundle budgets, mkdocs and three generators; on a change to one
+file, nearly all of that re-checks code the change did not touch.
+
+While iterating, run only what addresses the part being changed:
+
+| Changed | Run |
+| --- | --- |
+| a crate | `cargo test -p <crate> <name>`, `cargo clippy -p <crate>`, `cargo fmt` |
+| `frontend/src` | `npm --prefix frontend test -- <file>`, `npx eslint <file>`, `npx tsc --noEmit` |
+| the dashboard's behaviour in a browser | `npx playwright test <spec>` |
+| `docs/`, a doc comment, a docs link | `make docs`, `make parameters`, `make links`, separately |
+| a config type or its schema | `make schema` |
+| a dependency | `make licences` |
+
+Write only the minimal tests needed to guarantee the code works, and check a new
+test by mutation with the same focused run -- not with the gate.
+
+`make gate` is the single final check before a change is considered done or a
+pull request opened. Read its exit code as its own step, then commit.
 
 Capture the gate's output when you report it. Over this project's history,
 several reports stated test counts or quoted compiler diagnostics that did not
