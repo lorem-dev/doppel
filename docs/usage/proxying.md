@@ -165,6 +165,47 @@ A target on **another host** is left pointing there, absolutely. Doppel does not
 proxy it, and naming itself in a redirect to somewhere it cannot serve would be a
 lie.
 
+## Urls in a body
+
+The same problem one layer down, and on by default for the same reason:
+
+```yaml
+proxies:
+  - name: backend
+    url: "https://api.example.com/v2/"
+    rewrite_urls: true    # the default
+```
+
+A page, a script or a JSON document that names `https://api.example.com/v2/orders`
+sends the client straight to the upstream on its next request -- past every
+injected fault and every mock, with nothing logged. Doppel replaces its own address
+into the body instead: that URL becomes `http://127.0.0.1:8080/orders`, and one on
+the same host outside the proxied path keeps its own path, exactly as a rewritten
+redirect does. `nginx` calls this `sub_filter`.
+
+**Only the exact host.** `https://cdn.api.example.com/` is a different host, is not
+proxied by this proxy, and is left alone -- pointing it here would break the page
+rather than keep it working. A host that merely starts the same, like
+`https://api.example.com.evil.test/`, is left alone too.
+
+Three more limits, each of which relays the body untouched rather than guessing:
+
+- **Text only**, by `Content-Type`: `text/*`, JSON, JavaScript, XML and the `+json`
+  and `+xml` suffixes. An image cannot carry a URL that matters, and buffering one
+  to look is how a proxy runs out of memory.
+- **Uncompressed only.** A body with a `Content-Encoding` is relayed as it came;
+  the client asked the upstream for that encoding.
+- **Bounded by `body_limit`.** Rewriting needs the whole body, so it is buffered up
+  to that ceiling; a bigger body streams on from where the buffering stopped.
+
+A rewritten body loses the `ETag` and digest headers that described the upstream's
+version of it, and carries the length it now has. A conditional request with the
+upstream's validator would otherwise be answered `304` for content the client has
+never seen.
+
+Set `rewrite_urls: false` for a client being tested against the bytes the upstream
+actually sent.
+
 ## Doppel's own address
 
 Rewriting a `Location` means naming the address the client used, and Doppel

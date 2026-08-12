@@ -56,3 +56,32 @@ fn the_environment_overrides_which_host_a_rewritten_redirect_names() {
         Some("https://doppel.example.com/moved")
     );
 }
+
+/// A body that names the upstream comes back naming Doppel.
+///
+/// Through the built binary, both listeners, so this covers the wiring as well as
+/// the rules: `rewrite_urls` defaults to on, and the address comes from
+/// `server.host` and `server.port` like a rewritten redirect's does.
+#[test]
+fn a_body_that_names_the_upstream_comes_back_naming_doppel() {
+    let up = upstream();
+    let server = Server::start(up.port);
+
+    let (status, body) = server.get("/page");
+
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body.contains(&format!("http://127.0.0.1:{}/next", server.port())),
+        "the link must point at Doppel: {body}"
+    );
+    assert!(
+        !body.contains(&format!("http://127.0.0.1:{}/next", up.port)),
+        "and not at the upstream: {body}"
+    );
+    // A host that merely contains the upstream's is a different host, and is left
+    // exactly as the upstream wrote it.
+    assert!(
+        body.contains(&format!("http://cdn.127.0.0.1:{}/logo.png", up.port)),
+        "a different host must survive: {body}"
+    );
+}

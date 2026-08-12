@@ -218,7 +218,24 @@ pub async fn forward(
     {
         relayed.insert("location", rewritten);
     }
-    let stream = response.bytes_stream();
+    // The body, and the length it has if the upstream's own address had to come out
+    // of it. See `crate::rewrite`: text only, uncompressed only, bounded by
+    // `body_limit`, and the exact host only.
+    let (body, rewritten_length) = match external {
+        Some(external) if proxy.rewrite_urls && crate::rewrite::is_rewritable(&relayed) => {
+            crate::rewrite::rewrite_body(
+                response.bytes_stream(),
+                &proxy.base_url,
+                external,
+                proxy.body_limit,
+            )
+            .await
+        }
+        _ => (Body::from_stream(response.bytes_stream()), None),
+    };
+    if let Some(length) = rewritten_length {
+        crate::rewrite::restate_body_headers(&mut relayed, length);
+    }
 
     let mut builder = Response::builder().status(status);
     if let Some(headers) = builder.headers_mut() {
@@ -230,7 +247,7 @@ pub async fn forward(
             headers.insert("x-request-id", value);
         }
     }
-    let response = builder.body(Body::from_stream(stream)).map_err(|e| {
+    let response = builder.body(body).map_err(|e| {
         Error::new(
             ErrorCode::UpstreamError,
             format!("cannot relay response: {e}"),
@@ -804,6 +821,7 @@ mod tests {
             latency: None,
             replace: 1.0,
             rewrite_redirects: true,
+            rewrite_urls: false,
             resolve_header: None,
             mocks: Vec::new(),
             body_limit: 1024 * 1024,

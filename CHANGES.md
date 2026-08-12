@@ -10,6 +10,9 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ### Added
 
+- `rewrite_urls` (default on): the upstream's own address is replaced by Doppel's
+  inside text bodies it relays, so a page or a JSON document cannot send a client
+  past every fault and mock. Exact host only.
 - Metrics that exist before anything happens: `doppel_build_info`,
   `doppel_dashboard_info`, `doppel_proxy_last_error_timestamp_seconds` and
   `doppel_proxy_mocks`, the last following the configuration in force.

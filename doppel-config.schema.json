@@ -638,6 +638,13 @@
             "null"
           ]
         },
+        "rewrite_urls": {
+          "description": "Whether the upstream's own address is rewritten to Doppel's inside the\nbodies this proxy relays. Absent means enabled.\n\nThe same problem `rewrite_redirects` solves, one layer down: a page, a\nscript or a JSON document that names `https://api.example.com/v2/` sends\nthe client straight there on the next request, past every fault and every\nmock. Rewriting the body keeps it inside Doppel.\n\nOnly the exact host is replaced. `https://cdn.api.example.com/` is a\ndifferent host and is left alone, because Doppel does not proxy it and\npointing it at itself would break a page rather than keep it working.\n\nOnly text bodies, and only ones the upstream did not compress. Turn it off\nfor a client being tested against the bytes the upstream actually sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "timeout": {
           "description": "Bounds the whole upstream exchange, in seconds. Exceeding it is\n`504 UPSTREAM_TIMEOUT`. Defaults to 30.",
           "oneOf": [

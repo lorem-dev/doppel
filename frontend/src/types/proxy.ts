@@ -88,6 +88,7 @@ export interface ProxyConfig {
   latency?: LatencyConfig
   replace?: number
   rewrite_redirects?: boolean
+  rewrite_urls?: boolean
   /** Bytes, or a string such as `4Mi`. */
   body_limit?: number | string
   mocks?: MockConfig[]

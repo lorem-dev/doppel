@@ -325,6 +325,7 @@ proxies:
             latency: None,
             replace: None,
             rewrite_redirects: None,
+            rewrite_urls: None,
             body_limit: ByteSize::parse(1024 * 1024).unwrap(),
             mocks: Vec::new(),
         }

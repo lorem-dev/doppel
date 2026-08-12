@@ -97,7 +97,19 @@ pub fn upstream() -> Upstream {
             // authority, which is what makes a client leave Doppel unless the
             // `Location` is rewritten. Real services answer these constantly --
             // a trailing slash, a canonical host, a login page.
-            let response = if path == "/redirect-self" {
+            let response = if path == "/page" {
+                // A page that names its own host, which is what makes a client
+                // leave Doppel on the next click unless the body is rewritten.
+                let body = format!(
+                    "<a href=\"http://127.0.0.1:{port}/next\">next</a>\
+                     <img src=\"http://cdn.127.0.0.1:{port}/logo.png\">"
+                );
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/html\r\netag: \"upstream-etag\"\r\n\
+                     content-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            } else if path == "/redirect-self" {
                 format!(
                     "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:{port}/moved\r\n\
                      content-length: 0\r\nconnection: close\r\n\r\n"

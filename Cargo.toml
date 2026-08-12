@@ -15,6 +15,7 @@ arc-swap = "1.9"
 async-trait = "0.1"
 axum = "0.8"
 clap = { version = "4", features = ["derive", "env"] }
+bytes = "1"
 futures-util = "0.3"
 # Already in the tree under hyper, and the only calendar in it. The dashboard's
 # footer needs the year the binary was built, and turning a unix timestamp into

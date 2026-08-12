@@ -144,6 +144,22 @@ pub struct ProxyConfig {
     /// *against redirect handling itself* needs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rewrite_redirects: Option<bool>,
+    /// Whether the upstream's own address is rewritten to Doppel's inside the
+    /// bodies this proxy relays. Absent means enabled.
+    ///
+    /// The same problem `rewrite_redirects` solves, one layer down: a page, a
+    /// script or a JSON document that names `https://api.example.com/v2/` sends
+    /// the client straight there on the next request, past every fault and every
+    /// mock. Rewriting the body keeps it inside Doppel.
+    ///
+    /// Only the exact host is replaced. `https://cdn.api.example.com/` is a
+    /// different host and is left alone, because Doppel does not proxy it and
+    /// pointing it at itself would break a page rather than keep it working.
+    ///
+    /// Only text bodies, and only ones the upstream did not compress. Turn it off
+    /// for a client being tested against the bytes the upstream actually sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_urls: Option<bool>,
     /// Bounds the request body a matched mock is allowed to buffer in order
     /// to extract from it; phase 1 streams bodies deliberately, and reading
     /// `.content.items` needs the whole thing in hand. See rule V33.

@@ -65,6 +65,9 @@ function faultSummary(proxy: ProxyConfig): string {
   if (proxy.rewrite_redirects === false) {
     parts.push("redirects kept");
   }
+  if (proxy.rewrite_urls === false) {
+    parts.push("urls kept");
+  }
   return parts.length ? parts.join(", ") : "none";
 }
 
@@ -525,6 +528,34 @@ export default function ProxyFormPage() {
                   onChange={(event) =>
                     patch({
                       rewrite_redirects:
+                        event.target.value === "default"
+                          ? undefined
+                          : event.target.value === "true",
+                    })
+                  }
+                >
+                  <option value="default">Default (on)</option>
+                  <option value="true">On</option>
+                  <option value="false">Off</option>
+                </select>
+              </Field>
+              <Field
+                label="Rewrite urls in bodies"
+                info="rewrite_urls"
+                hint="On by default: the upstream's own address, in text bodies, becomes this one."
+              >
+                <select
+                  className={selectFullClass}
+                  aria-label="Rewrite urls in bodies"
+                  value={
+                    draft.rewrite_urls === undefined
+                      ? "default"
+                      : String(draft.rewrite_urls)
+                  }
+                  disabled={!allowed || saving}
+                  onChange={(event) =>
+                    patch({
+                      rewrite_urls:
                         event.target.value === "default"
                           ? undefined
                           : event.target.value === "true",

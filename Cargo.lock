@@ -725,6 +725,7 @@ name = "doppel-proxy"
 version = "0.4.1"
 dependencies = [
  "axum",
+ "bytes",
  "doppel-core",
  "doppel-render",
  "futures-util",

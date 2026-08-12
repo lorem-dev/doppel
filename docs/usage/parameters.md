@@ -1248,6 +1248,33 @@ proxies:
   - rewrite_redirects: true
 ```
 
+### `proxies[].rewrite_urls` { #proxies-rewrite_urls }
+
+Whether the upstream's own address is rewritten to Doppel's inside the
+bodies this proxy relays. Absent means enabled.
+
+The same problem `rewrite_redirects` solves, one layer down: a page, a
+script or a JSON document that names `https://api.example.com/v2/` sends
+the client straight there on the next request, past every fault and every
+mock. Rewriting the body keeps it inside Doppel.
+
+Only the exact host is replaced. `https://cdn.api.example.com/` is a
+different host and is left alone, because Doppel does not proxy it and
+pointing it at itself would break a page rather than keep it working.
+
+Only text bodies, and only ones the upstream did not compress. Turn it off
+for a client being tested against the bytes the upstream actually sent.
+
+| | |
+|---|---|
+| Type | boolean |
+| Required | no |
+
+```yaml
+proxies:
+  - rewrite_urls: true
+```
+
 ### `proxies[].timeout` { #proxies-timeout }
 
 Bounds the whole upstream exchange, in seconds. Exceeding it is

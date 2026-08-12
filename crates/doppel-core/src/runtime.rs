@@ -28,6 +28,10 @@ pub struct CompiledProxy {
     /// point at Doppel. The `Option` in the configuration resolves to its
     /// default here, so the hot path never has to know what that default was.
     pub rewrite_redirects: bool,
+    /// Whether the upstream's own address is rewritten to Doppel's inside a
+    /// relayed body. The `Option` in the configuration resolves to its default
+    /// here, like `rewrite_redirects` above.
+    pub rewrite_urls: bool,
     pub resolve_header: Option<String>,
     /// Mocks in configuration order. Matching is first-wins, so this order
     /// is load-bearing, not incidental.
@@ -190,6 +194,7 @@ fn compile_proxy(proxy: &ProxyConfig) -> Result<CompiledProxy, Error> {
         latency: proxy.latency,
         replace: proxy.replace.map_or(1.0, crate::config::Ratio::get),
         rewrite_redirects: proxy.rewrite_redirects.unwrap_or(true),
+        rewrite_urls: proxy.rewrite_urls.unwrap_or(true),
         resolve_header: match proxy.resolve.kind {
             ResolveKind::Header => proxy
                 .resolve

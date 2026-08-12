@@ -3,6 +3,7 @@
 pub mod fault;
 pub mod mock;
 pub mod resolve;
+pub mod rewrite;
 pub mod server;
 pub mod upstream;
 
