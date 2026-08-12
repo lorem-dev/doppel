@@ -63,10 +63,18 @@ async fn the_root_serves_the_page_with_the_injected_configuration() {
 
     let config = injected(&reply.body);
     assert_eq!(config["title"], "Doppel");
+    // Nothing named this one, so the page is free to draw its wordmark.
+    assert_eq!(config["titleIsDefault"], true);
     assert_eq!(config["public"], false);
     assert_eq!(config["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(config["authHeader"], "X-Proxy-Authorization");
     assert_eq!(config["refreshMs"], 60_000);
+    // The footer's copyright year, from the build stamp rather than the browser's
+    // clock. Asserted as a range because the value moves with every build.
+    let year = config["copyrightYear"]
+        .as_u64()
+        .expect("copyrightYear is a number");
+    assert!((2026..=9999).contains(&year), "copyrightYear is {year}");
 }
 
 #[tokio::test]
@@ -86,6 +94,8 @@ async fn the_page_reports_the_configured_title_and_auth_header() {
 
     let injected = injected(&body);
     assert_eq!(injected["title"], "Doppel (staging)");
+    // Named, so the page shows the name rather than the wordmark.
+    assert_eq!(injected["titleIsDefault"], false);
     assert_eq!(injected["authHeader"], "X-Admin-Token");
 }
 

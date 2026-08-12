@@ -5,6 +5,8 @@
 //! empty table and answers 503 here, so a source build on a machine with no Node
 //! still works and says why the dashboard is missing.
 
+use std::time::{Duration, SystemTime};
+
 use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::{HeaderName, HeaderValue, header};
@@ -122,6 +124,15 @@ pub async fn fallback(
 #[derive(Debug, Serialize)]
 struct PageConfig<'a> {
     title: &'a str,
+    /// Whether `admin.title` was left out and `title` above is the default.
+    ///
+    /// The page draws its own wordmark in that case, and the plain string when an
+    /// operator has named this Doppel something. Sent as a flag rather than left
+    /// for the page to compare against a copy of the default: two spellings of one
+    /// constant, in two languages, is how the header ends up disagreeing with the
+    /// configuration nobody changed.
+    #[serde(rename = "titleIsDefault")]
+    title_is_default: bool,
     /// Whether the admin API is unauthenticated. `true` and the page never asks
     /// for a token.
     public: bool,
@@ -133,6 +144,9 @@ struct PageConfig<'a> {
     /// How often the proxy list is refetched.
     #[serde(rename = "refreshMs")]
     refresh_ms: u64,
+    /// The year in the footer's copyright line.
+    #[serde(rename = "copyrightYear")]
+    copyright_year: u16,
 }
 
 /// The proxy list is refetched once a minute.
@@ -140,6 +154,41 @@ struct PageConfig<'a> {
 /// Sent to the page rather than written there, so the interval is one value in
 /// one place.
 const REFRESH_MS: u64 = 60_000;
+
+/// When this binary was built, as seconds since the epoch. Stamped by `build.rs`.
+const BUILD_EPOCH: &str = env!("DOPPEL_BUILD_EPOCH");
+
+/// The last instant `httpdate` will render: it panics on year 9999 and later.
+const LATEST_RENDERABLE: u64 = 253_402_300_799;
+
+/// The calendar year of a unix timestamp.
+///
+/// `httpdate` owns the calendar, because leap years and century rules are a solved
+/// problem and `seconds / 31_556_952` here would be wrong for a day every four
+/// years. It renders an IMF-fixdate -- `Thu, 01 Jan 2026 00:00:00 GMT` -- whose
+/// field widths are fixed by the HTTP grammar, so the year is the four bytes at
+/// 12..16.
+fn year_of(seconds: u64) -> Option<u16> {
+    if seconds > LATEST_RENDERABLE {
+        return None;
+    }
+    let stamp = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(seconds))?;
+    httpdate::fmt_http_date(stamp).get(12..16)?.parse().ok()
+}
+
+/// The year the footer's copyright line carries.
+///
+/// The build's year rather than the browser's clock: the page is part of this
+/// binary, so the year it was published in is a fact about the build and not about
+/// whoever is looking at it. A visitor with a wrong clock -- or a copy still in use
+/// in 2030 -- should read the same line.
+///
+/// An unreadable stamp says 1970, which is visibly wrong rather than quietly
+/// plausible. It takes a `build.rs` that stopped stamping, and the year in the
+/// footer is not worth a branch in the page for that.
+fn build_year() -> u16 {
+    BUILD_EPOCH.parse().ok().and_then(year_of).unwrap_or(1970)
+}
 
 async fn index(State(state): State<AdminState>) -> Response {
     if !is_built() {
@@ -157,10 +206,12 @@ async fn index(State(state): State<AdminState>) -> Response {
     let config = crate::access::policy(&state);
     let page = PageConfig {
         title: config.admin.title(),
+        title_is_default: config.admin.title.is_none(),
         public: config.admin.is_public(),
         version: env!("CARGO_PKG_VERSION"),
         auth_header: config.admin.auth.header.as_str(),
         refresh_ms: REFRESH_MS,
+        copyright_year: build_year(),
     };
 
     (
@@ -263,4 +314,50 @@ async fn robots() -> Response {
         "User-agent: *\nDisallow: /\n",
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LATEST_RENDERABLE, build_year, year_of};
+
+    #[test]
+    fn a_timestamp_becomes_the_year_it_falls_in() {
+        assert_eq!(year_of(0), Some(1970));
+        assert_eq!(year_of(1_767_225_600), Some(2026));
+    }
+
+    #[test]
+    fn the_year_turns_over_on_the_last_second_of_december() {
+        // 2024-12-31T23:59:59Z and the second after it. The off-by-one this guards
+        // would put a January build in the year before.
+        assert_eq!(year_of(1_735_689_599), Some(2024));
+        assert_eq!(year_of(1_735_689_600), Some(2025));
+    }
+
+    #[test]
+    fn a_leap_day_belongs_to_its_own_year() {
+        // 2024-02-29T00:00:00Z. A calendar of 365-day years puts this in 2025.
+        assert_eq!(year_of(1_709_164_800), Some(2024));
+    }
+
+    #[test]
+    fn a_timestamp_past_the_calendar_has_no_year() {
+        // `httpdate` panics rather than returning on year 9999, so the bound is
+        // checked here. The last second it renders still has to work.
+        assert_eq!(year_of(LATEST_RENDERABLE), Some(9999));
+        assert_eq!(year_of(LATEST_RENDERABLE + 1), None);
+        assert_eq!(year_of(u64::MAX), None);
+    }
+
+    #[test]
+    fn the_build_stamp_reaches_the_page() {
+        // The wiring, end to end: `build.rs` stamps seconds, this reads them. A
+        // build script that stopped stamping fails to compile; one that stamped
+        // something unusable lands on the 1970 fallback, which this catches.
+        assert!(
+            build_year() >= 2026,
+            "the build year is {}, so DOPPEL_BUILD_EPOCH is not a build time",
+            build_year()
+        );
+    }
 }

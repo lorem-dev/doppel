@@ -596,6 +596,7 @@ dependencies = [
  "async-trait",
  "axum",
  "doppel-core",
+ "httpdate",
  "metrics",
  "metrics-exporter-prometheus",
  "serde",

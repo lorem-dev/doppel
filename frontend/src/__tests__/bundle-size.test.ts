@@ -66,9 +66,10 @@ describe('the built bundle', () => {
   })
 
   it('keeps the stylesheet within its budget', () => {
-    // Measured 3.8 KB. Tailwind emits only the utilities the source actually
+    // Measured 6.0 KB: 5.1 for the page and 0.9 for the editor's palette, which
+    // loads with the editor. Tailwind emits only the utilities the source actually
     // uses, so this grows with the number of distinct classes, not with the app.
-    const BUDGET_KB = 6
+    const BUDGET_KB = 7
     const total = readdirSync(ASSETS)
       .filter((file) => file.endsWith('.css'))
       .reduce((sum, file) => sum + gzippedKb(file), 0)
@@ -82,6 +83,25 @@ describe('the built bundle', () => {
     const BUDGET_KB = 110
     const total = readdirSync(ASSETS).reduce((sum, file) => sum + gzippedKb(file), 0)
     expect(total).toBeLessThanOrEqual(BUDGET_KB)
+  })
+
+  it('ships the highlighter with its colours, and neither in the entry', () => {
+    // Two failures in one assertion, because they are the same mistake seen from
+    // either side. prism's grammars ship in its package and its palette does not,
+    // so an editor built without the theme tokenises perfectly and renders in one
+    // colour -- which is how this shipped at first, and looks exactly like no
+    // highlighting at all. And the palette belongs in the editor's own stylesheet:
+    // in the entry one, every visitor pays for it to list proxies.
+    const styles = readdirSync(ASSETS).filter((file) => file.endsWith('.css'))
+    const editorStyles = styles.filter((file) => file.includes('CodeEditor'))
+    expect(editorStyles).toHaveLength(1)
+
+    const palette = readFileSync(join(ASSETS, editorStyles[0]!), 'utf8')
+    expect(palette).toMatch(/\.token\.string/)
+
+    for (const file of styles.filter((name) => !name.includes('CodeEditor'))) {
+      expect(readFileSync(join(ASSETS, file), 'utf8')).not.toMatch(/\.token\./)
+    }
   })
 
   it('does not carry the syntax highlighter in the entry chunk', () => {

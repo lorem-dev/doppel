@@ -122,19 +122,28 @@ export default function TemplatesPage() {
         </table>
       ) : null}
 
-      <div className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">
-        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Write a template</h3>
-        <div className="flex items-end gap-2">
-          <div className="grow">
-            <Field label="File name" hint="Letters, digits, - and _. The extension is chosen beside it.">
-              <input
-                className={controlClass}
-                value={stem}
-                disabled={!allowed}
-                onChange={(event) => setStem(event.target.value)}
-              />
-            </Field>
-          </div>
+      <div className="flex flex-col gap-3 rounded-md border border-slate-200 p-3 dark:border-slate-800">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Write a template
+        </h3>
+
+        {/* A grid rather than a flex row: the kind takes a fixed width so a long
+            file name cannot squeeze the select, the name stops growing before the
+            two are a screen apart, and on a narrow window they stack instead of
+            shrinking to nothing. */}
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,22rem)_10rem]">
+
+          <Field
+            label="File name"
+            hint="Letters, digits, - and _. The extension is chosen beside it."
+          >
+            <input
+              className={controlClass}
+              value={stem}
+              disabled={!allowed}
+              onChange={(event) => setStem(event.target.value)}
+            />
+          </Field>
           <Field label="Kind">
             <select
               className={selectFullClass}
@@ -154,17 +163,22 @@ export default function TemplatesPage() {
           </Field>
         </div>
 
-        <Suspense fallback={<Spinner label="Loading the editor..." />}>
-          <CodeEditor
-            label={`Contents of ${file}`}
-            syntax={kind.syntax}
-            value={content}
-            disabled={!allowed}
-            onChange={setContent}
-          />
-        </Suspense>
+        <div>
+          <Suspense fallback={<Spinner label="Loading the editor..." />}>
+            {/* A template is a document, so the editor opens at the size of one. */}
+            <CodeEditor
+              label={`Contents of ${file}`}
+              syntax={kind.syntax}
+              value={content}
+              disabled={!allowed}
+              onChange={setContent}
+              showLabel
+              rows={18}
+            />
+          </Suspense>
+        </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Button
             variant="primary"
             onClick={onSave}
@@ -173,9 +187,9 @@ export default function TemplatesPage() {
           >
             Save {stem.trim() ? file : 'template'}
           </Button>
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            A file has to be declared by one of this proxy&apos;s mocks first: the server refuses
-            an upload nothing refers to.
+          <span className="max-w-prose text-xs text-slate-500 dark:text-slate-400">
+            A file has to be declared by one of this proxy&apos;s mocks first: the server refuses an
+            upload nothing refers to.
           </span>
         </div>
       </div>

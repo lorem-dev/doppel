@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 doppel-core = { path = "../doppel-core" }
 axum.workspace = true
+httpdate.workspace = true
 metrics-exporter-prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true

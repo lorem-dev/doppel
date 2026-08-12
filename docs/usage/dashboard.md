@@ -48,6 +48,10 @@ admin:
 At most 64 characters, no control characters, and any language you like -- it is a
 heading, not an identifier.
 
+Leave `title` out and the header shows the project's wordmark instead of a default
+string. Set it, and the header shows exactly what you wrote: the browser tab takes
+the same text either way.
+
 ---
 
 ## Who can use it

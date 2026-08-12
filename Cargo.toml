@@ -16,6 +16,10 @@ async-trait = "0.1"
 axum = "0.8"
 clap = { version = "4", features = ["derive", "env"] }
 futures-util = "0.3"
+# Already in the tree under hyper, and the only calendar in it. The dashboard's
+# footer needs the year the binary was built, and turning a unix timestamp into
+# one is leap years and century rules -- not arithmetic worth writing here.
+httpdate = "1"
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.18", default-features = false }
 minijinja = "2"

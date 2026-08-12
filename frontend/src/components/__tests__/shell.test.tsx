@@ -21,13 +21,17 @@ import { useAuth } from '../../store/auth'
  * rendered component is subscribed to -- which looks like a component that
  * ignores its own state.
  */
-function serve(overrides: { public?: boolean; title?: string; version?: string } = {}): void {
+function serve(
+  overrides: { public?: boolean; title?: string; version?: string; copyrightYear?: number } = {},
+): void {
   document.head.innerHTML = `<script type="application/json" id="doppel-config">${JSON.stringify({
     title: overrides.title ?? 'Doppel',
+    titleIsDefault: overrides.title === undefined,
     public: overrides.public ?? false,
     version: overrides.version ?? '0.4.1',
     authHeader: 'X-Proxy-Authorization',
     refreshMs: 60000,
+    copyrightYear: overrides.copyrightYear ?? 2026,
   })}</script>`
   forgetRuntimeConfig()
 }
@@ -46,6 +50,45 @@ describe('the footer', () => {
 
     expect(screen.getByText(/\(c\) 2026 Lorem Dev/)).toBeInTheDocument()
     expect(screen.getByText(/Doppel 9\.9\.9/)).toBeInTheDocument()
+  })
+
+  it('takes the year from the build rather than from the clock', () => {
+    // The build stamps it, so a copy still in use years later keeps saying when it
+    // was published. `new Date().getFullYear()` would have said otherwise, and this
+    // is the assertion that tells the two apart.
+    serve({ copyrightYear: 2031 })
+    render(<Footer />)
+
+    expect(screen.getByText(/\(c\) 2031 Lorem Dev/)).toBeInTheDocument()
+  })
+
+  it('leaves the copyright as text', () => {
+    // A statement rather than a destination. A line that looks clickable and does
+    // nothing is worse than one that plainly does not, and the links beside it make
+    // the difference easy to lose.
+    serve()
+    render(<Footer />)
+
+    const copyright = screen.getByText(/\(c\) 2026 Lorem Dev/)
+    expect(copyright.closest('a')).toBeNull()
+  })
+
+  it('links to the repository and the documentation', () => {
+    serve()
+    render(<Footer />)
+
+    expect(screen.getByRole('link', { name: /Repository/ })).toHaveAttribute(
+      'href',
+      'https://github.com/lorem-dev/doppel',
+    )
+    expect(screen.getByRole('link', { name: /Documentation/ })).toHaveAttribute(
+      'href',
+      'https://lorem-dev.github.io/doppel/',
+    )
+    // Both leave the dashboard, and neither is worth losing a half-filled form for.
+    for (const link of screen.getAllByRole('link')) {
+      expect(link).toHaveAttribute('target', '_blank')
+    }
   })
 })
 

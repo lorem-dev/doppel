@@ -23,13 +23,17 @@ afterEach(forgetRuntimeConfig)
 describe('the injected configuration', () => {
   it('is read from the page', () => {
     const config = readRuntimeConfig(
-      page('{"title":"Doppel (staging)","public":true,"version":"0.4.1","authHeader":"X-Admin","refreshMs":60000}'),
+      page(
+        '{"title":"Doppel (staging)","titleIsDefault":false,"public":true,"version":"0.4.1","authHeader":"X-Admin","refreshMs":60000,"copyrightYear":2026}',
+      ),
     )
     expect(config.title).toBe('Doppel (staging)')
+    expect(config.titleIsDefault).toBe(false)
     expect(config.public).toBe(true)
     expect(config.version).toBe('0.4.1')
     expect(config.authHeader).toBe('X-Admin')
     expect(config.refreshMs).toBe(60000)
+    expect(config.copyrightYear).toBe(2026)
   })
 
   it('carries a title containing markup through intact', () => {

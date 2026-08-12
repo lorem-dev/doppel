@@ -52,9 +52,23 @@ export interface TemplateEntry {
 /** What the page is told by the HTML it was served in. */
 export interface RuntimeConfig {
   title: string
+  /**
+   * `admin.title` was left out, so `title` is the default.
+   *
+   * The header draws the Doppelganger wordmark in that case. A deployment that
+   * named itself gets its name, in plain text.
+   */
+  titleIsDefault: boolean
   /** The admin API is unauthenticated; the page never asks for a token. */
   public: boolean
   version: string
   authHeader: string
   refreshMs: number
+  /**
+   * The year the binary was built, for the footer's copyright line.
+   *
+   * From the build rather than from the browser's clock: the page ships inside
+   * this binary, so the year it was published in is a fact about the build.
+   */
+  copyrightYear: number
 }

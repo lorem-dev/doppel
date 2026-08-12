@@ -24,9 +24,7 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">
-        {label}
-      </span>
+      <span className={labelClass}>{label}</span>
       {children}
       {hint || error ? (
         <span
@@ -41,6 +39,15 @@ export function Field({
     </label>
   )
 }
+
+/**
+ * What a control's name looks like above it.
+ *
+ * Exported because the code editor cannot use `Field`: the library renders its own
+ * textarea, so its name has to be a `label` with a `for` rather than a `span`
+ * wrapping the control. Same words, same weight, one definition.
+ */
+export const labelClass = 'mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200'
 
 /**
  * One height and one padding for every control on the page.

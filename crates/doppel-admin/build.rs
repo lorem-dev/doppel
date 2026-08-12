@@ -19,6 +19,8 @@ fn main() {
     // lint from firing on our own conditional.
     println!("cargo::rustc-check-cfg=cfg(dashboard_assets)");
 
+    stamp_build_time();
+
     let dist = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../frontend/dist")
         .canonicalize()
@@ -91,6 +93,32 @@ fn main() {
     .expect("writing to a String cannot fail");
 
     write(&generated);
+}
+
+/// When this binary was built, as seconds since the epoch.
+///
+/// Seconds rather than a year: turning them into one needs a calendar, and the
+/// crate has one -- `httpdate`, which hyper already brings in. Doing it there also
+/// puts the conversion where `cargo test` reaches it; a build script's own tests
+/// are never run.
+///
+/// `SOURCE_DATE_EPOCH` is honoured when set, which is what a reproducible build
+/// sets and what makes this value the same for two builds of one commit. Without
+/// it, the clock -- and the value is then baked in until something makes this
+/// script run again, which is the meaning of "build time" rather than a defect.
+fn stamp_build_time() {
+    println!("cargo::rerun-if-env-changed=SOURCE_DATE_EPOCH");
+
+    let seconds = std::env::var("SOURCE_DATE_EPOCH")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |since| since.as_secs())
+        });
+
+    println!("cargo::rustc-env=DOPPEL_BUILD_EPOCH={seconds}");
 }
 
 fn write(generated: &str) {

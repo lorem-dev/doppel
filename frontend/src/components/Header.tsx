@@ -2,6 +2,7 @@ import { NavLink } from 'react-router'
 
 import { Button } from './Button'
 import { ThemeToggle } from './ThemeToggle'
+import { Wordmark } from './Wordmark'
 import { runtimeConfig } from '../services/runtimeConfig'
 import { useAccess } from '../store/access'
 import { useAuth } from '../store/auth'
@@ -28,7 +29,7 @@ const SWAGGER = '/api/swagger-ui/'
  * does not exist.
  */
 export function Header() {
-  const { title, public: isPublic } = runtimeConfig()
+  const { title, titleIsDefault, public: isPublic } = runtimeConfig()
   const token = useAuth((state) => state.token)
   const openDialog = useAuth((state) => state.openDialog)
   const signOut = useAuth((state) => state.signOut)
@@ -36,7 +37,9 @@ export function Header() {
 
   return (
     <header className="flex flex-wrap items-center gap-4 border-b border-slate-200 pb-3 dark:border-slate-800">
-      <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
+      <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
+        {titleIsDefault ? <Wordmark /> : title}
+      </h1>
 
       <nav className="flex gap-3 text-sm">
         {TABS.map(({ to, label }) => (
