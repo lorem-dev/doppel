@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 1.0.0 -- 2026-08-13
+
 ### Added
 
 - A browser dashboard on the admin listener's root, compiled into the binary:
