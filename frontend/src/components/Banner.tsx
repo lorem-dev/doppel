@@ -12,14 +12,20 @@ export function Banner({
   children,
   action,
 }: {
-  kind: 'error' | 'note'
+  kind: 'error' | 'warning' | 'note'
   children: ReactNode
   action?: ReactNode
 }) {
-  const tone =
-    kind === 'error'
-      ? 'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100'
-      : 'border-slate-300 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+  // Three tones, because the three say different things: something is wrong, this
+  // will not work yet, and here is a fact. A warning shown in the error's colour
+  // reads as a failure that already happened.
+  const tone = {
+    error:
+      'border-red-300 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100',
+    warning:
+      'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100',
+    note: 'border-slate-300 bg-slate-50 text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+  }[kind]
 
   return (
     <div className={`flex items-start gap-3 rounded border px-3 py-2 text-sm ${tone}`} role="alert">

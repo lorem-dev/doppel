@@ -134,7 +134,8 @@ substitutes `{title, public, version, authHeader, refreshMs}` into a
 the HTML is written, and a fetch would mean the page cannot draw its own header
 until a round trip finishes. The JSON has its less-than characters escaped, which
 is what makes a hostile `admin.title` a non-event and what allows a content
-security policy with no `unsafe-inline`.
+security policy with no `unsafe-inline` -- the one inline stylesheet the page
+carries, the code editor's, is named by hash instead.
 
 **The page never decides what the caller may do.** `GET /api/v1/access` reports
 that, evaluated by the same function that enforces it, so a control is disabled

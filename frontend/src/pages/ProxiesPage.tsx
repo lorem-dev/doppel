@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router'
 
 import { Banner } from '../components/Banner'
 import { Button } from '../components/Button'
+import { Retry } from '../components/Retry'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { Spinner } from '../components/Spinner'
 import { usePolling } from '../app/usePolling'
@@ -54,7 +55,6 @@ export default function ProxiesPage() {
   const load = useProxies((state) => state.load)
   const remove = useProxies((state) => state.remove)
   const may = useMay()
-  const openDialog = useAuth((state) => state.openDialog)
   const token = useAuth((state) => state.token)
   const push = useToasts((state) => state.push)
   const navigate = useNavigate()
@@ -98,16 +98,7 @@ export default function ProxiesPage() {
       </div>
 
       {error ? (
-        <Banner
-          kind="error"
-          action={
-            error.isAuth ? (
-              <Button onClick={openDialog}>Enter token</Button>
-            ) : (
-              <Button onClick={() => void load()}>Retry</Button>
-            )
-          }
-        >
+        <Banner kind="error" action={<Retry error={error} onRetry={() => void load()} />}>
           {error.message}
         </Banner>
       ) : null}
@@ -188,12 +179,6 @@ export default function ProxiesPage() {
                   </td>
                   <td className="px-3 py-2">
                     <div className="flex justify-end gap-2">
-                      <Link
-                        className="inline-flex h-9 shrink-0 items-center rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800"
-                        to={`/proxies/${encodeURIComponent(proxy.name)}/templates`}
-                      >
-                        Templates
-                      </Link>
                       <Button
                         variant="danger"
                         onClick={() => setPending({ revision, proxy })}
@@ -214,7 +199,7 @@ export default function ProxiesPage() {
       {pending ? (
         <ConfirmDialog
           question={`Delete ${pending.proxy.name}?`}
-          detail="Its template files are left on disk. This cannot be undone."
+          detail="Its template files go with it. This cannot be undone."
           confirmLabel="Delete"
           onConfirm={() => onDelete(pending)}
           onCancel={() => setPending(undefined)}

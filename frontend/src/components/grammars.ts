@@ -7,6 +7,8 @@
 
 import { highlight, languages, type Grammar, type TokenObject } from 'prismjs'
 import 'prismjs/components/prism-json'
+// `markup` is not used directly: `markup-templating` requires it, and `json` extends
+// nothing of it. It is imported for that dependency alone.
 import 'prismjs/components/prism-markup'
 import 'prismjs/components/prism-regex'
 import 'prismjs/components/prism-yaml'
@@ -19,12 +21,15 @@ import 'prismjs/components/prism-django'
 /**
  * What a field holds.
  *
- * Three of these are templates. A mock's response body, its JSON body, a header value
- * and a template file are all rendered through Jinja, so `{{ id }}` and `{% if %}` are
- * coloured in each -- `text` means a template with no host language, which is what a
- * header value and a `.text.j2` file are.
+ * Two of these are templates. A mock's response body and its JSON body are rendered
+ * through Jinja, so `{{ id }}` and `{% if %}` are coloured in both -- `text` means a
+ * template with no host language, which is what a body and a header value are.
+ *
+ * There is no `html`. prism can do it, and the composition worked, but nothing in the
+ * dashboard edits HTML any more: that was the `.html.j2` template kind, and template
+ * files are the admin API's. An unreachable branch is a branch nobody maintains.
  */
-export type Syntax = 'json' | 'html' | 'text' | 'regex' | 'yaml'
+export type Syntax = 'json' | 'text' | 'regex' | 'yaml'
 
 /**
  * Where a Jinja expression starts and ends.
@@ -111,10 +116,6 @@ export function colour(code: string, syntax: Syntax): string {
       // switches on, and the hook hands the document to the markup grammar -- which
       // would throw the JSON away.
       return highlight(code, JSON_TEMPLATE, 'json')
-    case 'html':
-      // Here the hook is exactly right: the host *is* markup, so prism does the
-      // embedding itself, expressions in attribute values included.
-      return highlight(code, required('markup'), 'jinja2')
     case 'text':
       return highlight(code, TEMPLATE, 'text')
     case 'regex':

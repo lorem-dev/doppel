@@ -60,7 +60,7 @@ test('every field of a proxy can be filled in and is stored', async ({ page }) =
   await page.getByRole('button', { name: 'Add a proxy' }).click()
 
   // Identity and upstream.
-  await page.getByLabel('Name').fill('gamma')
+  await page.getByLabel('Name', { exact: true }).fill('gamma')
   await page.getByLabel('Upstream URL').fill('https://gamma.example.com/api/')
   await expect(page.getByLabel('Type')).toHaveValue('http')
   await expect(page.getByLabel('Type')).toBeDisabled()
@@ -192,4 +192,83 @@ test('a name the configuration does not know is refused, on its field', async ({
   await page.getByRole('button', { name: 'Save changes' }).click()
 
   await expect(await fieldMessage(page, 'read')).toContainText('nobody')
+})
+
+test('a save that removes something says what, and takes no for an answer', async ({ page }) => {
+  // A form full of Remove buttons has no undo, and one button commits all of them. The
+  // confirmation is on the save rather than on each Remove: taking one mock out and
+  // putting another in is a single edit, and asking on the way would be asking about a
+  // state still being assembled.
+  const doppel = await startDoppel(PRIVATE_CONFIG)
+  try {
+    await page.goto(doppel.baseURL)
+    await page.getByRole('textbox', { name: 'Token' }).fill(ROOT_TOKEN)
+    await page.getByRole('button', { name: 'Use this token' }).click()
+    await page.getByText('root (admin)').waitFor()
+
+    // Give beta something to lose: a mock, an injected header, an access override.
+    await page.getByRole('link', { name: 'beta' }).click()
+    await page.locator('summary').filter({ hasText: 'Forwarding' }).first().click()
+    await page.getByRole('button', { name: 'Add Headers sent upstream' }).click()
+    await page.getByLabel('Headers sent upstream header name 1').fill('X-Injected')
+    await page.getByLabel('Headers sent upstream value 1').fill('yes')
+    await page.locator('summary').filter({ hasText: 'Mocks' }).first().click()
+    await page.getByRole('button', { name: 'Add a mock' }).click()
+    await page.getByRole('button', { name: 'Save changes' }).click()
+    await page.getByRole('cell', { name: 'beta', exact: true }).waitFor()
+
+    // Now take both away.
+    await page.getByRole('link', { name: 'beta' }).click()
+    await page.locator('summary').filter({ hasText: 'Forwarding' }).first().click()
+    await page.getByRole('button', { name: 'Remove' }).first().click()
+    await page.locator('summary').filter({ hasText: 'Mocks' }).first().click()
+    await page.getByRole('button', { name: 'Remove mock' }).click()
+
+    // The save asks, and names them.
+    await page.getByRole('button', { name: 'Save changes' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('the mock `mock-1`')
+    await expect(dialog).toContainText('the injected header `X-Injected`')
+
+    // No, and nothing was sent: the fields are still as they were left.
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('heading', { name: 'Edit beta' })).toBeVisible()
+    const before = await page.request.get(`${doppel.baseURL}/api/v1/proxies/beta`, {
+      headers: { 'X-Proxy-Authorization': `Bearer ${ROOT_TOKEN}` },
+    })
+    expect(JSON.stringify(await before.json())).toContain('mock-1')
+
+    // Yes, and both are gone.
+    await page.getByRole('button', { name: 'Save changes' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Save changes' }).click()
+    await page.getByRole('cell', { name: 'beta', exact: true }).waitFor()
+
+    const after = await page.request.get(`${doppel.baseURL}/api/v1/proxies/beta`, {
+      headers: { 'X-Proxy-Authorization': `Bearer ${ROOT_TOKEN}` },
+    })
+    const stored = JSON.stringify(await after.json())
+    expect(stored).not.toContain('mock-1')
+    expect(stored).not.toContain('X-Injected')
+  } finally {
+    doppel.stop()
+  }
+})
+
+test('a save that only changes things does not ask', async ({ page }) => {
+  const doppel = await startDoppel(PRIVATE_CONFIG)
+  try {
+    await page.goto(doppel.baseURL)
+    await page.getByRole('textbox', { name: 'Token' }).fill(ROOT_TOKEN)
+    await page.getByRole('button', { name: 'Use this token' }).click()
+    await page.getByText('root (admin)').waitFor()
+    await page.getByRole('link', { name: 'alpha' }).click()
+    await page.getByLabel('Upstream URL').fill('https://moved.example.com/api/')
+    await page.getByRole('button', { name: 'Save changes' }).click()
+
+    // Straight through: nothing was removed, so there is nothing to agree to.
+    await expect(page.getByRole('cell', { name: 'alpha', exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  } finally {
+    doppel.stop()
+  }
 })

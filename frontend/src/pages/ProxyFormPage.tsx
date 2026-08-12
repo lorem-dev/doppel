@@ -6,10 +6,13 @@ import { Button } from "../components/Button";
 import { Field, controlClass, selectFullClass } from "../components/Field";
 import { KeyValueRows } from "../components/KeyValueRows";
 import { MockEditor, emptyMock } from "../components/MockEditor";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Retry } from "../components/Retry";
 import { Section } from "../components/Section";
 import { Spinner } from "../components/Spinner";
 import type { ProxyConfig } from "../types/proxy";
 import { ApiError, complaintAbout } from "../types/error";
+import { removals } from "../schema/removals";
 import { complain, numericAttrs } from "../schema/rules";
 import { useMay } from "../store/access";
 import { useRule, useSchema, useValueRule } from "../store/schema";
@@ -117,21 +120,44 @@ export default function ProxyFormPage() {
   const [broken, setBroken] = useState<string>();
   /** Changed to ask the YAML editor to reformat; pressing Save does. */
   const [formatToken, setFormatToken] = useState(0);
+  /**
+   * The document as it was read, for the save to compare against.
+   *
+   * A form full of Remove buttons has no undo and one button that commits all of
+   * them, so what is worth confirming is not each removal but the save that makes
+   * them real -- and that needs the version before the edits.
+   */
+  const [stored, setStored] = useState<ProxyConfig>();
+  /** What the save is waiting to be told to go ahead and remove. */
+  const [confirming, setConfirming] = useState<string[]>();
   const schema = useSchema((state) => state.schema);
 
-  useEffect(() => {
+  /**
+   * Read the stored document, replacing whatever the form holds.
+   *
+   * A named function rather than an effect body, because the refusal banner offers it
+   * again: "Read of `alpha` requires access `read`" is about the token, and the page
+   * reads once when it opens -- so after signing in there has to be something to
+   * press. Deliberately not automatic on a token change: this replaces a draft, and
+   * losing a half-typed document to a sign-in that happened in another tab is worse
+   * than a button.
+   */
+  const load = useCallback(() => {
     if (!editing) {
       return;
     }
     readProxy(name)
       .then((view) => {
         setDraft(view.proxy);
+        setStored(view.proxy);
         setRevision(view.revision);
         setError(undefined);
       })
       .catch((caught: ApiError) => setError(caught))
       .finally(() => setLoading(false));
   }, [editing, name]);
+
+  useEffect(load, [load]);
 
   const allowed = editing ? may("update", name) : may("create");
 
@@ -162,7 +188,24 @@ export default function ProxyFormPage() {
     [rule],
   );
 
+  /**
+   * Save, once anything being removed has been agreed to.
+   *
+   * The check is here rather than on each Remove button: an operator taking a mock
+   * out and putting another in has done one edit, and asking twice on the way would
+   * be asking about a state they are still assembling.
+   */
+  const attempt = () => {
+    const gone = stored ? removals(stored, draft) : [];
+    if (gone.length) {
+      setConfirming(gone);
+      return;
+    }
+    save();
+  };
+
   const save = () => {
+    setConfirming(undefined);
     // Tidy what is in the editor before sending it. The document is what gets
     // stored either way, so this is about what the operator is looking at if the
     // save comes back refused.
@@ -190,7 +233,15 @@ export default function ProxyFormPage() {
         return;
       }
       updateProxy(name, revision, draft)
-        .then(() => done(`Updated ${draft.name}`))
+        .then(() =>
+          done(
+            // A rename is worth naming: the page it came from is gone, and this is
+            // the only place the old name and the new one appear together.
+            draft.name === name
+              ? `Updated ${name}`
+              : `Renamed ${name} to ${draft.name}`,
+          ),
+        )
         .catch(failed);
       return;
     }
@@ -237,7 +288,26 @@ export default function ProxyFormPage() {
       </div>
 
       {error ? (
-        <Banner kind="error">
+        <Banner
+          kind="error"
+          action={
+            // Only while editing, and not for a stale revision. There is nothing to
+            // re-read for a refused *create* -- the fix is in the fields -- and a
+            // refetch after a revision conflict would answer it by throwing away the
+            // edit that caused it, which is why that case says what to do instead.
+            editing && !error.isStale ? (
+              <Retry
+                error={error}
+                onRetry={() => {
+                  // Set here rather than in `load`: a state change inside an effect is
+                  // what the first read would then be, and this is an event.
+                  setLoading(true);
+                  load();
+                }}
+              />
+            ) : undefined
+          }
+        >
           {error.isStale
             ? `${error.message}\nThis proxy changed since it was loaded. Reload the page to see the current document.`
             : error.message}
@@ -260,7 +330,11 @@ export default function ProxyFormPage() {
           <Field
             label="Name"
             info="name"
-            hint="Letters, digits, - and _, 2 to 32 characters."
+            hint={
+              editing
+                ? "Renaming is allowed: the templates move with it."
+                : "Letters, digits, - and _, 2 to 32 characters."
+            }
             error={complaintFor("name", draft.name) ?? errorFor("name")}
           >
             <input
@@ -684,6 +758,25 @@ export default function ProxyFormPage() {
         </>
       )}
 
+      {confirming ? (
+        <ConfirmDialog
+          question="Save these removals?"
+          detail={
+            <>
+              <p>This save takes the following out of the document:</p>
+              <ul className="mt-1 list-disc pl-5">
+                {confirming.map((gone) => (
+                  <li key={gone}>{gone}</li>
+                ))}
+              </ul>
+            </>
+          }
+          confirmLabel="Save changes"
+          onConfirm={save}
+          onCancel={() => setConfirming(undefined)}
+        />
+      ) : null}
+
       {/*
         Sticky, because the form is long enough that the button was a scroll away
         from whatever was just typed. `bottom-0` inside the page's scroll container,
@@ -693,7 +786,7 @@ export default function ProxyFormPage() {
       <div className="sticky bottom-0 -mx-4 mt-2 flex items-center gap-2 border-t border-slate-200 bg-white px-4 py-3 dark:border-slate-800 dark:bg-slate-950">
         <Button
           variant="primary"
-          onClick={save}
+          onClick={attempt}
           disabled={
             !allowed ||
             saving ||

@@ -49,19 +49,35 @@ const NO_SNIFF: (HeaderName, HeaderValue) = (
     HeaderValue::from_static("nosniff"),
 );
 
-/// No inline script, no inline style, no framing, nothing fetched from anywhere
-/// but this origin.
+/// No inline script, no framing, nothing fetched from anywhere but this origin,
+/// and exactly one inline stylesheet, named by its hash.
 ///
 /// The configuration reaches the page as the *contents* of a
 /// `application/json` element rather than as inline JavaScript, which is what
 /// makes `script-src 'self'` sufficient -- an inline `<script>window.config = ...`
 /// would have forced `unsafe-inline` and given up most of this.
+///
+/// The two style hashes are one `<style>` element that `react-simple-code-editor`
+/// renders per editor: a rule that keeps a placeholder visible, and two IE10
+/// workarounds. Blocking it cost nothing visible and reported a policy violation to
+/// the console for every editor on the page, which is a poor trade -- an operator
+/// reading their console should find their own problems there, not ours. So the
+/// element is allowed by hash rather than by `unsafe-inline`: this exact stylesheet
+/// and no other. The second hash is the same element seen empty, which is how a
+/// browser sees it at the moment React inserts it, before its contents are set.
+///
+/// `frontend/src/__tests__/editor-style-hash.test.ts` recomputes the first hash from
+/// the installed library, so an upgrade that changes that stylesheet fails the suite
+/// instead of quietly filling the console again.
 const CSP: (HeaderName, HeaderValue) = (
     HeaderName::from_static("content-security-policy"),
-    HeaderValue::from_static(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; \
-         connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-    ),
+    HeaderValue::from_static(concat!(
+        "default-src 'none'; script-src 'self'; ",
+        "style-src 'self' 'sha256-40iiqMCd92gEkTDo77tABEiJ83Vil54BR3JPvnldhrA=' ",
+        "'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='; ",
+        "img-src 'self' data:; connect-src 'self'; base-uri 'none'; ",
+        "form-action 'none'; frame-ancestors 'none'",
+    )),
 );
 
 /// Whether this binary carries the dashboard's static assets.

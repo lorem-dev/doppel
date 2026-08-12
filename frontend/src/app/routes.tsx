@@ -1,5 +1,5 @@
 import { lazy } from 'react'
-import { Route, Routes } from 'react-router'
+import { Navigate, Route, Routes, useParams } from 'react-router'
 
 import { App } from './App'
 
@@ -9,7 +9,6 @@ import { App } from './App'
 const ProxiesPage = lazy(() => import('../pages/ProxiesPage'))
 const ProxyFormPage = lazy(() => import('../pages/ProxyFormPage'))
 const StatusPage = lazy(() => import('../pages/StatusPage'))
-const TemplatesPage = lazy(() => import('../pages/TemplatesPage'))
 
 /**
  * The route table, in react-router's component form.
@@ -21,6 +20,12 @@ const TemplatesPage = lazy(() => import('../pages/TemplatesPage'))
  * this leaves it near 76, on a budget written for the smallest static payload
  * that will do the job.
  */
+/** Where a bookmarked templates URL goes now. */
+function ToProxy() {
+  const { name = '' } = useParams()
+  return <Navigate to={`/proxies/${encodeURIComponent(name)}`} replace />
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -28,7 +33,11 @@ export function AppRoutes() {
         <Route index element={<ProxiesPage />} />
         <Route path="proxies/new" element={<ProxyFormPage />} />
         <Route path="proxies/:name" element={<ProxyFormPage />} />
-        <Route path="proxies/:name/templates" element={<TemplatesPage />} />
+        {/* Templates used to be a page of their own. They are a section of the
+            proxy's form now -- a mock names a file and the file has to be written,
+            and doing that on two screens meant carrying a name across a navigation.
+            The old address still resolves, because it was linkable. */}
+        <Route path="proxies/:name/templates" element={<ToProxy />} />
         <Route path="status" element={<StatusPage />} />
       </Route>
     </Routes>

@@ -63,15 +63,6 @@ describe('JSON with Jinja in it', () => {
   })
 })
 
-describe('HTML with Jinja in it', () => {
-  it('colours the tags and the expressions, in attributes too', () => {
-    const classes = tokens(colour('<p class="{{ kind }}">{{ name }}</p>', 'html'))
-    expect(classes).toContain('tag')
-    expect(classes).toContain('attr-name')
-    expect(classes.filter((name) => name.includes('jinja2')).length).toBeGreaterThanOrEqual(2)
-  })
-})
-
 describe('the two that are not templates', () => {
   it('colours a pattern as a pattern', () => {
     const classes = tokens(colour('^/api/(?P<id>\\d+)$', 'regex'))

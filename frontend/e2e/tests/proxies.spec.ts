@@ -38,7 +38,7 @@ test('a proxy can be created, edited and deleted', async ({ page }) => {
   await signedIn(page)
 
   await page.getByRole('button', { name: 'Add a proxy' }).click()
-  await page.getByLabel('Name').fill('gamma')
+  await page.getByLabel('Name', { exact: true }).fill('gamma')
   await page.getByLabel('Upstream URL').fill('https://gamma.example.com/')
   // Resolved by header, because `alpha` is already the default proxy and rule V12
   // allows only one. Leaving this alone is how an operator meets that rule for
@@ -65,7 +65,7 @@ test('a proxy can be created, edited and deleted', async ({ page }) => {
 test("a rejected document lands on the field the server complained about", async ({ page }) => {
   await signedIn(page)
   await page.getByRole('button', { name: 'Add a proxy' }).click()
-  await page.getByLabel('Name').fill('bad')
+  await page.getByLabel('Name', { exact: true }).fill('bad')
   // Not a URL Doppel accepts as an upstream. The server is the arbiter of that,
   // and its complaint has to arrive under the field it is about rather than only
   // in the banner.
@@ -94,51 +94,46 @@ test('a read-only token sees the writes disabled with the reason', async ({ page
   await expect(remove).toBeDisabled()
 })
 
-test('a template is written from the page and listed afterwards', async ({ page }) => {
-  await signedIn(page)
+test('a proxy can be renamed from the form, and its templates come with it', async ({ page }) => {
+  // Its own Doppel: renaming `alpha` takes it away from every sibling test in this
+  // file, which share one instance per worker. This used to pass on the ordering
+  // Playwright happened to pick.
+  const doppel = await startDoppel(PRIVATE_CONFIG)
+  try {
+    await page.goto(doppel.baseURL)
+    await page.getByRole('textbox', { name: 'Token' }).fill(ROOT_TOKEN)
+    await page.getByRole('button', { name: 'Use this token' }).click()
+    await page.getByText('root (admin)').waitFor()
+    await page.getByRole('link', { name: 'alpha' }).click()
+    await page.getByRole('heading', { name: 'Edit alpha' }).waitFor()
 
-  // A template file has to be declared by a mock before it may be uploaded --
-  // the server answers 422 TEMPLATE_NOT_DECLARED otherwise. Declared through the
-  // API rather than the form, so this spec stays about templates.
-  const read = await page.request.get(`${doppel.baseURL}/api/v1/proxies/alpha`, {
-    headers: { 'X-Proxy-Authorization': `Bearer ${ROOT_TOKEN}` },
-  })
-  const { revision, proxy } = (await read.json()) as {
-    revision: string
-    proxy: Record<string, unknown>
+    // Exact: `Mock name` contains `Name`, and this proxy may already have a mock.
+    await page.getByLabel('Name', { exact: true }).fill('billing-api')
+    await page.getByRole('button', { name: 'Save changes' }).click()
+
+    // The list shows the new name and not the old one, and the page says which
+    // happened rather than "Updated".
+    await expect(page.getByRole('cell', { name: 'billing-api', exact: true })).toBeVisible()
+    await expect(page.getByRole('cell', { name: 'alpha', exact: true })).toHaveCount(0)
+    await expect(page.getByText('Renamed alpha to billing-api')).toBeVisible()
+
+    // And the document is under the new name, upstream and all.
+    await page.getByRole('link', { name: 'billing-api' }).click()
+    await expect(page.getByLabel('Upstream URL')).toHaveValue('https://alpha.example.com/api/')
+  } finally {
+    doppel.stop()
   }
-  const declared = await page.request.put(`${doppel.baseURL}/api/v1/proxies/alpha`, {
-    headers: {
-      'X-Proxy-Authorization': `Bearer ${ROOT_TOKEN}`,
-      'If-Match': `"${revision}"`,
-    },
-    data: {
-      revision,
-      proxy: {
-        ...proxy,
-        mocks: [
-          {
-            name: 'rendered',
-            request: { method: 'GET', url: '^/rendered$' },
-            response: { status: 200, template: 'page.json.j2' },
-          },
-        ],
-      },
-    },
-  })
-  expect(declared.status()).toBe(200)
+})
 
-  await page.reload()
-  await page.getByRole('row', { name: /alpha/ }).getByRole('link', { name: 'Templates' }).click()
+test('a rename onto a name already in use says so', async ({ page }) => {
+  await signedIn(page)
+  await page.getByRole('link', { name: 'alpha' }).click()
+  await page.getByRole('heading', { name: 'Edit alpha' }).waitFor()
 
-  await page.getByLabel('File name').fill('page')
-  await page.getByLabel('Kind').selectOption('json.j2')
-  // The editor is a lazy chunk, so it arrives after the page does.
-  const editor = page.getByLabel('Contents of page.json.j2')
-  await editor.fill('{"ok": true}')
-  await page.getByRole('button', { name: /Save page\.json\.j2/ }).click()
+  await page.getByLabel('Name', { exact: true }).fill('beta')
+  await page.getByRole('button', { name: 'Save changes' }).click()
 
-  // The file's own row: the editor's label and the save button both mention the
-  // name, so the assertion has to be about the table.
-  await expect(page.getByRole('cell', { name: 'page.json.j2', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert').first()).toContainText('already exists')
+  // Still on the form, with nothing renamed.
+  await expect(page.getByRole('heading', { name: 'Edit alpha' })).toBeVisible()
 })

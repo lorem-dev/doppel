@@ -107,6 +107,28 @@ impl PostgresStore {
         Ok(existed)
     }
 
+    /// Carry a proxy's templates to its new name.
+    ///
+    /// Two steps, and neither is optional: the rows are what the store holds, and
+    /// the directory is what the render path reads. The rows move first -- if the
+    /// directory move then fails, `materialize` on the next reload rebuilds it from
+    /// the rows, whereas rows left behind would be invisible to it.
+    pub(crate) async fn rename_template_rows(
+        &self,
+        from: &str,
+        to: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query("UPDATE templates SET proxy = $3 WHERE config = $1 AND proxy = $2")
+            .bind(self.config_name())
+            .bind(from)
+            .bind(to)
+            .execute(self.pool())
+            .await
+            .map_err(failed)?;
+
+        doppel_core::store::rename_template_dir(&self.proxy_dir(from)?, &self.proxy_dir(to)?)
+    }
+
     pub(crate) async fn retain_template_rows(
         &self,
         proxy: &str,

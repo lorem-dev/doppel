@@ -5,9 +5,14 @@
  * name in plain text, because the name is the thing the operator needs to read to
  * know which of four tabs they are looking at.
  *
- * Two spans rather than an image: it is selectable, it scales with the heading it
- * sits in, it needs no asset and no `img-src` in the policy, and it says the same
- * thing to a screen reader as it does to a reader.
+ * Two spans rather than an image: it scales with the heading it sits in, it needs no
+ * asset and no `img-src` in the policy, and it says the same thing to a screen reader
+ * as it does to a reader.
+ *
+ * It does not take a selection, though. Being text is how it is drawn, not an
+ * invitation to drag a cursor through it -- and a mark that highlights in two pieces
+ * when someone double-clicks the tab beside it looks like a mistake. Copying is not
+ * what anyone wants from a logo; the version in the footer is the thing worth quoting.
  *
  * A system serif, not a webfont. The face is the browser's -- Georgia, Times, Noto
  * Serif, whatever the platform has -- which costs nothing to fetch and nothing in
@@ -16,7 +21,7 @@
  */
 export function Wordmark() {
   return (
-    <span className="font-serif text-lg font-medium italic">
+    <span className="font-serif text-lg font-medium italic select-none">
       <span className="text-slate-900 dark:text-white">Doppel</span>
       <span className="text-sky-700 dark:text-sky-200">ganger</span>
     </span>

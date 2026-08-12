@@ -80,3 +80,76 @@ test.describe('a public configuration', () => {
     await expect(page.getByRole('button', { name: 'Add a proxy' })).toBeEnabled()
   })
 })
+
+test.describe('a refusal that only a token can fix', () => {
+  // Nothing is public here, so every read is refused until a token is presented --
+  // which is the state the Refresh button exists for.
+  const CLOSED = `
+server:
+  host: "127.0.0.1"
+  port: {proxyPort}
+admin:
+  host: "127.0.0.1"
+  port: {adminPort}
+  tokens:
+    - name: root
+      group: admin
+      token: ${ROOT_TOKEN}
+  access:
+    list: ["admin"]
+    read: ["admin"]
+    create: ["admin"]
+    update: ["admin"]
+    delete: ["admin"]
+    upload: ["admin"]
+  upload:
+    limit: 1Mi
+control:
+  socket: {controlSocket}
+templates:
+  dir: {templatesDir}
+proxies:
+  - name: alpha
+    type: http
+    url: "https://alpha.example.com/api/"
+`
+
+  let doppel: Doppel
+  test.beforeAll(async () => {
+    doppel = await startDoppel(CLOSED)
+  })
+  test.afterAll(() => doppel.stop())
+
+  test('the proxy form offers a token and a refresh, and both work', async ({ page }) => {
+    // A form reads once, when it opens. Signing in afterwards used to leave the
+    // refusal on screen with nothing to press: the fix was reloading the browser.
+    await page.goto(`${doppel.baseURL}/proxies/alpha`)
+    await page.getByRole('button', { name: 'Continue without a token' }).click()
+
+    const refusal = page.getByRole('alert').first()
+    await expect(refusal).toContainText(/requires access|token/i)
+    await expect(refusal.getByRole('button', { name: 'Refresh' })).toBeVisible()
+
+    // The other half of the offer: the thing that makes a refresh worth pressing.
+    await refusal.getByRole('button', { name: 'Enter token' }).click()
+    await page.getByRole('textbox', { name: 'Token' }).fill(ROOT_TOKEN)
+    await page.getByRole('button', { name: 'Use this token' }).click()
+
+    // Still nothing read, so the form is still the empty one it renders behind the
+    // refusal...
+    await expect(page.getByLabel('Upstream URL')).toHaveValue('')
+    // ...and now it has been read.
+    await page.getByRole('button', { name: 'Refresh' }).click()
+    await expect(page.getByLabel('Upstream URL')).toHaveValue('https://alpha.example.com/api/')
+    await expect(page.getByRole('alert')).toHaveCount(0)
+  })
+
+  test('the list offers the same, and a public deployment offers no token', async ({ page }) => {
+    await page.goto(doppel.baseURL)
+    await page.getByRole('button', { name: 'Continue without a token' }).click()
+
+    const refusal = page.getByRole('alert').first()
+    await expect(refusal.getByRole('button', { name: 'Refresh' })).toBeVisible()
+    await expect(refusal.getByRole('button', { name: 'Enter token' })).toBeVisible()
+  })
+})

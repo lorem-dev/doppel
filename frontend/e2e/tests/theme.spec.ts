@@ -113,7 +113,7 @@ test('the controls on a row are the same height, and a select has an arrow', asy
 
   const heights = await Promise.all(
     [
-      page.getByLabel('Name'),
+      page.getByLabel('Name', { exact: true }),
       page.getByLabel('Timeout (seconds)'),
       page.getByLabel('Resolve by'),
       page.getByRole('button', { name: 'Save changes' }),

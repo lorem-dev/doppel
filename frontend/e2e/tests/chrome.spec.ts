@@ -43,11 +43,15 @@ test('an unnamed deployment gets the wordmark, in two tones and one size', async
         size: computed.fontSize,
         style: computed.fontStyle,
         family: computed.fontFamily,
+        select: computed.userSelect,
       }
     })
     expect(style.size).toBe('18px')
     expect(style.style).toBe('italic')
     expect(style.family).toMatch(/serif/i)
+    // And it takes no selection: a mark that highlights in two pieces when the tab
+    // beside it is double-clicked looks like a mistake.
+    expect(style.select).toBe('none')
 
     // The tab keeps the plain default: a browser tab is a list of words.
     await expect(page).toHaveTitle('Doppel')
@@ -117,5 +121,18 @@ test('navigation is real: a proxy has its own URL and the back button works', as
   await expect(page.getByRole('heading', { name: 'Edit alpha' })).toBeVisible()
 
   await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Proxies' })).toBeVisible()
+})
+
+test('the title goes home, from wherever the form has taken you', async ({ page }) => {
+  await page.goto(doppel.baseURL)
+  await page.getByRole('button', { name: 'Continue without a token' }).click()
+  await page.getByRole('link', { name: 'alpha' }).click()
+  await expect(page).toHaveURL(/\/proxies\/alpha$/)
+
+  // The affordance people try first when a form has taken them somewhere they did
+  // not mean to be. `Doppel (e2e)` is this deployment's `admin.title`.
+  await page.getByRole('link', { name: 'Doppel (e2e)' }).click()
+  await expect(page).toHaveURL(new RegExp(`^${doppel.baseURL}/$`))
   await expect(page.getByRole('heading', { name: 'Proxies' })).toBeVisible()
 })

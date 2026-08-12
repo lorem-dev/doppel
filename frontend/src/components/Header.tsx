@@ -37,8 +37,16 @@ export function Header() {
 
   return (
     <header className="flex flex-wrap items-center gap-4 border-b border-slate-200 pb-3 dark:border-slate-800">
+      {/*
+        The heading is a link home, which is what a title in this position is
+        everywhere else. It costs nothing -- the list is one navigation, not a reload
+        -- and it is the affordance people try first when a form has taken them
+        somewhere they did not mean to be.
+      */}
       <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-        {titleIsDefault ? <Wordmark /> : title}
+        <NavLink to="/" end className="rounded-sm hover:opacity-80">
+          {titleIsDefault ? <Wordmark /> : title}
+        </NavLink>
       </h1>
 
       <nav className="flex gap-3 text-sm">

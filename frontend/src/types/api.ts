@@ -42,13 +42,6 @@ export interface ReloadReport {
   unapplied?: string[]
 }
 
-export interface TemplateEntry {
-  /** The file name. `name` on the wire, which is what the server calls it. */
-  name: string
-  /** Size in bytes. */
-  size: number
-}
-
 /** What the page is told by the HTML it was served in. */
 export interface RuntimeConfig {
   title: string

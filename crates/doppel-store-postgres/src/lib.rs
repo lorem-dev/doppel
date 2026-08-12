@@ -190,6 +190,10 @@ impl doppel_core::store::ConfigStore for PostgresStore {
         self.retain_template_rows(proxy, keep).await
     }
 
+    async fn rename_templates(&self, from: &str, to: &str) -> Result<(), StoreError> {
+        self.rename_template_rows(from, to).await
+    }
+
     async fn materialize_templates(&self, _dir: &std::path::Path) -> Result<(), StoreError> {
         // The directory is `self.templates_dir`, fixed when the store was
         // opened, so the parameter is redundant here. It exists on the trait

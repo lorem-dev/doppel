@@ -601,6 +601,24 @@ proxies:
             Box::pin(async { unimplemented!("not exercised by this test") })
         }
 
+        fn rename_templates<'s, 'p1, 'p2, 'out>(
+            &'s self,
+            _from: &'p1 str,
+            _to: &'p2 str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<(), doppel_core::StoreError>> + Send + 'out,
+            >,
+        >
+        where
+            's: 'out,
+            'p1: 'out,
+            'p2: 'out,
+            Self: 'out,
+        {
+            Box::pin(async { unimplemented!("not exercised by this test") })
+        }
+
         fn retain_templates<'s, 'p1, 'p2, 'out>(
             &'s self,
             _proxy: &'p1 str,

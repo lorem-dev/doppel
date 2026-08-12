@@ -223,9 +223,17 @@ back:
 version of something that already exists, and accepting one on a create would
 let a client that meant to send a `PUT` overwrite a proxy it never read.
 
-A `PUT` whose body names a different proxy than the path is refused. The name
-is also the template directory, so a rename through `PUT` would strand the old
-directory.
+A `PUT` whose body names a different proxy than the path **renames it**. The name
+is also where the templates live, so the rename moves them: the proxy answers at the
+new path, the old one is a `404`, and every template file the proxy had is under the
+new name. A name another proxy already holds is refused with `400`
+`CONFIG_INVALID`.
+
+The configuration is written before the templates are moved, because the write is
+what authorises moving them. If the move then fails -- a permission problem, a full
+disk -- the reply says so in full: the proxy has the new name and its templates are
+still under the old one, so a mock naming a template file fails to render until they
+are moved by hand.
 
 ## Templates
 

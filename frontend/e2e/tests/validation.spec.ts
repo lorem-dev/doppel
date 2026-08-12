@@ -35,7 +35,7 @@ async function open(page: Page, title: string): Promise<void> {
 
 test('a name that breaks the pattern is refused while it is being typed', async ({ page }) => {
   await openForm(page)
-  const name = page.getByLabel('Name')
+  const name = page.getByLabel('Name', { exact: true })
 
   await name.fill('has space')
   // Nothing was saved: this is the schema's `pattern`, and the message is the
@@ -50,7 +50,7 @@ test('a name that breaks the pattern is refused while it is being typed', async 
 
 test('a name outside its length is refused, at either end', async ({ page }) => {
   await openForm(page)
-  const name = page.getByLabel('Name')
+  const name = page.getByLabel('Name', { exact: true })
 
   await name.fill('a')
   await expect(page.getByText('at least 2 characters')).toBeVisible()
@@ -155,7 +155,7 @@ test('the bounds come from the server, not from this bundle', async ({ page }) =
   await page.route('**/api/v1/schema', (route) => route.abort())
   await openForm(page)
 
-  await page.getByLabel('Name').fill('has space')
+  await page.getByLabel('Name', { exact: true }).fill('has space')
   await expect(
     page.getByText('Letters, digits, - and _, between 2 and 32 characters.'),
   ).toHaveCount(0)

@@ -31,6 +31,14 @@ export function Field({
   label: string
   hint?: string
   error?: string
+  /**
+   * The control, as a single element.
+   *
+   * Single because that is what gets the id the label points at, below. Two elements
+   * leave the label naming nothing, which is invisible on screen and obvious to a
+   * screen reader -- a `datalist` beside an input was how this was found. Pass
+   * `htmlFor` and own the id when the control cannot be one element.
+   */
   children: ReactNode
   /**
    * The field's path in a proxy document, which makes the label carry an (i).

@@ -486,6 +486,10 @@ impl ConfigStore for RacingStore {
         self.inner.delete_template(proxy, file).await
     }
 
+    async fn rename_templates(&self, from: &str, to: &str) -> Result<(), StoreError> {
+        self.inner.rename_templates(from, to).await
+    }
+
     async fn retain_templates(&self, proxy: &str, keep: &[String]) -> Result<(), StoreError> {
         self.inner.retain_templates(proxy, keep).await
     }

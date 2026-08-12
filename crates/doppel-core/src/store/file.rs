@@ -312,6 +312,13 @@ impl ConfigStore for FileStore {
         std::fs::write(&path, bytes).map_err(Self::io(&path))
     }
 
+    async fn rename_templates(&self, from: &str, to: &str) -> Result<(), StoreError> {
+        // The directory *is* the storage here, so the rename is the whole
+        // operation -- and it is atomic, unlike the two steps the database store
+        // needs.
+        super::rename_template_dir(&self.proxy_dir(from)?, &self.proxy_dir(to)?)
+    }
+
     async fn delete_template(&self, proxy: &str, file: &str) -> Result<bool, StoreError> {
         let dir = self.proxy_dir(proxy)?;
         let file = sanitize(file)?;

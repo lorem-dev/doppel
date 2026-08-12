@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { Banner } from '../components/Banner'
+import { Retry } from '../components/Retry'
 import { Button } from '../components/Button'
 import { Spinner } from '../components/Spinner'
 import type { ReloadReport, Status } from '../types/api'
@@ -58,7 +59,11 @@ export default function StatusPage() {
         </Button>
       </div>
 
-      {error ? <Banner kind="error">{error.message}</Banner> : null}
+      {error ? (
+        <Banner kind="error" action={<Retry error={error} onRetry={() => void load()} />}>
+          {error.message}
+        </Banner>
+      ) : null}
 
       {report ? (
         <Banner kind="note">

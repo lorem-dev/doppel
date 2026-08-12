@@ -33,14 +33,14 @@ async function tokenColours(page: Page): Promise<Set<string>> {
   return new Set(painted.map((rgb) => rgb.join(',')))
 }
 
-test('the highlighter colours JSON and markup, in both themes', async ({ page }) => {
+test('the highlighter colours a JSON body, in both themes', async ({ page }) => {
   await signIn(page)
-  await page
-    .getByRole('row', { name: /alpha/ })
-    .getByRole('link', { name: 'Templates' })
-    .click()
-  await page.getByRole('heading', { name: 'Templates for alpha' }).waitFor()
-  const editor = page.getByLabel(/^Contents of/)
+  await page.getByRole('link', { name: 'alpha' }).click()
+  await page.getByRole('heading', { name: 'Edit alpha' }).waitFor()
+  await page.locator('summary').filter({ hasText: 'Mocks' }).first().click()
+  await page.getByRole('button', { name: 'Add a mock' }).click()
+  await page.getByLabel('mock-1 response source').selectOption('json')
+  const editor = page.getByLabel(/mock-1 json/)
 
   await editor.fill('{"greeting": "hello", "count": 12}')
   const base = (await paintedRgb(page, 'pre', 'color')).join(',')
@@ -58,11 +58,6 @@ test('the highlighter colours JSON and markup, in both themes', async ({ page })
   expect(dark.size).toBeGreaterThan(1)
   expect([...dark].some((colour) => !light.has(colour))).toBe(true)
 
-  // The other grammar. `text` has none by design -- it is text -- so the two that
-  // colour are the two asserted.
-  await page.getByLabel('Kind').selectOption('html.j2')
-  await editor.fill('<p class="greeting">hello</p>')
-  expect((await tokenColours(page)).size).toBeGreaterThan(1)
 })
 
 test('a path pattern is coloured, and sits at the height of a control', async ({ page }) => {

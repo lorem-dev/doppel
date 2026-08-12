@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useState } from 'react'
 
 import { Button } from './Button'
 import { Field, controlClass, selectFullClass } from './Field'
@@ -14,7 +14,15 @@ const CodeEditor = lazy(() => import('./CodeEditor'))
 
 const METHODS: HttpMethod[] = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
 
-/** Which of the three exclusive response sources a mock is using. */
+/**
+ * Which of the three exclusive response sources a mock is using.
+ *
+ * `template` is not something this page can choose. A template file is uploaded
+ * through the admin API, and managing files was a poor fit for a form over a
+ * document -- so the dashboard reads that source, shows which file a mock answers
+ * with, and lets an operator move the mock off it. What it never does is name a file
+ * that would have to exist.
+ */
 type Source = 'body' | 'json' | 'template'
 
 function sourceOf(mock: MockConfig): Source {
@@ -28,6 +36,12 @@ function sourceOf(mock: MockConfig): Source {
 }
 
 const SYNTAX: Record<Source, Syntax> = { body: 'text', json: 'json', template: 'text' }
+
+/** What the "Answer with" select offers, and what each is called. */
+const SOURCES: Array<{ value: Source; label: string }> = [
+  { value: 'body', label: 'Text body' },
+  { value: 'json', label: 'JSON body' },
+]
 
 /**
  * One mock: what it matches, what it takes out of the request, what it answers.
@@ -73,6 +87,11 @@ export function MockEditor({
   // The pattern editor is named by the field around it, so both need the same id --
   // and every mock on the page needs its own.
   const patternId = `mock-${index}-pattern`
+  // The template this mock arrived with, if any: what the document said when it was
+  // read, which is what makes switching away from a template undoable while the page
+  // is open. State with an initializer rather than a ref, because it is read while
+  // rendering -- a ref read during a render is the thing `react-hooks/refs` is for.
+  const [configured] = useState(mock.response.template)
   const checked = (field: string, value: unknown) => complain(bounds(field), value)
 
   const setResponse = (patch: Partial<MockConfig['response']>) => {
@@ -88,7 +107,8 @@ export function MockEditor({
         headers,
         ...(next === 'body' ? { body: '' } : {}),
         ...(next === 'json' ? { json: '' } : {}),
-        ...(next === 'template' ? { template: '' } : {}),
+        // Back to the file it came with, since the page has no way to name another.
+        ...(next === 'template' ? { template: configured ?? '' } : {}),
       },
     })
   }
@@ -223,9 +243,19 @@ export function MockEditor({
             disabled={disabled}
             onChange={(event) => setSource(event.target.value as Source)}
           >
-            <option value="body">Text body</option>
-            <option value="json">JSON body</option>
-            <option value="template">Template file</option>
+            {SOURCES.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+            {/*
+              Offered only to a mock that arrived with one, and it stays offered while
+              the page is open so switching away is undoable. A mock that never had a
+              template cannot be given one here.
+            */}
+            {configured === undefined ? null : (
+              <option value="template">Template file (from the configuration)</option>
+            )}
           </select>
         </Field>
       </div>
@@ -234,14 +264,14 @@ export function MockEditor({
         <Field
           label="Template file"
           info="mocks[].response.template"
-          hint="A file under this proxy's template directory, written on the Templates page."
-          error={checked('response.template', mock.response.template) ?? complaint('template')}
+          hint="Set in the configuration. Template files are uploaded through the admin API, not from here -- change the answer above to edit it as a body."
+          error={complaint('template')}
         >
           <input
             className={controlClass}
             value={mock.response.template ?? ''}
-            disabled={disabled}
-            onChange={(event) => setResponse({ template: event.target.value })}
+            disabled
+            readOnly
           />
         </Field>
       ) : (

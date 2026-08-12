@@ -200,6 +200,18 @@ pub trait ConfigStore: Send + Sync {
     /// `keep` removes the proxy's storage entirely.
     async fn retain_templates(&self, proxy: &str, keep: &[String]) -> Result<(), StoreError>;
 
+    /// Move every template of `from` to `to`, because the proxy was renamed.
+    ///
+    /// A proxy's name is where its templates live -- a subdirectory for
+    /// `FileStore`, a column for the database -- so a rename that did not carry
+    /// them would leave every mock pointing at a file that is not there. There is
+    /// nothing to move for a proxy that has no templates, and that is not an
+    /// error.
+    ///
+    /// The caller has already written the renamed configuration: the write is what
+    /// authorises the move, the same order `retain_templates` is called in.
+    async fn rename_templates(&self, from: &str, to: &str) -> Result<(), StoreError>;
+
     /// Make every template this store holds available as a file under `dir`.
     ///
     /// The render path reads a template from the filesystem at request time,
@@ -213,6 +225,39 @@ pub trait ConfigStore: Send + Sync {
         let _ = dir;
         Ok(())
     }
+}
+
+/// Move a proxy's template directory, for the stores that keep one.
+///
+/// `FileStore` keeps its templates there and nowhere else; the database store
+/// mirrors its rows to the same layout, because the render path reads files. Both
+/// therefore have a directory to move when a proxy is renamed, and both want the
+/// same three answers: a missing source is nothing to do, an occupied destination is
+/// a bug in the caller rather than something to overwrite, and anything else is the
+/// filesystem's own error with the path that produced it.
+pub fn rename_template_dir(from: &std::path::Path, to: &std::path::Path) -> Result<(), StoreError> {
+    if !from.exists() {
+        return Ok(());
+    }
+    if to.exists() {
+        return Err(StoreError::Io {
+            path: to.to_path_buf(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "templates for this name are already there; the configuration should                  have refused the rename before it got here",
+            ),
+        });
+    }
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(|source| StoreError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    std::fs::rename(from, to).map_err(|source| StoreError::Io {
+        path: from.to_path_buf(),
+        source,
+    })
 }
 
 #[cfg(test)]

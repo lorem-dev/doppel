@@ -1,8 +1,9 @@
 # The dashboard
 
 The admin listener serves a browser dashboard from its own root. It lists the
-proxies, edits them, writes mock templates, shows what the process is doing, and
-reloads the configuration -- everything the admin API does, without curl.
+proxies, edits them, shows what the process is doing, and reloads the configuration --
+most of what the admin API does, without curl. Template files are the exception, and
+deliberately: see [below](#what-the-pages-do).
 
 It is on by default. Open the admin port in a browser:
 
@@ -67,6 +68,12 @@ What follows from that is worth stating plainly, because it surprises people:
 dialog opens once, and it has a "Continue without a token" button -- declining
 leaves a working page rather than a wall.
 
+**A refusal offers the two things that fix it.** "Read of `alpha` requires access
+`read`" is about the token, and a page reads once when it opens -- so the banner
+carries **Enter token** and **Refresh**. Refreshing is a button rather than something
+the page does when a token arrives: a form holds a half-typed document, and replacing
+that because someone signed in elsewhere would lose work.
+
 **Actions the caller may not perform are visible but disabled**, with the reason
 in the tooltip. The page asks the server what the caller may do
 (`GET /api/v1/access`) rather than guessing, so a disabled button means the server
@@ -121,6 +128,21 @@ else is a folded section that says what is inside it: `Faults none`,
 `Access overrides inherited`, `Mocks 3`. Save and Cancel sit in a bar pinned to the
 bottom of the window, so they are reachable whatever is open.
 
+The name can be edited like any other field. Renaming moves the proxy's template
+files with it, and the page says which happened -- "Renamed alpha to billing-api"
+rather than "Updated". Clients selecting that proxy by `X-Proxy-Name` have to use the
+new name from then on, which is the one thing a rename cannot do for you.
+
+**A save that removes something asks first**, and names what: `the mock
+\`one-widget\``, `the injected header \`X-Trace\``, `\`filter\` from variables from the
+query of \`one-widget\``. The form has a Remove button beside every entry and no undo,
+so the question belongs on the button that makes those removals real rather than on
+each one along the way -- taking one mock out and putting another in is a single edit.
+A save that only changes values does not ask: a changed field is visible in the field
+it is in.
+
+Deleting a proxy asks too, and says what goes with it: its template files.
+
 Saving sends the revision the form was loaded at, so a proxy someone else changed
 in the meantime is refused rather than overwritten -- the page says so and asks you
 to reload.
@@ -159,19 +181,18 @@ Two things it does not do. It does not keep comments -- the document is stored a
 data, so there is nowhere to put them -- and it edits one proxy rather than the
 whole configuration. For the whole file, edit `main.yaml` and reload.
 
-**Templates**, per proxy, lists the template files and lets you write one: a name,
-one of `json.j2`, `html.j2` or `text.j2`, and the content, with syntax colouring.
+**Template files are not managed here.** The dashboard had a section for them and it
+was the wrong shape: a file store inside a form over a document, with a Save of its
+own that did not wait for the form's, and a rule the page could not enforce -- the
+server refuses an upload no saved mock declares. They stay in the
+[admin API](admin-api.md#templates), which is where `doppel config push` and any
+script already write them.
 
-Everything that is rendered through Jinja is coloured as a template: a `{{ variable }}`
-and a `{% statement %}` stand out from the JSON, HTML or text around them, in a
-template file, in a mock's body and in a response header's value. A mock's path pattern
-is coloured as the regex it is.
-There is no file upload; the content is typed or pasted, which is what the API has
-always taken.
-
-One rule the server enforces and the page cannot: a template file has to be
-declared by one of the proxy's mocks before it may be written. Add the mock first,
-then the file.
+What the form does with a mock that answers with a template file: it shows which file,
+in a field it will not let you edit, and lets you move that mock onto a text or JSON
+body instead. A mock that has no template cannot be given one from here -- the answer
+choices are Text body and JSON body. Switching away from a template is undoable while
+the page is open, because the name cannot be typed back in.
 
 **Status** shows uptime, the configuration revision in effect and the resolution
 state of each proxy, and carries the reload button. Reload re-reads the store and
@@ -198,9 +219,16 @@ response including the errors, a `robots` meta element in the page for a crawler
 that reads markup and ignores headers, and `robots.txt` disallowing everything.
 
 The page also carries a content security policy that permits scripts, styles and
-connections from this origin only, and forbids framing. It needs no
-`unsafe-inline`: the configuration reaches the page as the contents of a JSON
-element rather than as an inline script.
+connections from this origin only, and forbids framing. No `unsafe-inline`
+anywhere: the configuration reaches the page as the contents of a JSON element
+rather than as an inline script.
+
+One inline stylesheet is allowed, and by its hash rather than by opening the
+policy -- the code editor's own, which every editor on the page renders. Blocking it
+changed nothing visible and reported a violation to the console for each editor,
+which is a poor way to treat the place an operator looks for their own problems. A
+test recomputes that hash from the installed library, so an upgrade that changes the
+stylesheet fails a build rather than filling a console.
 
 ---
 
