@@ -29,12 +29,26 @@ export async function paintedRgb(
   return page.locator(selector).first().evaluate(paint, property)
 }
 
-/** The same measurement for every element a selector matches. */
+/**
+ * The same measurement for every element a selector matches.
+ *
+ * Waits for one match before measuring. `all()` returns whatever matches at that
+ * instant and waits for nothing, while the spans this is pointed at -- the
+ * highlighter's -- appear on a React update rather than with the keystroke that
+ * caused them. Measured too early, a caller's "more than zero colours" assertion
+ * fails for a reason that has nothing to do with colour: the same one-shot read
+ * that made `fieldMessage` fail on CI and never on a laptop.
+ *
+ * So this is for asking about elements that are expected to be there. A test that
+ * wants to prove something is *not* highlighted should assert on the locator's
+ * count instead of measuring the colours of nothing.
+ */
 export async function paintedRgbAll(
   page: Page,
   selector: string,
   property: 'color' | 'backgroundColor',
 ): Promise<Rgb[]> {
+  await page.locator(selector).first().waitFor({ state: 'attached' })
   return Promise.all(
     (await page.locator(selector).all()).map((node) => node.evaluate(paint, property)),
   )
