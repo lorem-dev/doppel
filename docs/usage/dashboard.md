@@ -14,6 +14,11 @@ The whole thing is compiled into the binary. There is nothing to deploy, no
 directory to serve, and no version of the page that can disagree with the version
 of Doppel serving it.
 
+Every URL the dashboard shows is a real one. `/proxies/alpha` can be bookmarked,
+reloaded and shared, because everything outside `/api/` and `/static/` is answered
+with the page -- which is also why the API lives under `/api/` in the first place:
+`/status` used to be an endpoint *and* a page, and a reload got the JSON.
+
 ---
 
 ## Turning it on and off

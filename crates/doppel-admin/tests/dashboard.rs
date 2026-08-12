@@ -284,3 +284,58 @@ async fn a_binary_without_the_assets_says_what_to_build() {
         reply.body
     );
 }
+
+#[tokio::test]
+async fn a_client_side_route_reloaded_arrives_at_the_page() {
+    if !built() {
+        return;
+    }
+    // The reason the API moved under `/api/`: the dashboard has a page at `/status`
+    // and the API used to have an endpoint there, so a reload on that tab answered
+    // with JSON. Now every GET outside `/api/` and `/static/` is the page.
+    let harness = Harness::new();
+    for path in [
+        "/status",
+        "/proxies/alpha",
+        "/proxies/alpha/templates",
+        "/anything",
+    ] {
+        let reply = Call::get(path).send(harness.router()).await;
+        assert_eq!(reply.status, 200, "{path}");
+        assert_eq!(
+            reply.content_type.as_deref(),
+            Some("text/html; charset=utf-8"),
+            "{path}"
+        );
+        assert!(reply.body.contains("id=\"doppel-config\""), "{path}");
+    }
+}
+
+#[tokio::test]
+async fn a_mistyped_api_path_still_answers_as_the_api() {
+    // The other half of the division. A fallback that served the page for
+    // everything would make a client read HTML as a successful response, and a
+    // typo'd endpoint look like it worked.
+    let harness = Harness::new();
+    for path in ["/api/v1/proxes", "/api/v1/status/extra", "/api/nope"] {
+        let reply = Call::get(path).send(harness.router()).await;
+        assert_eq!(reply.status, 404, "{path}");
+        assert_eq!(reply.json()["code"], "NOT_FOUND", "{path}");
+    }
+
+    // And a missing asset stays a 404, because answering it with the page means a
+    // typo'd script tag loads HTML and fails somewhere else entirely.
+    let asset = Call::get("/static/nope.js").send(harness.router()).await;
+    assert_eq!(asset.status, 404);
+    assert_eq!(asset.json()["code"], "NOT_FOUND");
+}
+
+#[tokio::test]
+async fn a_write_to_a_path_that_does_not_exist_is_not_answered_with_the_page() {
+    // A GET is a page; a POST is not. Without that distinction a client posting to
+    // a mistyped path would read an HTML document as its answer.
+    let harness = Harness::new();
+    let reply = Call::post("/not-an-endpoint").send(harness.router()).await;
+    assert_eq!(reply.status, 404);
+    assert_eq!(reply.json()["code"], "NOT_FOUND");
+}

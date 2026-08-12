@@ -85,7 +85,7 @@ export async function startDoppel(yaml: string): Promise<Doppel> {
       throw new Error(`doppel exited with ${child.exitCode}:\n${log}`)
     }
     try {
-      const response = await fetch(`${baseURL}/status`)
+      const response = await fetch(`${baseURL}/api/v1/status`)
       if (response.ok) {
         return { baseURL, stop }
       }

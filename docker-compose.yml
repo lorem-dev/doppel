@@ -14,7 +14,14 @@
 #
 # **Doppel itself**, behind a profile, for trying the two together:
 #
+#   cp main.example.yaml main.yaml          # once; main.yaml is git-ignored
+#   make frontend                           # the dashboard the image embeds
 #   docker compose --profile doppel up -d --wait
+#
+# The copy is not optional and its absence is a confusing failure rather than a
+# clear one: a bind mount whose source does not exist makes Docker create a
+# *directory* at that path, and Doppel then reports "cannot read
+# /etc/doppel/main.yaml: Is a directory".
 #
 # The profile is what keeps the two apart. A service carrying one is not
 # started by a bare `docker compose up`, so the test workflow above is
@@ -57,17 +64,12 @@ services:
     # Built rather than pulled: there is no published image before the first
     # release, and a local build is what you want anyway when trying a change.
     #
-    # Stage the binary first -- the image copies one in rather than compiling,
-    # and it has to be musl-linked because the base is Alpine:
-    #
-    #   cargo zigbuild --release --target x86_64-unknown-linux-musl -p doppel-cli
-    #   mkdir -p dist && cp target/x86_64-unknown-linux-musl/release/doppel dist/
-    #
-    # On an arm64 machine, substitute aarch64-unknown-linux-musl.
+    # Nothing has to be staged first. The Dockerfile uses a binary from `dist/`
+    # when one is there and compiles its own otherwise, so `docker compose build`
+    # works from a checkout -- it does need the dashboard built, which
+    # `make frontend` does.
     build:
       context: .
-      args:
-        BIN: dist/doppel
 
     ports:
       # Offset like the database's, and for the same reason: a developer
@@ -76,10 +78,19 @@ services:
       - "127.0.0.1:58081:8081"
 
     volumes:
-      # The configuration. Read-only: this container has no business editing
-      # the file on your working tree, and `config push`/the admin API write
-      # through the store rather than through this mount.
-      - ./main.example.yaml:/etc/doppel/main.yaml:ro
+      # Your own configuration, not the reference one:
+      #
+      #   cp main.example.yaml main.yaml
+      #
+      # `main.yaml` is git-ignored, so editing it -- a port, an upstream, a token --
+      # leaves no diff to explain and nothing to accidentally commit. Mounting
+      # `main.example.yaml` directly, which this used to do, meant every experiment
+      # showed up as a change to a file the documentation quotes.
+      #
+      # Read-only: this container has no business editing a file on your working
+      # tree, and `config push` and the admin API write through the store rather
+      # than through this mount.
+      - ./main.yaml:/etc/doppel/main.yaml:ro
       # Templates. A named volume rather than a bind mount, and not optional:
       # templates uploaded through the admin API are written here at runtime,
       # and without a volume they vanish with the container.
@@ -90,7 +101,7 @@ services:
         condition: service_healthy
 
     healthcheck:
-      # `/status` on the admin listener: it needs no token by default, answers
+      # `/api/v1/status` on the admin listener: it needs no token by default, answers
       # only once the runtime is compiled and both listeners are bound, and
       # reports the revision actually in force -- which is what "ready" means
       # here, rather than "the process started".
@@ -106,7 +117,7 @@ services:
       # and would sit unhealthy while serving perfectly well; drop the
       # healthcheck in that case rather than pointing it at the proxy port,
       # where every path either reaches an upstream or is a mock.
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/api/v1/status"]
       interval: 5s
       timeout: 3s
       # Startup is well under a second; this is slack for a cold container on

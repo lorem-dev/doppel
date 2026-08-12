@@ -16,8 +16,8 @@ use crate::state::AdminState;
 
 pub fn routes() -> Router<AdminState> {
     Router::new()
-        .route("/status", get(status))
-        .route("/metrics", get(exposition))
+        .route("/api/v1/status", get(status))
+        .route("/api/v1/metrics", get(exposition))
         .route("/api/v1/config/reload", post(reload))
 }
 
@@ -60,8 +60,12 @@ pub struct ReloadReport {
 /// Unauthenticated by design -- it is the endpoint a load balancer calls, and
 /// that is why every upstream goes through `redact_credentials` on the way
 /// out.
+///
+/// Under `/api/` like everything else the API serves. It was `/status`, which put
+/// it in the same namespace as the dashboard's own pages: a reload on the
+/// dashboard's `/status` tab reached this and returned JSON instead of the page.
 #[utoipa::path(
-    get, path = "/status", tag = "process",
+    get, path = "/api/v1/status", tag = "process",
     responses((status = 200, description = "What this process is serving right now", body = Status)),
 )]
 pub(crate) async fn status(State(state): State<AdminState>) -> Response {
@@ -99,7 +103,7 @@ pub(crate) async fn status(State(state): State<AdminState>) -> Response {
 /// network with no place to put a token, and the exposition names proxies and
 /// counts -- never a token, a URL or a header value.
 #[utoipa::path(
-    get, path = "/metrics", tag = "process",
+    get, path = "/api/v1/metrics", tag = "process",
     responses((status = 200, description = "Prometheus text exposition", content_type = "text/plain")),
 )]
 pub(crate) async fn exposition(State(state): State<AdminState>) -> Response {

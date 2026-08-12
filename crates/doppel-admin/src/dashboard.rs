@@ -81,6 +81,39 @@ pub fn routes() -> Router<AdminState> {
         .route("/robots.txt", get(robots))
 }
 
+/// A path the dashboard's router is allowed to answer with the page.
+///
+/// Everything the API serves lives under `/api/`, so everything outside it belongs
+/// to the dashboard -- and a client-side route reached by a reload rather than by a
+/// link has to arrive at the page rather than at a 404. `/status` was the case that
+/// showed this up: the dashboard has a page at that path and the API used to have
+/// an endpoint there, and a reload got the endpoint's JSON.
+///
+/// `/static/` is deliberately excluded. A missing asset must stay a 404: answering
+/// it with the page means a typo'd script tag loads HTML, which fails later and
+/// somewhere else.
+fn belongs_to_the_page(path: &str) -> bool {
+    !path.starts_with("/api/") && !path.starts_with("/static/")
+}
+
+/// The dashboard's answer for a path nothing else claimed.
+///
+/// A GET the page could route is the page; anything else keeps the error envelope,
+/// so a mistyped API path and a wrong method still answer as the API.
+pub async fn fallback(
+    state: State<AdminState>,
+    method: axum::http::Method,
+    uri: axum::http::Uri,
+) -> Response {
+    if method == axum::http::Method::GET && belongs_to_the_page(uri.path()) {
+        return index(state).await;
+    }
+    refuse(Error::new(
+        ErrorCode::NotFound,
+        format!("no route for {method} {}", uri.path()),
+    ))
+}
+
 /// What the page is told about the process serving it.
 ///
 /// Rendered into the HTML rather than fetched: every value is known when the

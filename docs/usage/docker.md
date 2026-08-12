@@ -138,12 +138,12 @@ services:
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
     healthcheck:
-      # `/status` needs no token by default and answers only once the runtime
+      # `/api/v1/status` needs no token by default and answers only once the runtime
       # is compiled and both listeners are bound. `-f` matters: without it
       # curl exits 0 on a 500 and the check passes for answering at all rather
       # than for answering correctly. The port is the one inside the
       # container.
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/api/v1/status"]
       interval: 5s
       timeout: 3s
       start_period: 5s

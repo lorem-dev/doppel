@@ -21,6 +21,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 - The PostgreSQL store keeps the configuration as JSON, so a new field no longer
   needs a migration. Migration 0005 backfills it.
+- **Breaking:** every admin endpoint now lives under `/api/`. `/status` and
+  `/metrics` moved to `/api/v1/`, the OpenAPI document and Swagger UI to `/api/`.
 
 ## 0.4.1 -- 2026-08-11
 

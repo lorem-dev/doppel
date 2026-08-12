@@ -193,7 +193,7 @@ sequence.
 
 So: a rolling change is a write followed by a reload on each instance. There
 is no coordination between them, and nothing stops two instances running
-different revisions in between; `GET /status` on each reports which one it is
+different revisions in between; `GET /api/v1/status` on each reports which one it is
 holding.
 
 ## Moving between the stores

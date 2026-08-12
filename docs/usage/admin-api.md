@@ -4,7 +4,7 @@ A second HTTP listener on `admin.host:admin.port`, separate from the proxy
 because the proxy's fallback handler swallows every path -- there is nowhere
 on it an admin route could live.
 
-`admin.enable: false` turns all of it off, including `/status` and `/metrics`,
+`admin.enable: false` turns all of it off, including `/api/v1/status` and `/api/v1/metrics`,
 and the port is then never bound. See
 [the configuration reference](configuration.md#admin).
 
@@ -127,18 +127,25 @@ would not help.
 | DELETE | `/api/v1/proxies/{name}/templates/{file}` | `upload` | `204` |
 | POST | `/api/v1/config/reload` | `update` | `200` |
 | GET | `/api/v1/access` | none | `200` |
-| GET | `/status` | none | `200` |
-| GET | `/metrics` | none | `200` |
-| GET | `/openapi.json` | none | `200` |
-| GET | `/swagger-ui` | none | `200` |
+| GET | `/api/v1/status` | none | `200` |
+| GET | `/api/v1/metrics` | none | `200` |
+| GET | `/api/openapi.json` | none | `200` |
+| GET | `/api/swagger-ui` | none | `200` |
 
-`/status`, `/metrics`, `/openapi.json` and `/swagger-ui` sit outside
+`/api/v1/status`, `/api/v1/metrics`, `/api/openapi.json` and `/api/swagger-ui` sit outside
 `/api/v1` because they are not resources of the API; they describe or observe
 the process.
 
-The dashboard adds three more routes -- `/`, `/static/{path}` and `/robots.txt` --
-when `admin.dashboard` is on. They serve a browser page rather than the API, so
-they are outside the OpenAPI document; see [The dashboard](dashboard.md).
+Everything the API serves is under `/api/`. That is a boundary rather than a
+convention: with `admin.dashboard` on, a `GET` outside `/api/` and `/static/` is
+answered with the dashboard's page, so a client-side route survives being reloaded
+or bookmarked. Inside `/api/` an unknown path still answers `404` in the envelope,
+so a mistyped endpoint cannot hand a client an HTML document to parse, and a `POST`
+to a path that does not exist is refused rather than answered with a page.
+
+The dashboard also serves `/robots.txt` and its hashed assets under `/static/`.
+None of that is in the OpenAPI document, which describes the API; see
+[The dashboard](dashboard.md).
 
 ### What the caller may do
 
@@ -243,7 +250,7 @@ and one mutex, so they cannot swap runtimes in the wrong order.
 
 ## Status
 
-`GET /status` reports what the process is serving right now -- from the
+`GET /api/v1/status` reports what the process is serving right now -- from the
 running runtime, not from the store, because a configuration written but not
 reloaded is not what this process is doing.
 
@@ -304,7 +311,7 @@ tell "that already exists" from "you are holding a stale copy".
 
 `GET /openapi.json` serves a document generated from the handlers themselves,
 so it cannot describe an endpoint this binary does not serve. `GET
-/swagger-ui` serves a browser UI over it, with the assets built into the
+/api/swagger-ui` serves a browser UI over it, with the assets built into the
 binary rather than fetched at runtime.
 
 Both are unauthenticated: they describe the API rather than expose any of it,

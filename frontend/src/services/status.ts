@@ -4,7 +4,7 @@ import type { ReloadReport, Status } from '../types/api'
 import { request } from './http'
 
 export function fetchStatus(): Promise<Status> {
-  return request<Status>('/status')
+  return request<Status>('/api/v1/status')
 }
 
 export function reload(): Promise<ReloadReport> {

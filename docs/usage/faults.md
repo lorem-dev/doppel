@@ -227,7 +227,7 @@ because it needs both fields.
 
 ## What faults do not do
 
-- They do not apply to the admin listener. `/status` and `/metrics` answer
+- They do not apply to the admin listener. `/api/v1/status` and `/api/v1/metrics` answer
   normally while the proxy is dropping traffic, which is what makes them
   usable for watching it happen.
 - They are not recorded separately in metrics. A lost request appears as its

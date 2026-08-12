@@ -1,4 +1,4 @@
-//! Reloading the running configuration, and reporting it over `/status`.
+//! Reloading the running configuration, and reporting it over `/api/v1/status`.
 
 mod common;
 
@@ -11,7 +11,7 @@ const ROOT: &str = "root-token-0000000000000000000000000";
 #[tokio::test]
 async fn status_reports_the_running_revision_and_every_proxy() {
     let harness = Harness::new();
-    let reply = Call::get("/status").send(harness.router()).await;
+    let reply = Call::get("/api/v1/status").send(harness.router()).await;
 
     assert_eq!(reply.status, 200, "{}", reply.body);
     let body = reply.json();
@@ -30,21 +30,24 @@ async fn status_needs_no_token() {
     // It is what a load balancer calls, so it cannot require credentials.
     let harness = Harness::new();
     assert_eq!(
-        Call::get("/status").send(harness.router()).await.status,
+        Call::get("/api/v1/status")
+            .send(harness.router())
+            .await
+            .status,
         200
     );
 }
 
 #[tokio::test]
 async fn status_never_prints_upstream_credentials() {
-    // `/status` is public and a proxy URL may legitimately carry basic auth,
+    // `/api/v1/status` is public and a proxy URL may legitimately carry basic auth,
     // so this endpoint is the one place those two facts could combine into a
     // published password.
     let harness = Harness::with_config(&BASE_CONFIG.replace(
         "https://alpha.example.com/api/",
         "https://svc:hunter2@alpha.example.com/api/",
     ));
-    let reply = Call::get("/status").send(harness.router()).await;
+    let reply = Call::get("/api/v1/status").send(harness.router()).await;
 
     assert_eq!(reply.status, 200, "{}", reply.body);
     assert!(!reply.body.contains("hunter2"), "{}", reply.body);
@@ -58,7 +61,7 @@ async fn status_reports_a_default_resolver_as_default() {
         "    resolve:\n      type: header\n      header: X-Proxy-Name\n  - name: beta",
         "  - name: beta",
     ));
-    let reply = Call::get("/status").send(harness.router()).await;
+    let reply = Call::get("/api/v1/status").send(harness.router()).await;
 
     assert_eq!(reply.json()["proxies"][0]["resolve"], "default");
 }
@@ -66,10 +69,13 @@ async fn status_reports_a_default_resolver_as_default() {
 #[tokio::test]
 async fn status_reports_what_is_running_not_what_is_stored() {
     // A configuration written but not reloaded is not what this process is
-    // doing. Reporting the store here would make `/status` agree with the
+    // doing. Reporting the store here would make `/api/v1/status` agree with the
     // file and disagree with reality, which is the opposite of its job.
     let harness = Harness::new();
-    let before = Call::get("/status").send(harness.router()).await.json();
+    let before = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
 
     let create = Call::post("/api/v1/proxies")
         .token(ROOT)
@@ -78,7 +84,10 @@ async fn status_reports_what_is_running_not_what_is_stored() {
         .await;
     assert_eq!(create.status, 201, "{}", create.body);
 
-    let after = Call::get("/status").send(harness.router()).await.json();
+    let after = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
     assert_eq!(before, after);
     assert_eq!(after["proxies"].as_array().unwrap().len(), 2);
 }
@@ -100,7 +109,10 @@ async fn reload_applies_a_change_written_through_the_api() {
     assert_eq!(reload.status, 200, "{}", reload.body);
     assert_eq!(reload.json()["proxies"], 3);
 
-    let status = Call::get("/status").send(harness.router()).await.json();
+    let status = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
     assert_eq!(status["proxies"].as_array().unwrap().len(), 3);
     assert_eq!(status["revision"], reload.json()["revision"]);
 }
@@ -110,7 +122,11 @@ async fn reload_reports_the_same_revision_when_nothing_changed() {
     // The revision comes from the stored content, so a reload that changes
     // nothing must not look like a change.
     let harness = Harness::new();
-    let before = Call::get("/status").send(harness.router()).await.json()["revision"].clone();
+    let before = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json()["revision"]
+        .clone();
 
     let reload = Call::post("/api/v1/config/reload")
         .token(ROOT)
@@ -123,7 +139,10 @@ async fn reload_reports_the_same_revision_when_nothing_changed() {
 #[tokio::test]
 async fn an_invalid_stored_config_is_rejected_and_the_running_one_survives() {
     let harness = Harness::new();
-    let before = Call::get("/status").send(harness.router()).await.json();
+    let before = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
 
     harness.overwrite_config(&BASE_CONFIG.replace("port: 18080", "port: 0"));
     let reload = Call::post("/api/v1/config/reload")
@@ -135,14 +154,20 @@ async fn an_invalid_stored_config_is_rejected_and_the_running_one_survives() {
     assert_eq!(reload.error_code(), "CONFIG_INVALID");
     // Every step before the swap can fail; the swap cannot. So a rejected
     // reload leaves the process serving exactly what it was serving.
-    let after = Call::get("/status").send(harness.router()).await.json();
+    let after = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
     assert_eq!(before["revision"], after["revision"]);
 }
 
 #[tokio::test]
 async fn an_unparsable_stored_config_is_rejected_and_the_running_one_survives() {
     let harness = Harness::new();
-    let before = Call::get("/status").send(harness.router()).await.json();
+    let before = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
 
     harness.overwrite_config("this: is: not: valid: yaml:\n  - [");
     let reload = Call::post("/api/v1/config/reload")
@@ -152,7 +177,10 @@ async fn an_unparsable_stored_config_is_rejected_and_the_running_one_survives() 
 
     assert_eq!(reload.status, 400, "{}", reload.body);
     assert_eq!(reload.error_code(), "CONFIG_INVALID");
-    let after = Call::get("/status").send(harness.router()).await.json();
+    let after = Call::get("/api/v1/status")
+        .send(harness.router())
+        .await
+        .json();
     assert_eq!(before["revision"], after["revision"]);
 }
 
@@ -315,7 +343,7 @@ async fn metrics_renders_the_exposition_with_the_registered_content_type() {
         doppel_core::metrics::record_loss("alpha");
     }
 
-    let reply = Call::get("/metrics").send(harness.router()).await;
+    let reply = Call::get("/api/v1/metrics").send(harness.router()).await;
 
     assert_eq!(reply.status, 200);
     assert_eq!(
@@ -336,7 +364,10 @@ async fn metrics_needs_no_token() {
     // A scraper is a machine with nowhere to put one.
     let harness = Harness::new();
     assert_eq!(
-        Call::get("/metrics").send(harness.router()).await.status,
+        Call::get("/api/v1/metrics")
+            .send(harness.router())
+            .await
+            .status,
         200
     );
 }
@@ -344,7 +375,7 @@ async fn metrics_needs_no_token() {
 #[tokio::test]
 async fn the_openapi_document_is_served_as_json() {
     let harness = Harness::new();
-    let reply = Call::get("/openapi.json").send(harness.router()).await;
+    let reply = Call::get("/api/openapi.json").send(harness.router()).await;
 
     assert_eq!(reply.status, 200, "{}", reply.body);
     let doc = reply.json();
@@ -362,7 +393,7 @@ async fn the_openapi_document_needs_no_token() {
     // cannot authenticate before it knows how to.
     let harness = Harness::new();
     assert_eq!(
-        Call::get("/openapi.json")
+        Call::get("/api/openapi.json")
             .send(harness.router())
             .await
             .status,
@@ -375,7 +406,7 @@ async fn swagger_ui_is_served() {
     let harness = Harness::new();
     // The UI root redirects to its index; both are the UI answering rather
     // than the router falling through to a 404.
-    let reply = Call::get("/swagger-ui").send(harness.router()).await;
+    let reply = Call::get("/api/swagger-ui").send(harness.router()).await;
     assert!(
         reply.status.is_success() || reply.status.is_redirection(),
         "{} {}",
@@ -383,7 +414,7 @@ async fn swagger_ui_is_served() {
         reply.body
     );
 
-    let index = Call::get("/swagger-ui/index.html")
+    let index = Call::get("/api/swagger-ui/index.html")
         .send(harness.router())
         .await;
     assert_eq!(index.status, 200, "{}", index.body);
@@ -400,7 +431,7 @@ async fn the_documented_error_envelope_is_the_one_the_api_actually_sends() {
     // real error response against that promise, so the two cannot drift
     // apart in the direction the document is silent about.
     let harness = Harness::new();
-    let doc = Call::get("/openapi.json")
+    let doc = Call::get("/api/openapi.json")
         .send(harness.router())
         .await
         .json();
@@ -516,7 +547,10 @@ async fn turning_the_admin_listener_off_is_reported_as_needing_a_restart() {
     // And the listener really is still answering, which is what "unapplied"
     // means here.
     assert_eq!(
-        Call::get("/status").send(harness.router()).await.status,
+        Call::get("/api/v1/status")
+            .send(harness.router())
+            .await
+            .status,
         200
     );
 }

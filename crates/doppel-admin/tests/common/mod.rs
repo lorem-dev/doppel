@@ -124,7 +124,7 @@ pub struct Harness {
     pub templates_dir: PathBuf,
     pub store: Arc<dyn ConfigStore>,
     /// The runtime the process would be serving from. Built from the same
-    /// document the store starts with, so `/status` and the store agree
+    /// document the store starts with, so `/api/v1/status` and the store agree
     /// until a test makes them disagree on purpose.
     pub holder: Arc<RuntimeHolder>,
     pub startup: Arc<Config>,

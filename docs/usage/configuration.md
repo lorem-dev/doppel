@@ -140,7 +140,7 @@ admin:
 
 `enable` defaults to `true`. Set it to `false` to run the proxy with no admin
 application at all: the port is never bound, so it cannot collide with
-anything, and `/status`, `/metrics`, `/openapi.json` and the whole API are
+anything, and `/api/v1/status`, `/api/v1/metrics`, `/api/openapi.json` and the whole API are
 gone with it. The proxy listener and the control socket are untouched, which
 makes `doppel config reload` the only remaining way in.
 
@@ -248,7 +248,7 @@ it has to be a choice, not what happens when the section is left out.
 Setting a *write* action to `public` is refused outright (rule V34); no
 configuration wants an unauthenticated caller rewriting the proxy set.
 
-`GET /status` stays unauthenticated regardless: it reports names, upstreams
+`GET /api/v1/status` stays unauthenticated regardless: it reports names, upstreams
 and counts, and strips any credentials from the upstream before printing
 it.
 

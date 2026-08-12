@@ -81,15 +81,20 @@ impl Modify for TokenScheme {
     }
 }
 
-/// `/openapi.json` and `/swagger-ui`.
+/// `/api/openapi.json` and `/api/swagger-ui`.
+///
+/// Under `/api/`, like every other route the API owns: everything outside that
+/// prefix belongs to the dashboard, which is what lets a page be reloaded without
+/// colliding with an endpoint. Unversioned, because the document describes every
+/// version it knows about rather than being a resource of one.
 ///
 /// The Swagger UI assets are vendored into the binary rather than fetched by
 /// the build script, which is the crate's default. A build that reaches the
 /// network cannot run in an offline or egress-restricted environment, and the
 /// artifact would depend on a remote host still serving the same file.
 pub fn routes() -> Router<AdminState> {
-    utoipa_swagger_ui::SwaggerUi::new("/swagger-ui")
-        .url("/openapi.json", ApiDoc::openapi())
+    utoipa_swagger_ui::SwaggerUi::new("/api/swagger-ui")
+        .url("/api/openapi.json", ApiDoc::openapi())
         .into()
 }
 
@@ -112,8 +117,8 @@ mod tests {
         ("delete", "/api/v1/proxies/{name}/templates/{file}"),
         ("post", "/api/v1/config/reload"),
         ("get", "/api/v1/access"),
-        ("get", "/status"),
-        ("get", "/metrics"),
+        ("get", "/api/v1/status"),
+        ("get", "/api/v1/metrics"),
     ];
 
     fn document() -> serde_json::Value {

@@ -36,12 +36,23 @@ pub fn router(state: AdminState) -> axum::Router {
         router = router.merge(dashboard::routes());
     }
 
+    // Without these two, a typo'd path answers 404 with an empty body and a wrong
+    // method answers 405 with one. The contract is that every error carries the
+    // envelope, and the paths a client is most likely to hit by accident were the
+    // ones that did not.
+    //
+    // With the dashboard on, the 404 half becomes its fallback: a GET outside
+    // `/api/` and `/static/` is a client-side route being reloaded and gets the
+    // page, and everything else keeps the envelope. That division is what makes
+    // "everything under /api/ is the API, everything else is the page" true rather
+    // than merely intended.
+    if dashboard {
+        router = router.fallback(dashboard::fallback);
+    } else {
+        router = router.fallback(not_found);
+    }
+
     router
-        // Without these two, a typo'd path answers 404 with an empty body and
-        // a wrong method answers 405 with one. The contract is that every
-        // error carries the envelope, and the paths a client is most likely
-        // to hit by accident were the ones that did not.
-        .fallback(not_found)
         .method_not_allowed_fallback(method_not_allowed)
         .with_state(state)
 }

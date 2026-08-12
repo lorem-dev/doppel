@@ -131,8 +131,12 @@ Check these together, because they go stale as a set:
 
 - `admin.dashboard` and `admin.title` in `docs/usage/configuration.md` and in
   `main.example.yaml`.
-- `GET /api/v1/access` and the three dashboard routes in
-  `docs/usage/admin-api.md`, plus `DASHBOARD_NOT_BUILT` in its error table.
+- `GET /api/v1/access` and the routes in `docs/usage/admin-api.md`, plus
+  `DASHBOARD_NOT_BUILT` in its error table. The endpoint table is the one thing
+  there that is checked by a test -- `openapi.rs` refuses a document describing a
+  route that is not served -- so a path that changed shows up in `cargo test`
+  before it shows up here. What does not is prose quoting a path, and every
+  healthcheck: the compose file, the Docker Hub overview, `observability.md`.
 - The build order in `README.md`: assets first, then the binary. A reader who
   follows a stale version of that gets a 503 and no idea why.
 - `make help`. Every target carries its own description, so the list cannot go

@@ -60,7 +60,7 @@ sending events, in the same position a URL carries a password.
 
 ## Metrics
 
-`GET /metrics` on the admin listener, in the Prometheus text format,
+`GET /api/v1/metrics` on the admin listener, in the Prometheus text format,
 unauthenticated because a scraper has nowhere to put a token.
 
 | Metric | Type | Labels |

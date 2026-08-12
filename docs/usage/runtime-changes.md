@@ -137,14 +137,14 @@ doppel config reload
 
 A rolling change is a write followed by a reload on each instance. Nothing
 coordinates them, and nothing stops two instances running different revisions
-in between; `GET /status` on each reports which one it is holding.
+in between; `GET /api/v1/status` on each reports which one it is holding.
 
 See [Storing configuration in PostgreSQL](storage.md).
 
 ## Checking what is running
 
 ```bash
-curl -s localhost:8081/status
+curl -s localhost:8081/api/v1/status
 ```
 
 ```json
@@ -162,5 +162,5 @@ curl -s localhost:8081/status
 which is the quickest way to confirm a resolution header is spelled the way you
 think it is. Credentials in an upstream URL are redacted here.
 
-`/status` needs no token by default, so it is usable as a health check and as a
+`/api/v1/status` needs no token by default, so it is usable as a health check and as a
 way to confirm a rolling reload actually reached every instance.

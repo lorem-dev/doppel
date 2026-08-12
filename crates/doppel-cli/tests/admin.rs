@@ -100,12 +100,12 @@ fn status_and_metrics_are_scrapeable_without_a_token() {
     let (server, admin, _up) = start();
     server.get("/anything");
 
-    let (status, body) = admin.anonymous_get("/status");
+    let (status, body) = admin.anonymous_get("/api/v1/status");
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"revision\""), "{body}");
     assert!(body.contains("\"p1\""), "{body}");
 
-    let (status, body) = admin.anonymous_get("/metrics");
+    let (status, body) = admin.anonymous_get("/api/v1/metrics");
     assert_eq!(status, 200, "{body}");
     // The request above went through the pipeline, so the proxy histogram
     // must have it. An empty exposition here would mean the recorder the
@@ -152,14 +152,14 @@ fn a_proxy_created_over_http_serves_traffic_after_a_reload() {
     assert_eq!(status, 201, "{body}");
 
     // Written to the store, but not yet running.
-    let (_, before) = admin.anonymous_get("/status");
+    let (_, before) = admin.anonymous_get("/api/v1/status");
     assert!(!before.contains("\"p2\""), "{before}");
 
     let (status, body) = admin.request("POST", "/api/v1/config/reload", Some(SECRET_TOKEN), None);
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"proxies\":2"), "{body}");
 
-    let (_, after) = admin.anonymous_get("/status");
+    let (_, after) = admin.anonymous_get("/api/v1/status");
     assert!(after.contains("\"p2\""), "{after}");
 
     // And it actually serves: the header picks it.
@@ -239,11 +239,11 @@ fn deleting_a_proxy_over_http_removes_its_templates_from_disk() {
 fn the_openapi_document_and_swagger_ui_are_served() {
     let (_server, admin, _up) = start();
 
-    let (status, body) = admin.anonymous_get("/openapi.json");
+    let (status, body) = admin.anonymous_get("/api/openapi.json");
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"/api/v1/proxies\""), "{body}");
 
-    let (status, body) = admin.anonymous_get("/swagger-ui/index.html");
+    let (status, body) = admin.anonymous_get("/api/swagger-ui/index.html");
     assert_eq!(status, 200, "{body}");
     assert!(body.to_lowercase().contains("swagger"), "{body}");
 }
