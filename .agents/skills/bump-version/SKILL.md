@@ -14,6 +14,12 @@ part of it -- see the end of this file.
 uv run scripts/bump_version.py <version>
 ```
 
+There is exactly one place a version lives: `[workspace.package]` in
+`Cargo.toml`. `frontend/package.json` deliberately has no `version` field -- the
+dashboard reports the binary's, read from the configuration the listener injects --
+so nothing there needs bumping, and adding a version to it would create a second
+thing to forget.
+
 It sets the version under `[workspace.package]` in `Cargo.toml`, renames
 `## Development` in CHANGES.md to `## <version> -- <date>`, and opens a fresh
 empty Development section above it. It prints what it changed and what to do

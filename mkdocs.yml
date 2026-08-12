@@ -7,9 +7,15 @@ site_url: https://lorem-dev.github.io/doppel/
 repo_url: https://github.com/lorem-dev/doppel
 edit_uri: ""
 
+# Stages `assets/` into `docs/assets/` before the build. The icons live at the
+# repository root because the frontend build needs the same favicon, and mkdocs
+# serves only what is under `docs/`. See scripts/mkdocs_assets.py.
+hooks:
+  - scripts/mkdocs_assets.py
+
 theme:
   name: material
-  # Rendered from `docs/assets/icon.svg` at 512x512, which is oversized for
+  # Rendered from `assets/icon.svg` at 512x512, which is oversized for
   # both uses on purpose: the header renders it around 24px and a favicon is
   # smaller still, but browsers pick this up on retina displays and mkdocs
   # copies it verbatim rather than resampling.
@@ -54,9 +60,11 @@ nav:
       - Several backends behind one port: usage/multiple-backends.md
       - Changing configuration while it runs: usage/runtime-changes.md
       - The admin API: usage/admin-api.md
+      - The dashboard: usage/dashboard.md
       - Storing configuration in PostgreSQL: usage/storage.md
       - Observability: usage/observability.md
       - Configuration reference: usage/configuration.md
+      - Every parameter: usage/parameters.md
       - CLI reference: usage/cli.md
       - Troubleshooting: usage/troubleshooting.md
   - Development:
@@ -75,6 +83,10 @@ extra:
     provider: mike
 
 markdown_extensions:
+  # `{ #anchor }` on a heading. usage/parameters.md gives every parameter an anchor
+  # derived from its path, because the dashboard links a field to its section and an
+  # anchor mkdocs invented from the heading text would move when the text did.
+  - attr_list
   - admonition
   - pymdownx.details
   - pymdownx.superfences

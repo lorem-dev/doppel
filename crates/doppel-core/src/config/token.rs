@@ -204,6 +204,9 @@ impl utoipa::PartialSchema for Token {
                 "An admin token: printable ASCII with no spaces, 32 to 255 \
                  characters. A version 4 UUID is the recommended shape.",
             ))
+            // Obviously a placeholder. An example that looked like a real token is
+            // one somebody copies into a deployment.
+            .examples([serde_json::json!("replace-me-00000000000000000000000")])
             .into()
     }
 }

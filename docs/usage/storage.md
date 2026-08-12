@@ -99,25 +99,42 @@ release, migrations are append-only.
 
 ### The schema
 
-Five tables. Deliberately between one opaque blob and full normalisation:
-**anything with its own identity and lifecycle is a row, and a leaf map
-hanging off one is a JSONB column on that row.**
+Three tables. **Anything SQL actually uses is a column; everything else is the
+document, as JSON.**
 
 | Table | Holds |
 |---|---|
-| `configurations` | One row per named configuration: the revision, and the settings that are single values |
-| `admin_tokens` | One row per token |
-| `proxies` | One row per proxy; `headers` and `access` are JSONB on it |
-| `mocks` | One row per mock; the selector maps and response headers are JSONB on it |
+| `configurations` | One row per named configuration: `name`, `revision`, and `settings` -- the whole document except its proxies |
+| `proxies` | One row per proxy: `name`, `ordinal`, and `document` -- the proxy with its mocks inside |
 | `templates` | One row per template file, content included |
 
-A blob would make the row opaque, and rewriting a whole document to change one
-field throws away the per-proxy concurrency the admin API is built on. A table
-per leaf map would buy joins nobody will write.
+It was five tables with a column per configuration field, and the change is
+worth explaining because it looks like a step backwards.
 
-`ordinal` columns preserve document order. That is not decoration: mock
-patterns are unanchored, so a general one placed before a specific one shadows
-it, and a store that reordered them would change which mock answers a request.
+Nothing ever queried `admin_host` or `latency_min` in SQL. What that
+normalisation bought was a migration for every field the configuration format
+gained -- three of them between 0.3.0 and 0.4.1, each one `ADD COLUMN` and
+nothing else, plus a matching edit in the loader, the writer, and two
+hand-written statements that a test existed solely to keep in step. A field
+added to the format now reaches the database with no schema change at all.
+
+What did *not* change is the part that matters: a proxy is still its own row,
+addressed by name and carrying its own revision, so the per-proxy concurrency
+the admin API is built on is untouched. A single blob per configuration would
+have thrown that away.
+
+The rows are parsed by the same code that parses `main.yaml`, so a row edited by
+hand is held to exactly the rules a configuration file is held to -- a value the
+format refuses is refused here too, reported against the field and the proxy that
+carry it.
+
+`ordinal` preserves document order. That is not decoration: mock patterns are
+unanchored, so a general one placed before a specific one shadows it, and a store
+that reordered them would change which mock answers a request.
+
+One thing moved rather than disappeared. The old schema had a unique index on
+`(config, token)`, making duplicate token values impossible in the database; rule
+V26 refuses them on every write instead, and every write goes through validation.
 
 `templates` has no cascading foreign key on purpose. Deleting a proxy's files
 is a decision the store makes explicitly and *after* the configuration write --
@@ -148,7 +165,7 @@ second writer that blocks on it re-evaluates its own `WHERE` against the row
 as the winner left it -- finds the revision moved, matches nothing, and is
 told it lost.
 
-A load is also one transaction, at `REPEATABLE READ`. A configuration is five
+A load is also one transaction, at `REPEATABLE READ`. A configuration spans two
 tables, and each query used to take its own connection and its own snapshot,
 so a save committing in between produced a configuration assembled from two of
 them. The revision check at the end of a load caught it and reported "the rows
@@ -176,7 +193,7 @@ sequence.
 
 So: a rolling change is a write followed by a reload on each instance. There
 is no coordination between them, and nothing stops two instances running
-different revisions in between; `GET /status` on each reports which one it is
+different revisions in between; `GET /api/v1/status` on each reports which one it is
 holding.
 
 ## Moving between the stores

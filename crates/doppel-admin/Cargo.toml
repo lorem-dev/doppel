@@ -8,10 +8,13 @@ license.workspace = true
 [dependencies]
 doppel-core = { path = "../doppel-core" }
 axum.workspace = true
+httpdate.workspace = true
 metrics-exporter-prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["net", "sync"] }
+tower.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 utoipa.workspace = true
 utoipa-swagger-ui.workspace = true
@@ -21,7 +24,6 @@ async-trait.workspace = true
 metrics.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
-tower.workspace = true
 
 [lints]
 workspace = true

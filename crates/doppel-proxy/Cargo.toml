@@ -9,6 +9,7 @@ license.workspace = true
 doppel-core = { path = "../doppel-core" }
 doppel-render = { path = "../doppel-render" }
 axum.workspace = true
+bytes.workspace = true
 futures-util.workspace = true
 rand.workspace = true
 reqwest.workspace = true

@@ -16,6 +16,7 @@ pub mod server;
 pub mod size;
 pub mod status;
 pub mod template;
+pub mod title;
 pub mod token;
 pub mod url;
 
@@ -29,7 +30,7 @@ pub use admin::{
     UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
-pub use env::{EnvTokens, EnvTokensError};
+pub use env::{EnvExternalUrlError, EnvTokens, EnvTokensError, external_url_from_env};
 pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{MAX_PROXY, Name, NameError, ProxyName};
@@ -44,8 +45,9 @@ pub use server::{
 pub use size::{ByteSize, ByteSizeError};
 pub use status::{HttpStatus, StatusError};
 pub use template::{TemplateName, TemplateNameError};
+pub use title::{AdminTitle, AdminTitleError};
 pub use token::{Token, TokenError};
-pub use url::{UpstreamUrl, UrlError};
+pub use url::{ExternalUrl, UpstreamUrl, UrlError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -196,6 +198,47 @@ proxies:
 
         let off = MINIMAL.replace("  port: 8081", "  port: 8081\n  enable: false");
         assert!(!load_from_str(&off).unwrap().admin.enable);
+    }
+
+    #[test]
+    fn the_dashboard_is_on_and_titled_doppel_unless_told_otherwise() {
+        // Both defaults are what an existing configuration gets on upgrade
+        // without being edited, so they are the interesting half of the
+        // feature rather than a formality.
+        let default = load_from_str(MINIMAL).unwrap();
+        assert!(default.admin.is_dashboard_enabled());
+        assert_eq!(default.admin.title(), "Doppel");
+
+        let written = MINIMAL.replace(
+            "  port: 8081",
+            "  port: 8081\n  dashboard: false\n  title: \"Doppel (staging)\"",
+        );
+        let written = load_from_str(&written).unwrap();
+        assert!(!written.admin.is_dashboard_enabled());
+        assert_eq!(written.admin.title(), "Doppel (staging)");
+    }
+
+    #[test]
+    fn adding_the_dashboard_fields_did_not_change_any_stored_revision() {
+        // The revision is a hash of the canonical YAML, and every stored
+        // configuration is compare-and-swapped against its own. A default that
+        // materialised into the document would change the revision of every
+        // configuration written before these fields existed, and each would fail
+        // its own revision check on the first load after the upgrade -- which is
+        // why both fields are `Option` and skipped when absent.
+        let config = load_from_str(MINIMAL).unwrap();
+        let yaml = canonical_yaml(&config).unwrap();
+        assert!(!yaml.contains("dashboard"), "{yaml}");
+        assert!(!yaml.contains("title"), "{yaml}");
+
+        // And the pair does serialize once written, or the field would be
+        // unsettable rather than merely absent.
+        let mut written = config;
+        written.admin.dashboard = Some(false);
+        written.admin.title = Some(AdminTitle::parse("Doppel (staging)").unwrap());
+        let yaml = canonical_yaml(&written).unwrap();
+        assert!(yaml.contains("dashboard: false"), "{yaml}");
+        assert!(yaml.contains("title: Doppel (staging)"), "{yaml}");
     }
 
     #[test]

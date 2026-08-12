@@ -77,12 +77,8 @@ async fn two_schemas_do_not_see_each_other() {
     assert_ne!(first.name(), second.name());
     first
         .execute(
-            "INSERT INTO configurations (name, revision, server_host, server_port, \
-                  log_level, log_format, control_socket, templates_dir, admin_host, \
-                  admin_port, admin_auth_header, admin_upload_limit, admin_access) \
-                  VALUES ('only-in-first', 0, '127.0.0.1', 8080, 'info', 'json', \
-                  '/tmp/d.sock', './templates', '127.0.0.1', 8081, 'X-Proxy-Authorization', \
-                  1048576, '{}')",
+            "INSERT INTO configurations (name, revision, settings) \
+                  VALUES ('only-in-first', 0, '{}')",
         )
         .await;
 

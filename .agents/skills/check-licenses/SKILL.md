@@ -1,6 +1,6 @@
 ---
 name: check-licenses
-description: Use after editing any Cargo.toml, adding or removing a dependency, or before cutting a release. Verifies every direct dependency's licence against the project policy and updates LICENSE.
+description: Use after editing any Cargo.toml or frontend/package.json, adding or removing a dependency, or before cutting a release. Verifies every direct dependency's licence against the project policy and updates LICENSE and THIRD-PARTY.md.
 ---
 
 # Check licences
@@ -21,6 +21,20 @@ so the dynamic-linking exception does not apply.
 
 ## How to check
 
+Both halves are generated, so start by running the generator and reading what it
+says:
+
+```bash
+uv run scripts/third_party.py           # rewrites THIRD-PARTY.md
+uv run scripts/third_party.py --check   # what CI runs
+```
+
+It exits non-zero and prints `SOME LICENCES ARE NOT COVERED BY THE POLICY` with
+the offending packages named. That is the check; the rest of this skill is for
+deciding what to do about a new dependency.
+
+### The cargo half
+
 Read the licence from the registry rather than from memory:
 
 ```bash
@@ -32,6 +46,30 @@ crate's `[dependencies]` and `[dev-dependencies]` -- not the whole lock file.
 Transitive crates come in under their parents' justification; if one of them
 carries a forbidden licence that is a real problem, but it is found by auditing
 the tree, not by this skill.
+
+### The npm half
+
+The direct set is `dependencies` and `devDependencies` in
+`frontend/package.json`. The two are not equivalent, and the difference decides
+whether a licence matters at all:
+
+- `dependencies` is compiled into `frontend/dist` and embedded in the binary, so
+  it is **redistributed**. Its licences bind, and it belongs in `LICENSE` and
+  `THIRD-PARTY.md`.
+- `devDependencies` -- vite, jest, eslint, tailwind's compiler, the tooling
+  underneath them -- runs on a developer's machine and ships nowhere. It is
+  deliberately absent from both files.
+
+A build tool in `dependencies` is therefore a real mistake and not a matter of
+taste: it drags the policy over licences the project never distributes.
+Tailwind sat there once, and the tooling closure it pulled in carried Blue Oak
+and CC-BY -- which would have meant widening the permitted set for code nobody
+ships.
+
+```bash
+npm view <package> license                 # one package
+npm ls --omit=dev --all --prefix frontend  # exactly what ships
+```
 
 ## Ask the question the policy is actually for
 
@@ -51,8 +89,17 @@ sweep late in phase 1, each declared and referenced by no source file.
 grep -rn "<crate_name>" crates --include='*.rs' | head
 ```
 
-## Update LICENSE
+## Update LICENSE and THIRD-PARTY.md
 
-`LICENSE` carries the Apache 2.0 text plus the third-party notices. When the
-direct set changes, update the notices to match. Report what you changed and
+`LICENSE` carries the Apache 2.0 text plus a table of the *direct* set, from both
+ecosystems. `THIRD-PARTY.md` carries the whole closure and is generated -- never
+edit it by hand.
+
+```bash
+uv run scripts/third_party.py
+```
+
+Both modes need `frontend/node_modules` present and refuse to run without it,
+rather than writing a cargo-only file that looks complete or reporting a stale one
+that is not. Report what you changed and
 what you found -- including "nothing changed", which is a useful result.

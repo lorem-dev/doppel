@@ -106,6 +106,7 @@ impl utoipa::PartialSchema for Ratio {
             .minimum(Some(0.0))
             .maximum(Some(1.0))
             .description(Some("A probability from 0.0 to 1.0. 50% is `0.5`."))
+            .examples([serde_json::json!(0.25)])
             .into()
     }
 }

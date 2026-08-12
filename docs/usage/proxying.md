@@ -131,11 +131,12 @@ proxies:
 ```
 
 With a base of `https://api.example.com/v2/`, an upstream answering
-`Location: https://api.example.com/v2/orders/7` produces `Location: /orders/7`
-to the client. Query and fragment survive.
+`Location: https://api.example.com/v2/orders/7` produces
+`Location: http://127.0.0.1:8080/orders/7` to the client. Query and fragment
+survive.
 
-Relative rather than absolute, so Doppel never has to guess its own public
-name: the client resolves it against the URL it used, which is Doppel's.
+The host in that answer is Doppel's own, and where it comes from is
+[Doppel's own address](#doppels-own-address) below.
 
 !!! warning "Why this is on by default"
     `Host` is not relayed, so the upstream answers with its *own* authority in
@@ -147,11 +148,94 @@ name: the client resolves it against the URL it used, which is Doppel's.
     `nginx` has `proxy_redirect` for this and Apache `ProxyPassReverse`, both on
     by default, for the same reason.
 
-A target that is **not** under the proxy's base is genuinely elsewhere and is
-left pointing there, stated as an absolute URL. That covers a subtler case too:
-an upstream answering `Location: /login` under a base of `/v2/` means its own
-root, so relaying the header as-is would have the client come back asking for
-`/v2/login` -- a different resource nobody named.
+A target on the upstream's own host but **outside** the proxy's base is kept on
+Doppel too, with the path the upstream wrote: an upstream answering
+`Location: /login` under a base of `/v2/` produces
+`Location: http://127.0.0.1:8080/login`. This is what `nginx`'s `proxy_redirect`
+does, and it is the case the relative form could not express -- relayed as-is,
+the client would come back asking for `/v2/login`, a different resource nobody
+named, and pointed at the upstream it leaves Doppel altogether.
+
+Whether Doppel serves that path is a question about the configuration rather than
+about the rewrite: `/login` reaches `<base>/login`, so a proxy whose base has a
+prefix will forward it under that prefix. That is visible in the logs and fixable
+in the configuration, which the silent escape was not.
+
+A target on **another host** is left pointing there, absolutely. Doppel does not
+proxy it, and naming itself in a redirect to somewhere it cannot serve would be a
+lie.
+
+## Urls in a body
+
+The same problem one layer down, and on by default for the same reason:
+
+```yaml
+proxies:
+  - name: backend
+    url: "https://api.example.com/v2/"
+    rewrite_urls: true    # the default
+```
+
+A page, a script or a JSON document that names `https://api.example.com/v2/orders`
+sends the client straight to the upstream on its next request -- past every
+injected fault and every mock, with nothing logged. Doppel replaces its own address
+into the body instead: that URL becomes `http://127.0.0.1:8080/orders`, and one on
+the same host outside the proxied path keeps its own path, exactly as a rewritten
+redirect does. `nginx` calls this `sub_filter`.
+
+**Only the exact host.** `https://cdn.api.example.com/` is a different host, is not
+proxied by this proxy, and is left alone -- pointing it here would break the page
+rather than keep it working. A host that merely starts the same, like
+`https://api.example.com.evil.test/`, is left alone too.
+
+Three more limits, each of which relays the body untouched rather than guessing:
+
+- **Text only**, by `Content-Type`: `text/*`, JSON, JavaScript, XML and the `+json`
+  and `+xml` suffixes. An image cannot carry a URL that matters, and buffering one
+  to look is how a proxy runs out of memory.
+- **Uncompressed only.** A body with a `Content-Encoding` is relayed as it came;
+  the client asked the upstream for that encoding.
+- **Bounded by `body_limit`.** Rewriting needs the whole body, so it is buffered up
+  to that ceiling; a bigger body streams on from where the buffering stopped.
+
+A rewritten body loses the `ETag` and digest headers that described the upstream's
+version of it, and carries the length it now has. A conditional request with the
+upstream's validator would otherwise be answered `304` for content the client has
+never seen.
+
+Set `rewrite_urls: false` for a client being tested against the bytes the upstream
+actually sent.
+
+## Doppel's own address
+
+Rewriting a `Location` means naming the address the client used, and Doppel
+cannot work that out for itself -- `Host` is a claim by the caller, and building
+a redirect out of it hands the caller the redirect.
+
+In order:
+
+```yaml
+server:
+  host: 0.0.0.0
+  port: 8080
+  external_url: "https://doppel.example.com/"   # optional
+```
+
+1. `DOPPEL_EXTERNAL_URL`, which overrides everything below it.
+2. `server.external_url`.
+3. `server.host` and `server.port`, which is right for the common case and needs
+   no configuration: a laptop on `127.0.0.1:8080`, a pod on its own address.
+   A wildcard bind (`0.0.0.0`, `::`) becomes loopback, because `0.0.0.0` names
+   every address this host has and therefore none of them.
+
+The third is a guess, and the one place this is wrong: behind a container port
+mapping (`-p 18080:8080`), a load balancer or an ingress, the client used neither
+that address nor that port. Set `external_url`, or the variable -- and Doppel logs
+which address it settled on at startup, so it is one line away from being checked
+rather than assumed.
+
+A path is kept as a prefix: `https://gw.example.com/doppel/` is a Doppel reached
+under a prefix, and its rewritten locations carry it.
 
 Set `rewrite_redirects: false` to relay the header byte for byte. That is what a
 client being tested *for its redirect handling* needs; it is not what a client

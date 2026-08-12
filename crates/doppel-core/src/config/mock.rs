@@ -47,10 +47,12 @@ pub struct MockResponse {
     pub status: crate::config::HttpStatus,
     /// A template rendered and sent as `text/plain`. Exclusive with `json` and
     /// `template`.
+    #[schema(examples("widget {{ id }} is ready"))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     /// A template whose rendered output must be valid JSON, sent as
     /// `application/json`. Exclusive with `body` and `template`.
+    #[schema(examples("{\"id\": \"{{ id }}\"}"))]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub json: Option<String>,
     /// A template file under this proxy's template directory. Read per request,

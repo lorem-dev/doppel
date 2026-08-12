@@ -23,6 +23,17 @@ That URL follows `main`. Every release also attaches the schema as an asset, so
 a deployment that pins a version can validate against the schema for exactly
 that version rather than for whatever is current.
 
+A running Doppel serves its own:
+
+```bash
+curl -s http://127.0.0.1:8081/api/v1/schema | jq .
+```
+
+No token, because it describes the shape of a configuration rather than the
+contents of one. This is the copy to check a document against before pushing it,
+since it comes from the process that is going to read it -- the dashboard uses it
+for exactly that, both while a field is being typed and in its YAML editor.
+
 The schema is generated from the same Rust types this page documents -- see
 [`doppel config schema`](cli.md#config-schema) -- so it cannot describe a field
 that does not exist, and CI fails if the checked-in copy falls behind.
@@ -115,6 +126,8 @@ The admin listener's address, its tokens, and who may do what.
 ```yaml
 admin:
   enable: true
+  dashboard: true
+  title: "Doppel"
   host: "0.0.0.0"
   port: 8081
   public: false
@@ -138,7 +151,7 @@ admin:
 
 `enable` defaults to `true`. Set it to `false` to run the proxy with no admin
 application at all: the port is never bound, so it cannot collide with
-anything, and `/status`, `/metrics`, `/openapi.json` and the whole API are
+anything, and `/api/v1/status`, `/metrics`, `/openapi.json` and the whole API are
 gone with it. The proxy listener and the control socket are untouched, which
 makes `doppel config reload` the only remaining way in.
 
@@ -146,6 +159,14 @@ The validation rules do not consult it. A configuration that is only safe
 because nothing serves it is a trap set for whoever turns the listener on
 later, and they will not re-read the rules first -- so rule V34 still refuses
 a public write action with the listener off.
+
+`dashboard` defaults to `true` and serves the browser dashboard from this
+listener's root: `/`, `/static/{path}` and `/robots.txt`. `false` leaves those
+three unrouted -- they answer 404 like any other unknown path -- and changes
+nothing about the JSON API. `title` is the heading that dashboard shows and the
+browser tab's name, at most 64 characters and free of control characters,
+defaulting to `Doppel`. Both take effect on restart, since the routes are built
+once. See [The dashboard](dashboard.md).
 
 Toggling it takes effect on restart, not on reload; a reload reports `admin`
 among the sections it could not apply.
@@ -238,7 +259,7 @@ it has to be a choice, not what happens when the section is left out.
 Setting a *write* action to `public` is refused outright (rule V34); no
 configuration wants an unauthenticated caller rewriting the proxy set.
 
-`GET /status` stays unauthenticated regardless: it reports names, upstreams
+`GET /api/v1/status` stays unauthenticated regardless: it reports names, upstreams
 and counts, and strips any credentials from the upstream before printing
 it.
 

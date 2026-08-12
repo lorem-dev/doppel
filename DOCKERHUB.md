@@ -14,7 +14,7 @@
      a version that exists. The version checked in is the last one released;
      the tags table stays illustrative, like the documentation's. -->
 
-![Doppel](https://raw.githubusercontent.com/lorem-dev/doppel/main/docs/assets/icon-128.png)
+![Doppel](https://raw.githubusercontent.com/lorem-dev/doppel/main/assets/icon-128.png)
 
 # Doppel
 
@@ -60,14 +60,14 @@ start.
 ```bash
 docker run --rm \
   -p 8080:8080 -p 8081:8081 \
-  -v "$PWD/main.yaml:/etc/doppel/main.yaml:ro" \
+  -v "$PWD/config:/etc/doppel" \
   -v doppel-templates:/var/lib/doppel/templates \
   loremdev/doppel:0.1.0-alpine
 ```
 
 `8080` carries proxied traffic, `8081` the admin API.
 
-A minimal `main.yaml`:
+A minimal `config/main.yaml`:
 
 ```yaml
 server:
@@ -120,12 +120,12 @@ services:
       - "8080:8080"
       - "8081:8081"
     volumes:
-      - ./main.yaml:/etc/doppel/main.yaml:ro
+      - ./config:/etc/doppel
       - doppel-templates:/var/lib/doppel/templates
     environment:
       DOPPEL_ADMIN_TOKENS: '{"ci":{"token":"...","group":"admin"}}'
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/status"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/api/v1/status"]
       interval: 5s
       timeout: 3s
       start_period: 5s
@@ -135,10 +135,21 @@ volumes:
   doppel-templates:
 ```
 
-`/status` needs no token by default and answers only once the runtime is
+`/api/v1/status` needs no token by default and answers only once the runtime is
 compiled and both listeners are bound. `-f` matters: without it `curl` exits 0
 on a 500 and the check passes for answering at all rather than for answering
 correctly.
+
+## The dashboard
+
+The admin port serves a browser dashboard from its root -- the proxy set, a form
+over every field of a proxy, mock templates, status and reload -- compiled into
+the image. Publish `8081` as the quick start above does and open
+`http://127.0.0.1:8081/`.
+
+It is a client of the admin API and bound by the same token rules, so it offers
+only what the caller's token may actually do. `admin.dashboard: false` turns it
+off; the JSON API is unaffected either way.
 
 ## Tokens
 
@@ -165,7 +176,11 @@ curl -X POST -H "X-Proxy-Authorization: Bearer $TOKEN" \
 docker exec <container> doppel config reload --socket /tmp/doppel.sock
 ```
 
-Editing a bind-mounted `main.yaml` on the host changes the file the container
+The directory is mounted rather than the file on purpose: a save renames a new
+file over the old one, and a file that is itself a mount point cannot be replaced --
+the admin API would refuse every write with "Resource busy".
+
+Editing `config/main.yaml` on the host changes the file the container
 reads, so a reload picks it up without restarting anything.
 
 ## What the image contains

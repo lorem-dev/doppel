@@ -21,6 +21,15 @@ use crate::upstream::{error_response, forward};
 pub struct ProxyState {
     pub holder: Arc<RuntimeHolder>,
     pub sampler: Arc<dyn Sampler>,
+    /// Where clients reach this Doppel, from `server.external_url` or
+    /// `DOPPEL_EXTERNAL_URL`, when the deployment says.
+    ///
+    /// Resolved once at startup rather than read from the running configuration,
+    /// like the rest of `server`: the listeners are bound before the first
+    /// reload, and a reload that changes that section reports it as unapplied.
+    /// Behind an `Arc` because this struct is cloned per request and a `Url` is
+    /// a `String` behind the scenes.
+    pub external_url: Option<Arc<reqwest::Url>>,
 }
 
 impl ProxyState {
@@ -29,7 +38,15 @@ impl ProxyState {
         Self {
             holder,
             sampler: Arc::new(OsSampler),
+            external_url: None,
         }
+    }
+
+    /// The same state, told where clients reach this Doppel.
+    #[must_use]
+    pub fn with_external_url(mut self, external: Option<reqwest::Url>) -> Self {
+        self.external_url = external.map(Arc::new);
+        self
     }
 }
 
@@ -85,7 +102,9 @@ async fn handle(
                 method.as_str(),
                 response.status().as_u16(),
                 elapsed,
+                metrics::Outcome::proxied(),
             );
+            metrics::record_proxy_error(err.code.as_str());
             // `upstream_contacted` is a bool, not an `Option`-typed null: the
             // `tracing::Value` impl for `Option<T>` records nothing at all
             // when the value is `None`, so the JSON layer omits a null field
@@ -178,7 +197,17 @@ async fn handle(
                 // mocks that answered. The mock is named in the log line
                 // instead, which is where "whose loss fired" belongs.
                 metrics::record_loss(&proxy.name);
-                metrics::record_proxy(&proxy.name, method.as_str(), status, elapsed);
+                metrics::record_proxy(
+                    &proxy.name,
+                    method.as_str(),
+                    status,
+                    elapsed,
+                    metrics::Outcome {
+                        replace: true,
+                        loss: true,
+                        upstream_error: false,
+                    },
+                );
                 tracing::info!(
                     request_id,
                     proxy = proxy.name,
@@ -216,7 +245,11 @@ async fn handle(
                 method.as_str(),
                 response.status().as_u16(),
                 elapsed,
+                metrics::Outcome::mocked(),
             );
+            if let Some(code) = error_code {
+                metrics::record_proxy_error(code);
+            }
             // `upstream_contacted` is false here and the two upstream fields
             // are absent: a served mock never reaches the upstream, which is
             // precisely the distinction that field exists to record.
@@ -254,7 +287,13 @@ async fn handle(
         );
         let elapsed = started.elapsed();
         metrics::record_loss(&proxy.name);
-        metrics::record_proxy(&proxy.name, method.as_str(), status, elapsed);
+        metrics::record_proxy(
+            &proxy.name,
+            method.as_str(),
+            status,
+            elapsed,
+            metrics::Outcome::lost(),
+        );
         tracing::info!(
             request_id,
             proxy = proxy.name,
@@ -290,6 +329,7 @@ async fn handle(
         Some(peer.ip()),
         &runtime.resolve_headers,
         &request_id,
+        state.external_url.as_deref(),
     )
     .await;
     let latency_ms = pad_to_target(faults.latency, attempt.elapsed(), &proxy.name).await;
@@ -308,6 +348,13 @@ async fn handle(
                 method.as_str(),
                 response.status().as_u16(),
                 elapsed,
+                metrics::Outcome {
+                    // The upstream answered; whether it answered usefully is its
+                    // status. A 5xx relayed from upstream is an upstream error
+                    // even though the exchange itself succeeded.
+                    upstream_error: outcome.status >= 500,
+                    ..metrics::Outcome::proxied()
+                },
             );
             tracing::info!(
                 request_id,
@@ -336,7 +383,16 @@ async fn handle(
                 method.as_str(),
                 response.status().as_u16(),
                 elapsed,
+                metrics::Outcome {
+                    // A transport failure, a timeout, or a request refused on the
+                    // way in. The last one never reached the upstream, and is
+                    // still an upstream error in the only sense a dashboard cares
+                    // about: this proxy could not deliver.
+                    upstream_error: true,
+                    ..metrics::Outcome::proxied()
+                },
             );
+            metrics::record_proxy_error(err.code.as_str());
             // `forward` validates the request path before it ever opens a
             // connection (see `join_upstream`), so a 4xx here (always
             // `InvalidRequestPath` today) means the request was rejected on
@@ -599,6 +655,7 @@ proxies:
         ProxyState {
             holder: Arc::new(RuntimeHolder::new(runtime)),
             sampler: Arc::new(crate::fault::SequenceSampler::new(samples)),
+            external_url: None,
         }
     }
 

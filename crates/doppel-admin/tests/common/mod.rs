@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
 use doppel_admin::AdminState;
@@ -124,7 +123,7 @@ pub struct Harness {
     pub templates_dir: PathBuf,
     pub store: Arc<dyn ConfigStore>,
     /// The runtime the process would be serving from. Built from the same
-    /// document the store starts with, so `/status` and the store agree
+    /// document the store starts with, so `/api/v1/status` and the store agree
     /// until a test makes them disagree on purpose.
     pub holder: Arc<RuntimeHolder>,
     pub startup: Arc<Config>,
@@ -180,8 +179,8 @@ impl Harness {
         self.store = wrap(inner);
     }
 
-    pub fn router(&self) -> Router {
-        doppel_admin::router(AdminState::new(
+    pub fn router(&self) -> doppel_admin::App {
+        doppel_admin::app(AdminState::new(
             Arc::clone(&self.store),
             Arc::clone(&self.holder),
             Arc::clone(&self.startup),
@@ -270,7 +269,7 @@ impl Call {
         self
     }
 
-    pub async fn send(self, router: Router) -> Reply {
+    pub async fn send(self, router: doppel_admin::App) -> Reply {
         let mut builder = Request::builder().method(self.method).uri(&self.uri);
         if let Some(token) = self.token {
             builder = builder.header("X-Proxy-Authorization", format!("Bearer {token}"));
@@ -306,6 +305,12 @@ pub struct Reply {
     pub content_type: Option<String>,
     pub allow: Option<String>,
     pub body: String,
+    /// The body as it arrived. An embedded asset is not necessarily text -- the
+    /// favicon is not -- so `body` cannot be the only view of it.
+    pub bytes: Vec<u8>,
+    /// Every response header, lower-cased, for the assertions that are about a
+    /// header this struct has no field for.
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 impl Reply {
@@ -322,6 +327,16 @@ impl Reply {
         let location = header("location");
         let content_type = header("content-type");
         let allow = header("allow");
+        let headers = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|value| (name.as_str().to_owned(), value.to_owned()))
+            })
+            .collect();
         let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
             .await
             .expect("collect body");
@@ -331,8 +346,17 @@ impl Reply {
             location,
             content_type,
             allow,
-            body: String::from_utf8(bytes.to_vec()).expect("body is utf-8"),
+            // Lossy rather than strict: an asset response is bytes, and a test
+            // asserting on a header should not panic on the body's encoding.
+            body: String::from_utf8_lossy(&bytes).into_owned(),
+            bytes: bytes.to_vec(),
+            headers,
         }
+    }
+
+    /// One response header, or `None`.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(String::as_str)
     }
 
     pub fn json(&self) -> serde_json::Value {
@@ -459,6 +483,10 @@ impl ConfigStore for RacingStore {
 
     async fn delete_template(&self, proxy: &str, file: &str) -> Result<bool, StoreError> {
         self.inner.delete_template(proxy, file).await
+    }
+
+    async fn rename_templates(&self, from: &str, to: &str) -> Result<(), StoreError> {
+        self.inner.rename_templates(from, to).await
     }
 
     async fn retain_templates(&self, proxy: &str, keep: &[String]) -> Result<(), StoreError> {

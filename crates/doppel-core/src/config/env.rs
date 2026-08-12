@@ -1,4 +1,5 @@
-//! Admin tokens supplied by the environment.
+//! Configuration supplied by the environment: the admin tokens, and the
+//! external url.
 //!
 //! A deployment that provisions its secrets through the environment should
 //! not have to write them into the configuration document to use them. These
@@ -16,10 +17,45 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 
-use super::{Name, Token, TokenConfig};
+use super::{ExternalUrl, Name, Token, TokenConfig, UrlError};
 
 /// The variable read at startup.
 pub const VAR: &str = "DOPPEL_ADMIN_TOKENS";
+
+/// The variable that overrides `server.external_url`.
+pub const EXTERNAL_URL_VAR: &str = "DOPPEL_EXTERNAL_URL";
+
+/// Why `DOPPEL_EXTERNAL_URL` was refused.
+///
+/// Fails startup rather than being logged and skipped, for the reason the token
+/// errors do: an operator who set it and got no error believes redirects are
+/// being rewritten to that address.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{EXTERNAL_URL_VAR} is not usable: {reason}")]
+pub struct EnvExternalUrlError {
+    pub reason: UrlError,
+}
+
+/// `DOPPEL_EXTERNAL_URL`, or `None` when it is unset or empty.
+///
+/// Empty counts as unset, like the token variable: `DOPPEL_EXTERNAL_URL=${HOST}`
+/// with nothing behind `HOST` is a compose file that means nothing by it, not a
+/// deployment to refuse to start.
+///
+/// Not merged into `Config`, and for the same reason the tokens are not: the
+/// revision is computed over the document, so folding an environment value into
+/// it would make two instances reading one stored document disagree about the
+/// revision, and every compare-and-swap between them fail for a difference
+/// neither wrote.
+pub fn external_url_from_env() -> Result<Option<ExternalUrl>, EnvExternalUrlError> {
+    match std::env::var(EXTERNAL_URL_VAR) {
+        Ok(raw) if raw.trim().is_empty() => Ok(None),
+        Ok(raw) => ExternalUrl::parse(raw.trim())
+            .map(Some)
+            .map_err(|reason| EnvExternalUrlError { reason }),
+        Err(_) => Ok(None),
+    }
+}
 
 /// Tokens provided by the environment, in the order they were written.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

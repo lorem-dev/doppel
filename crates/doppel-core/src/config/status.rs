@@ -114,6 +114,7 @@ impl utoipa::PartialSchema for HttpStatus {
             .minimum(Some(f64::from(MIN)))
             .maximum(Some(f64::from(MAX)))
             .description(Some("An HTTP status code, 100 to 599."))
+            .examples([serde_json::json!(200)])
             .into()
     }
 }

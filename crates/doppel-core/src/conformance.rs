@@ -31,6 +31,13 @@ admin:
   access: {}
   upload:
     limit: 1Mi
+  # Both present and both non-default, for the same reason as
+  # `rewrite_redirects` below -- and with one more thing to say: since the
+  # PostgreSQL store keeps the document as JSON, these two arrived without a
+  # migration of their own. A store that had gone on needing a column per field
+  # would fail here rather than in production.
+  dashboard: false
+  title: "Doppel (conformance)"
 proxies:
   - name: alpha
     type: http
@@ -66,6 +73,8 @@ pub async fn run_all(store: &dyn ConfigStore) {
     retain_templates_with_an_empty_keep_removes_everything(store).await;
     an_unusable_template_name_is_refused(store).await;
     templates_are_listed_in_a_stable_order(store).await;
+    renaming_a_proxy_carries_its_templates(store).await;
+    renaming_a_proxy_with_no_templates_is_not_an_error(store).await;
 }
 
 async fn load_returns_what_save_wrote(store: &dyn ConfigStore) {
@@ -191,6 +200,55 @@ async fn retain_templates_with_an_empty_keep_removes_everything(store: &dyn Conf
             .expect("list")
             .is_empty(),
         "an empty keep must remove the proxy's storage entirely"
+    );
+}
+
+async fn renaming_a_proxy_carries_its_templates(store: &dyn ConfigStore) {
+    // A proxy's name is where its templates live, so a rename that left them behind
+    // would leave every mock naming a file that is not there.
+    store.save(&base(), None).await.expect("provision");
+    store
+        .save_template("alpha", "put.j2", b"body")
+        .await
+        .unwrap();
+
+    store
+        .rename_templates("alpha", "renamed")
+        .await
+        .expect("rename");
+
+    let moved = store.load_templates("renamed").await.expect("list");
+    assert_eq!(
+        moved.len(),
+        1,
+        "the template did not arrive under the new name"
+    );
+    assert_eq!(moved[0].name, "put.j2");
+    assert_eq!(moved[0].content, b"body", "the contents changed on the way");
+    assert!(
+        store
+            .load_templates("alpha")
+            .await
+            .expect("list")
+            .is_empty(),
+        "the old name still has templates, so they were copied rather than moved"
+    );
+}
+
+async fn renaming_a_proxy_with_no_templates_is_not_an_error(store: &dyn ConfigStore) {
+    // The common case: most proxies have no templates at all, and renaming one must
+    // not depend on whether it does.
+    store.save(&base(), None).await.expect("provision");
+    store
+        .rename_templates("beta", "beta-renamed")
+        .await
+        .expect("renaming a proxy with no templates must succeed");
+    assert!(
+        store
+            .load_templates("beta-renamed")
+            .await
+            .expect("list")
+            .is_empty()
     );
 }
 
