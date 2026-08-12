@@ -1,0 +1,441 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router'
+
+import { Banner } from '../components/Banner'
+import { Button } from '../components/Button'
+import { Field, inputClass } from '../components/Field'
+import { KeyValueRows, fromRows, toRows } from '../components/KeyValueRows'
+import { MockEditor, emptyMock } from '../components/MockEditor'
+import { Spinner } from '../components/Spinner'
+import type { ProxyConfig } from '../types/proxy'
+import { ApiError, complaintAbout } from '../types/error'
+import { useMay } from '../store/access'
+import { useToasts } from '../store/toast'
+import { createProxy, readProxy, updateProxy } from '../services/proxies'
+
+/** A new proxy, with the two fields the server requires. */
+const BLANK: ProxyConfig = { name: '', type: 'http', url: '' }
+
+/**
+ * An optional number field: empty means absent, not zero.
+ *
+ * Anything that is not a number is also absent. `Number('abc')` is `NaN`, which
+ * `JSON.stringify` writes as `null` -- so without this the server would refuse the
+ * document with a complaint about a null where the operator had typed a word.
+ */
+function numberOr(value: string): number | undefined {
+  const trimmed = value.trim()
+  if (trimmed === '') {
+    return undefined
+  }
+  const parsed = Number(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+/**
+ * Create or edit one proxy, field by field.
+ *
+ * The form covers every field of `ProxyConfig`, and `schema-drift.test.ts` is
+ * what keeps that true: it reads `doppel-config.schema.json` and fails when the
+ * configuration format grows a field this file does not mention.
+ *
+ * Nothing here re-implements the configuration's rules. The client checks only
+ * what a form can know on its own -- a required box is empty, a number is not a
+ * number -- and everything else is the server's answer, mapped back onto the
+ * field it is about.
+ */
+export default function ProxyFormPage() {
+  const { name } = useParams()
+  const editing = name !== undefined
+  const navigate = useNavigate()
+  const may = useMay()
+  const push = useToasts((state) => state.push)
+
+  const [draft, setDraft] = useState<ProxyConfig>(BLANK)
+  const [revision, setRevision] = useState<string>()
+  const [loading, setLoading] = useState(editing)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<ApiError>()
+
+  useEffect(() => {
+    if (!editing) {
+      return
+    }
+    readProxy(name)
+      .then((view) => {
+        setDraft(view.proxy)
+        setRevision(view.revision)
+        setError(undefined)
+      })
+      .catch((caught: ApiError) => setError(caught))
+      .finally(() => setLoading(false))
+  }, [editing, name])
+
+  const allowed = editing ? may('update', name) : may('create')
+
+  /**
+   * The server's complaint about one field, if it made one.
+   *
+   * The form asks about a field it knows; nothing here reads paths out of the
+   * message. A complaint that matches no field stays in the banner rather than
+   * being dropped -- which is where all of them end up when the refusal is about
+   * the document as a whole.
+   */
+  const errorFor = useCallback(
+    (field: string): string | undefined =>
+      error ? complaintAbout(error, field) : undefined,
+    [error],
+  )
+
+  const save = () => {
+    setSaving(true)
+    const done = (message: string) => {
+      push('done', message)
+      void navigate('/')
+    }
+    const failed = (caught: ApiError) => {
+      setError(caught)
+      setSaving(false)
+    }
+
+    if (editing) {
+      if (!revision) {
+        // Unreachable through the UI -- the revision arrives with the document --
+        // and worth refusing rather than sending a blind write the server would
+        // answer 428 to.
+        failed(new ApiError(0, 'REVISION_REQUIRED', 'this proxy was never loaded'))
+        return
+      }
+      updateProxy(name, revision, draft)
+        .then(() => done(`Updated ${draft.name}`))
+        .catch(failed)
+      return
+    }
+    createProxy(draft)
+      .then(() => done(`Created ${draft.name}`))
+      .catch(failed)
+  }
+
+  if (loading) {
+    return <Spinner label="Reading the proxy..." />
+  }
+
+  const patch = (fields: Partial<ProxyConfig>) => setDraft({ ...draft, ...fields })
+
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">
+          {editing ? `Edit ${name}` : 'Add a proxy'}
+        </h2>
+        {revision ? (
+          <span className="font-mono text-xs text-slate-500 dark:text-slate-400">{revision}</span>
+        ) : null}
+      </div>
+
+      {error ? (
+        <Banner kind="error">
+          {error.isStale
+            ? `${error.message}\nThis proxy changed since it was loaded. Reload the page to see the current document.`
+            : error.message}
+        </Banner>
+      ) : null}
+
+      <Field label="Name" hint="Letters, digits, - and _, 2 to 32 characters." error={errorFor('name')}>
+        <input
+          className={inputClass}
+          value={draft.name}
+          disabled={!allowed || saving}
+          onChange={(event) => patch({ name: event.target.value })}
+        />
+      </Field>
+
+      <Field label="Type" hint="Only http. tcp is not implemented and the server refuses it.">
+        <input className={inputClass} value={draft.type} disabled readOnly aria-label="Type" />
+      </Field>
+
+      <Field label="Upstream URL" error={errorFor('url')}>
+        <input
+          className={inputClass}
+          value={draft.url}
+          disabled={!allowed || saving}
+          onChange={(event) => patch({ url: event.target.value })}
+        />
+      </Field>
+
+      <div className="flex gap-2">
+        <Field label="Timeout (seconds)" hint="Absent means no per-proxy timeout." error={errorFor('timeout')}>
+          <input
+            className={inputClass}
+            type="number"
+            value={draft.timeout ?? ''}
+            disabled={!allowed || saving}
+            onChange={(event) => patch({ timeout: numberOr(event.target.value) })}
+          />
+        </Field>
+        <Field label="Body limit" hint="Bytes, or 4Mi." error={errorFor('body_limit')}>
+          <input
+            className={inputClass}
+            value={draft.body_limit ?? ''}
+            disabled={!allowed || saving}
+            onChange={(event) =>
+              patch({ body_limit: event.target.value.trim() === '' ? undefined : event.target.value })
+            }
+          />
+        </Field>
+      </div>
+
+      <div className="flex gap-2">
+        <Field label="Resolve by">
+          <select
+            className={inputClass}
+            aria-label="Resolve by"
+            value={draft.resolve?.type ?? 'default'}
+            disabled={!allowed || saving}
+            onChange={(event) =>
+              patch({
+                resolve:
+                  event.target.value === 'header'
+                    ? { type: 'header', header: draft.resolve?.header ?? 'X-Proxy-Name' }
+                    : { type: 'default' },
+              })
+            }
+          >
+            <option value="default">The default proxy</option>
+            <option value="header">A request header</option>
+          </select>
+        </Field>
+        {draft.resolve?.type === 'header' ? (
+          <div className="grow">
+            <Field label="Header name" error={errorFor('header')}>
+              <input
+                className={inputClass}
+                value={draft.resolve.header ?? ''}
+                disabled={!allowed || saving}
+                onChange={(event) => patch({ resolve: { type: 'header', header: event.target.value } })}
+              />
+            </Field>
+          </div>
+        ) : null}
+      </div>
+
+      <KeyValueRows
+        label="Headers sent upstream"
+        keyLabel="header name"
+        valueLabel="value"
+        disabled={!allowed || saving}
+        rows={toRows(draft.headers)}
+        onChange={(rows) => patch({ headers: fromRows(rows) })}
+      />
+
+      <fieldset className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">
+        <legend className="text-sm font-semibold text-slate-900 dark:text-slate-100">Faults</legend>
+        <div className="flex gap-2">
+          <Field
+            label="Replace"
+            hint="A fraction: 0.25 replaces a quarter of matching requests with a mock."
+            error={errorFor('replace')}
+          >
+            <input
+              className={inputClass}
+              type="number"
+              step="0.01"
+              value={draft.replace ?? ''}
+              disabled={!allowed || saving}
+              onChange={(event) => patch({ replace: numberOr(event.target.value) })}
+            />
+          </Field>
+          <Field label="Rewrite redirects" hint="On by default: a Location pointing upstream is pointed back here.">
+            <select
+              className={inputClass}
+              aria-label="Rewrite redirects"
+              value={draft.rewrite_redirects === undefined ? 'default' : String(draft.rewrite_redirects)}
+              disabled={!allowed || saving}
+              onChange={(event) =>
+                patch({
+                  rewrite_redirects:
+                    event.target.value === 'default' ? undefined : event.target.value === 'true',
+                })
+              }
+            >
+              <option value="default">Default (on)</option>
+              <option value="true">On</option>
+              <option value="false">Off</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="flex gap-2">
+          <Field label="Loss rate" hint="A fraction. Leave empty for none." error={errorFor('percentage')}>
+            <input
+              className={inputClass}
+              type="number"
+              step="0.01"
+              value={draft.loss?.percentage ?? ''}
+              disabled={!allowed || saving}
+              onChange={(event) => {
+                const percentage = numberOr(event.target.value)
+                patch({
+                  loss:
+                    percentage === undefined
+                      ? undefined
+                      : { percentage, status: draft.loss?.status ?? 503 },
+                })
+              }}
+            />
+          </Field>
+          <Field label="Loss status" error={errorFor('status')}>
+            <input
+              className={inputClass}
+              type="number"
+              value={draft.loss?.status ?? ''}
+              disabled={!allowed || saving || !draft.loss}
+              onChange={(event) =>
+                patch({
+                  loss: draft.loss
+                    ? { ...draft.loss, status: Number(event.target.value) }
+                    : undefined,
+                })
+              }
+            />
+          </Field>
+        </div>
+
+        <div className="flex gap-2">
+          <Field label="Latency rate" hint="A fraction of requests to delay.">
+            <input
+              className={inputClass}
+              type="number"
+              step="0.01"
+              value={draft.latency?.percentage ?? ''}
+              disabled={!allowed || saving}
+              onChange={(event) => {
+                const percentage = numberOr(event.target.value)
+                patch({
+                  latency:
+                    percentage === undefined
+                      ? undefined
+                      : {
+                          percentage,
+                          min: draft.latency?.min ?? 0,
+                          max: draft.latency?.max ?? 1,
+                        },
+                })
+              }}
+            />
+          </Field>
+          <Field label="Minimum (seconds)" error={errorFor('min')}>
+            <input
+              className={inputClass}
+              type="number"
+              step="0.1"
+              value={draft.latency?.min ?? ''}
+              disabled={!allowed || saving || !draft.latency}
+              onChange={(event) =>
+                patch({
+                  latency: draft.latency
+                    ? { ...draft.latency, min: Number(event.target.value) }
+                    : undefined,
+                })
+              }
+            />
+          </Field>
+          <Field label="Maximum (seconds)" error={errorFor('max')}>
+            <input
+              className={inputClass}
+              type="number"
+              step="0.1"
+              value={draft.latency?.max ?? ''}
+              disabled={!allowed || saving || !draft.latency}
+              onChange={(event) =>
+                patch({
+                  latency: draft.latency
+                    ? { ...draft.latency, max: Number(event.target.value) }
+                    : undefined,
+                })
+              }
+            />
+          </Field>
+        </div>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2 rounded border border-slate-200 p-3 dark:border-slate-800">
+        <legend className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+          Access overrides
+        </legend>
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          Empty means this proxy follows <code>admin.access</code>. A name must be one
+          <code> admin.groups</code> allows.
+        </p>
+        {(['read', 'update', 'delete', 'upload'] as const).map((action) => {
+          const current = draft.access?.[action]
+          const value = current === undefined ? '' : current === 'public' ? 'public' : current.join(', ')
+          return (
+            <Field key={action} label={action} error={errorFor(action)}>
+              <input
+                className={inputClass}
+                placeholder="inherit"
+                value={value}
+                disabled={!allowed || saving}
+                onChange={(event) => {
+                  const text = event.target.value.trim()
+                  const access = { ...draft.access }
+                  if (text === '') {
+                    delete access[action]
+                  } else if (text === 'public') {
+                    access[action] = 'public'
+                  } else {
+                    access[action] = text.split(',').map((part) => part.trim()).filter(Boolean)
+                  }
+                  patch({ access: Object.keys(access).length ? access : undefined })
+                }}
+              />
+            </Field>
+          )
+        })}
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3 rounded border border-slate-200 p-3 dark:border-slate-800">
+        <legend className="text-sm font-semibold text-slate-900 dark:text-slate-100">Mocks</legend>
+        {(draft.mocks ?? []).map((mock, index) => (
+          <MockEditor
+            key={index}
+            mock={mock}
+            index={index}
+            disabled={!allowed || saving}
+            errorFor={errorFor}
+            onChange={(next) => {
+              const mocks = [...(draft.mocks ?? [])]
+              mocks[index] = next
+              patch({ mocks })
+            }}
+            onRemove={() => {
+              const mocks = (draft.mocks ?? []).filter((_, at) => at !== index)
+              patch({ mocks: mocks.length ? mocks : undefined })
+            }}
+          />
+        ))}
+        <Button
+          disabled={!allowed || saving}
+          onClick={() => patch({ mocks: [...(draft.mocks ?? []), emptyMock((draft.mocks ?? []).length)] })}
+        >
+          Add a mock
+        </Button>
+      </fieldset>
+
+      <div className="flex items-center gap-2">
+        <Button
+          variant="primary"
+          onClick={save}
+          disabled={!allowed || saving || !draft.name.trim() || !draft.url.trim()}
+          reason={editing ? 'This token may not change this proxy' : 'This token may not create proxies'}
+        >
+          {saving ? 'Saving...' : editing ? 'Save changes' : 'Create proxy'}
+        </Button>
+        <Button onClick={() => void navigate('/')} disabled={saving}>
+          Cancel
+        </Button>
+      </div>
+    </section>
+  )
+}

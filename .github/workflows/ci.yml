@@ -64,10 +64,33 @@ jobs:
       # supposed to exercise the store and silently did not is worse than one
       # that failed.
       DOPPEL_REQUIRE_DATABASE: "1"
+      # Same idea as DOPPEL_REQUIRE_DATABASE, for the dashboard: the suites that
+      # exercise real asset delivery skip themselves when the binary was built
+      # without `frontend/dist`, which is right on a laptop and wrong here.
+      DOPPEL_REQUIRE_DASHBOARD_ASSETS: "1"
 
     steps:
+      # `lfs: true` because the icons are tracked through git-lfs and the frontend
+      # build copies the favicon out of `assets/`. Without it the checkout holds a
+      # pointer file and the copy lands a few lines of text where an image goes.
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # Built here rather than pulled from the frontend job as an artifact: this
+      # keeps the two jobs independent and parallel, and twenty seconds of npm is
+      # cheaper than serialising the graph. The admin crate's build script embeds
+      # whatever is in `frontend/dist`, so this has to happen before `cargo test`.
+      - name: Build the dashboard for the admin crate to embed
+        run: npm --prefix frontend ci && npm --prefix frontend run build
 
       # No toolchain is named here. `rust-toolchain.toml` pins the channel and
       # the components, and rustup honours it; naming a version in the workflow
@@ -116,8 +139,11 @@ jobs:
     timeout-minutes: 10
 
     steps:
+      # `lfs: true` for the icons the documentation shows; see the rust job.
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          lfs: true
 
       # Pinned to an exact release, unlike every other action here. astral-sh
       # publishes `v9.0.0` but stopped publishing the sliding major tag after
@@ -131,3 +157,105 @@ jobs:
       # moved.
       - name: Build the site (strict)
         run: uv run --with-requirements docs/requirements.txt mkdocs build --strict
+
+  frontend:
+    name: Frontend lint, types, tests, size
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Lint
+        run: npm run lint
+        working-directory: frontend
+
+      # Two projects: the application and the Playwright suite. They have
+      # different globals -- jest's and Playwright's `expect` collide -- so a
+      # single project would have to pick one and leave the other unchecked.
+      - name: Types
+        run: npm run typecheck && npx tsc --noEmit -p tsconfig.e2e.json
+        working-directory: frontend
+
+      # Before the tests, because the bundle-size suite measures what this
+      # produces. A test that silently skipped when `dist` was missing would make
+      # the budget a preference again.
+      - name: Build
+        run: npm run build
+        working-directory: frontend
+
+      - name: Tests, including the bundle-size budgets
+        run: npm test
+        working-directory: frontend
+
+  e2e:
+    name: Dashboard end to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup show active-toolchain
+
+      - name: Cache cargo registry and target
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      # The dashboard is embedded at compile time, so the order matters: build the
+      # assets, then the binary. Building the binary first embeds nothing and every
+      # scenario then fails against a 503.
+      - name: Build the dashboard
+        run: npm run build
+        working-directory: frontend
+
+      - name: Build the binary the specs drive
+        run: cargo build -p doppel-cli
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run the scenarios
+        run: npm run e2e
+        working-directory: frontend
+
+      # Only on a failure, and only the report: a trace for a green run is an
+      # upload nobody opens.
+      - name: Upload the report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: frontend/playwright-report
+          retention-days: 7

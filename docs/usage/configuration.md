@@ -115,6 +115,8 @@ The admin listener's address, its tokens, and who may do what.
 ```yaml
 admin:
   enable: true
+  dashboard: true
+  title: "Doppel"
   host: "0.0.0.0"
   port: 8081
   public: false
@@ -146,6 +148,14 @@ The validation rules do not consult it. A configuration that is only safe
 because nothing serves it is a trap set for whoever turns the listener on
 later, and they will not re-read the rules first -- so rule V34 still refuses
 a public write action with the listener off.
+
+`dashboard` defaults to `true` and serves the browser dashboard from this
+listener's root: `/`, `/static/{path}` and `/robots.txt`. `false` leaves those
+three unrouted -- they answer 404 like any other unknown path -- and changes
+nothing about the JSON API. `title` is the heading that dashboard shows and the
+browser tab's name, at most 64 characters and free of control characters,
+defaulting to `Doppel`. Both take effect on restart, since the routes are built
+once. See [The dashboard](dashboard.md).
 
 Toggling it takes effect on restart, not on reload; a reload reports `admin`
 among the sections it could not apply.

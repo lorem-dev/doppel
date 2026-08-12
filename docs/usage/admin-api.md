@@ -126,6 +126,7 @@ would not help.
 | POST | `/api/v1/proxies/{name}/templates/{file}` | `upload` | `204` |
 | DELETE | `/api/v1/proxies/{name}/templates/{file}` | `upload` | `204` |
 | POST | `/api/v1/config/reload` | `update` | `200` |
+| GET | `/api/v1/access` | none | `200` |
 | GET | `/status` | none | `200` |
 | GET | `/metrics` | none | `200` |
 | GET | `/openapi.json` | none | `200` |
@@ -134,6 +135,44 @@ would not help.
 `/status`, `/metrics`, `/openapi.json` and `/swagger-ui` sit outside
 `/api/v1` because they are not resources of the API; they describe or observe
 the process.
+
+The dashboard adds three more routes -- `/`, `/static/{path}` and `/robots.txt` --
+when `admin.dashboard` is on. They serve a browser page rather than the API, so
+they are outside the OpenAPI document; see [The dashboard](dashboard.md).
+
+### What the caller may do
+
+`GET /api/v1/access` reports the calling token's own rights. It answers `200` for
+everybody, anonymous included: an endpoint whose purpose is to say "you may do
+nothing" cannot itself require a right, and it discloses nothing that attempting
+the six actions would not.
+
+```json
+{
+  "caller": { "kind": "token", "name": "ci", "group": "ops" },
+  "global": {
+    "list": true, "read": true, "create": false,
+    "update": false, "delete": false, "upload": false
+  },
+  "proxies": {
+    "alpha": { "read": true, "update": false, "delete": false, "upload": false }
+  }
+}
+```
+
+- `caller` is `{"kind": "anonymous"}` for a request with no token, or with one
+  this configuration does not recognise -- the two are deliberately not
+  distinguished.
+- `global` is the six actions as `admin.access` decides them for this caller.
+- `proxies` gives the four overridable actions per proxy, with that proxy's own
+  `access` block applied. It is **absent** -- not empty -- when the caller may not
+  `list`: the map is keyed by proxy name, so returning it would be a proxy listing
+  by another route.
+
+Every value is the same decision the endpoint itself would make, evaluated by the
+same code. It exists so a client can disable an action instead of offering it and
+being refused; it is not a substitute for handling `401` and `403`, since rights
+can change under a running page.
 
 ### Bodies
 
@@ -244,6 +283,7 @@ and an oversized body all carry the envelope rather than an empty body.
 | `METHOD_NOT_ALLOWED` | 405 | The path exists and does not accept that verb; the response also carries `Allow` |
 | `PROXY_NOT_RESOLVED` | 404 | No proxy matched and there is no default |
 | `NO_PROXIES_CONFIGURED` | 503 | The configuration names no proxies at all. See [No proxies configured](proxying.md#no-proxies-configured) |
+| `DASHBOARD_NOT_BUILT` | 503 | `GET /` on a binary compiled without the dashboard's assets. See [When the root answers 503](dashboard.md#when-the-root-answers-503) |
 | `CONFLICT` | 409 | The name exists, or the store is under sustained contention |
 | `REVISION_MISMATCH` | 409 | The proxy changed since it was read |
 | `UPLOAD_TOO_LARGE` | 413 | A template body over `admin.upload.limit`, or a configuration document over 1 MiB |

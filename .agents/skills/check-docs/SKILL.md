@@ -120,3 +120,30 @@ Say what you compared, not just that you checked. "Every config field has a
 reference entry; the rule-map tests pass; two `usage/` pages named crates and
 were reworded; `mkdocs build --strict` is clean" is a useful report. "Docs look
 fine" is not.
+
+## The dashboard and the frontend
+
+`docs/usage/dashboard.md` is the operator-facing page: the two configuration
+fields, who may use it, what each screen does, the theme, and what a 503 at the
+root means. `docs/development/architecture.md` carries the developer-facing half.
+
+Check these together, because they go stale as a set:
+
+- `admin.dashboard` and `admin.title` in `docs/usage/configuration.md` and in
+  `main.example.yaml`.
+- `GET /api/v1/access` and the three dashboard routes in
+  `docs/usage/admin-api.md`, plus `DASHBOARD_NOT_BUILT` in its error table.
+- The build order in `README.md`: assets first, then the binary. A reader who
+  follows a stale version of that gets a 503 and no idea why.
+- `make help`. Every target carries its own description, so the list cannot go
+  stale on its own -- but a documented command that no longer matches a target is
+  worth catching here.
+- The four pages a reader reaches for before the dashboard's own: `docs/index.md`
+  (the feature list and the reading order), `usage/getting-started.md` (a first run
+  ends by opening it), `usage/troubleshooting.md` (the 503, disabled controls, the
+  refresh timer) and `DOCKERHUB.md` (the image serves it too). A feature documented
+  only on its own page is a feature nobody finds.
+
+The icons live in `assets/` at the repository root and are staged into
+`docs/assets/` by `scripts/mkdocs_assets.py` on every build. `docs/assets/` is
+git-ignored: a link that points there is fine, a file committed there is not.

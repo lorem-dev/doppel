@@ -140,6 +140,17 @@ compiled and both listeners are bound. `-f` matters: without it `curl` exits 0
 on a 500 and the check passes for answering at all rather than for answering
 correctly.
 
+## The dashboard
+
+The admin port serves a browser dashboard from its root -- the proxy set, a form
+over every field of a proxy, mock templates, status and reload -- compiled into
+the image. Publish `8081` as the quick start above does and open
+`http://127.0.0.1:8081/`.
+
+It is a client of the admin API and bound by the same token rules, so it offers
+only what the caller's token may actually do. `admin.dashboard: false` turns it
+off; the JSON API is unaffected either way.
+
 ## Tokens
 
 `DOPPEL_ADMIN_TOKENS` keeps secrets out of the configuration file that gets

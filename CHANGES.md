@@ -8,6 +8,20 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+### Added
+
+- A browser dashboard on the admin listener's root, compiled into the binary:
+  proxy CRUD, mock templates, status and reload. `admin.dashboard`, `admin.title`.
+- `GET /api/v1/access` reports the calling token's own rights, so a client can
+  disable an action instead of offering it and being refused.
+- A Makefile: `make help` lists every target, `make gate` runs the whole check
+  suite.
+
+### Changed
+
+- The PostgreSQL store keeps the configuration as JSON, so a new field no longer
+  needs a migration. Migration 0005 backfills it.
+
 ## 0.4.1 -- 2026-08-11
 
 ### Added

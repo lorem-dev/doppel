@@ -123,3 +123,16 @@ forwarding it:
 Everything else still goes upstream. See [Mocks and templating](mocks.md) for
 variables, templates, and the ordering rule that matters once you have more
 than one mock.
+
+## Or do all of that in a browser
+
+The admin port serves a dashboard from its root:
+
+```
+http://127.0.0.1:8081/
+```
+
+The proxy set, a form over every field of a proxy, the mock templates, and the
+reload button -- the same admin API this page drives with curl, with the same
+token rules. `admin.dashboard: false` turns it off. See
+[The dashboard](dashboard.md).

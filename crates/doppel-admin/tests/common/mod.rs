@@ -306,6 +306,12 @@ pub struct Reply {
     pub content_type: Option<String>,
     pub allow: Option<String>,
     pub body: String,
+    /// The body as it arrived. An embedded asset is not necessarily text -- the
+    /// favicon is not -- so `body` cannot be the only view of it.
+    pub bytes: Vec<u8>,
+    /// Every response header, lower-cased, for the assertions that are about a
+    /// header this struct has no field for.
+    pub headers: std::collections::HashMap<String, String>,
 }
 
 impl Reply {
@@ -322,6 +328,16 @@ impl Reply {
         let location = header("location");
         let content_type = header("content-type");
         let allow = header("allow");
+        let headers = response
+            .headers()
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .to_str()
+                    .ok()
+                    .map(|value| (name.as_str().to_owned(), value.to_owned()))
+            })
+            .collect();
         let bytes = axum::body::to_bytes(response.into_body(), 1 << 20)
             .await
             .expect("collect body");
@@ -331,8 +347,17 @@ impl Reply {
             location,
             content_type,
             allow,
-            body: String::from_utf8(bytes.to_vec()).expect("body is utf-8"),
+            // Lossy rather than strict: an asset response is bytes, and a test
+            // asserting on a header should not panic on the body's encoding.
+            body: String::from_utf8_lossy(&bytes).into_owned(),
+            bytes: bytes.to_vec(),
+            headers,
         }
+    }
+
+    /// One response header, or `None`.
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers.get(name).map(String::as_str)
     }
 
     pub fn json(&self) -> serde_json::Value {

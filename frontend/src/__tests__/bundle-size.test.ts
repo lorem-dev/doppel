@@ -1,0 +1,94 @@
+// The static payload has a budget, and the budget has a test.
+//
+// "As small as possible" is a preference until something fails when it is
+// broken. Measured gzipped, because that is what crosses the wire, and split by
+// role: the entry chunk is what every visitor pays for, a page chunk is paid
+// only by whoever opens that page, and the editor chunk exists precisely so that
+// prism is not paid for by someone who only lists proxies.
+//
+// The numbers are the measured sizes plus about ten percent. They are recorded
+// beside each budget so that a jump shows up in the diff as a number somebody
+// chose rather than as a limit quietly raised to make a build pass.
+import { gzipSync } from 'node:zlib'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+
+const DIST = join(__dirname, '../../dist')
+const ASSETS = join(DIST, 'assets')
+
+/** Gzipped kilobytes of one built file. */
+const gzippedKb = (file: string): number =>
+  gzipSync(readFileSync(join(ASSETS, file))).length / 1024
+
+/** The entry chunk is the one `index.html` loads directly. */
+const entryName = (): string => {
+  const html = readFileSync(join(DIST, 'index.html'), 'utf8')
+  const match = /\/static\/assets\/(index-[^"']+\.js)/.exec(html)
+  if (!match?.[1]) {
+    throw new Error(`index.html does not reference an entry chunk:\n${html}`)
+  }
+  return match[1]
+}
+
+describe('the built bundle', () => {
+  beforeAll(() => {
+    if (!existsSync(ASSETS)) {
+      throw new Error(
+        `${ASSETS} does not exist -- run \`npm run build\` before \`npm test\`, ` +
+          'which CI does in that order',
+      )
+    }
+  })
+
+  it('keeps the entry chunk within its budget', () => {
+    // Measured 73.9 KB: react, react-dom, react-router's component API and the
+    // shell. It was 90 with `createBrowserRouter`, whose loaders and fetchers
+    // this app does not use -- see app/routes.tsx.
+    const BUDGET_KB = 82
+    const size = gzippedKb(entryName())
+    expect(size).toBeLessThanOrEqual(BUDGET_KB)
+  })
+
+  it('keeps every lazy chunk within its budget', () => {
+    // Measured: the largest page chunk is 3.7 KB (the proxy form) and the editor
+    // is 10.8. The page budget is deliberately looser than measured-plus-ten:
+    // a page gaining a section is ordinary and should not need this file edited,
+    // while a page gaining a *library* is what this is here to catch, and any
+    // library clears 8 KB.
+    const PAGE_BUDGET_KB = 8
+    const EDITOR_BUDGET_KB = 12
+    const entry = entryName()
+
+    for (const file of readdirSync(ASSETS).filter((f) => f.endsWith('.js') && f !== entry)) {
+      const budget = file.includes('CodeEditor') ? EDITOR_BUDGET_KB : PAGE_BUDGET_KB
+      expect(gzippedKb(file)).toBeLessThanOrEqual(budget)
+    }
+  })
+
+  it('keeps the stylesheet within its budget', () => {
+    // Measured 3.8 KB. Tailwind emits only the utilities the source actually
+    // uses, so this grows with the number of distinct classes, not with the app.
+    const BUDGET_KB = 6
+    const total = readdirSync(ASSETS)
+      .filter((file) => file.endsWith('.css'))
+      .reduce((sum, file) => sum + gzippedKb(file), 0)
+    expect(total).toBeLessThanOrEqual(BUDGET_KB)
+  })
+
+  it('keeps the whole payload within its budget', () => {
+    // Measured 100 KB across every chunk and the stylesheet. The sum is here so
+    // that splitting a chunk in two cannot slip past the per-chunk budgets while
+    // making the payload heavier overall.
+    const BUDGET_KB = 110
+    const total = readdirSync(ASSETS).reduce((sum, file) => sum + gzippedKb(file), 0)
+    expect(total).toBeLessThanOrEqual(BUDGET_KB)
+  })
+
+  it('does not carry the syntax highlighter in the entry chunk', () => {
+    // The whole reason the editor is a lazy chunk. A budget alone would not
+    // catch this: prism is small enough to hide inside the entry's slack, and
+    // then every visitor pays for it to list proxies.
+    const entry = readFileSync(join(ASSETS, entryName()), 'utf8')
+    expect(entry).not.toMatch(/prism/i)
+  })
+})

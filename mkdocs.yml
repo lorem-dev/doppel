@@ -60,6 +60,7 @@ nav:
       - Several backends behind one port: usage/multiple-backends.md
       - Changing configuration while it runs: usage/runtime-changes.md
       - The admin API: usage/admin-api.md
+      - The dashboard: usage/dashboard.md
       - Storing configuration in PostgreSQL: usage/storage.md
       - Observability: usage/observability.md
       - Configuration reference: usage/configuration.md

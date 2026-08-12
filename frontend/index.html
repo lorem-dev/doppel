@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The listener sends `X-Robots-Tag` as well. This is here for a crawler
+         that reads markup and ignores headers; an admin dashboard has no
+         business in a search index. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" href="/static/favicon.ico" sizes="any" />
+    <!-- Replaced with the real title by the app, from the injected
+         configuration. What is here is what a browser shows before the bundle
+         runs. -->
+    <title>Doppel</title>
+    <!-- Substituted at request time by the admin listener. The placeholder is
+         what `npm run dev` sees, so the app is developable without a server
+         rendering it: the shape is the same, the values are not. -->
+    <script type="application/json" id="doppel-config">
+      {"title":"Doppel","public":false,"version":"dev","authHeader":"X-Proxy-Authorization","refreshMs":60000}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

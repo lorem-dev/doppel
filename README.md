@@ -61,6 +61,12 @@ version. See
   concurrency, template upload, reload, a status endpoint, Prometheus metrics
   and a generated Swagger UI, behind token access control. See
   [the documentation](https://lorem-dev.github.io/doppel/usage/admin-api/).
+- Serves a browser dashboard from that same port's root, compiled into the
+  binary: the proxy list, a form over the whole proxy document, mock templates,
+  status and reload. It is a client of the admin API and bound by the same token
+  rules, so it offers only what the caller may actually do -- and works without a
+  token wherever the API does. `admin.dashboard: false` turns it off. See
+  [the documentation](https://lorem-dev.github.io/doppel/usage/dashboard/).
 - Reports errors to Sentry, optionally, behind the `sentry` cargo feature.
 - Stores its configuration in a YAML file or in PostgreSQL, selected by
   `--store`, with `config push` and `config pull` to move a configuration
@@ -86,6 +92,16 @@ never `pip`:
 uv run --with-requirements docs/requirements.txt mkdocs serve
 ```
 
+The dashboard's source is `frontend/`; building it needs Node, and the binary
+embeds whatever `frontend/dist` holds at compile time:
+
+```bash
+npm --prefix frontend ci && npm --prefix frontend run build
+cargo build --release -p doppel-cli
+```
+
+Skipping that leaves a working binary whose root answers 503 and says so.
+
 The workspace layout -- the crates, what each owns, and the dependency
 direction -- is in
 [the architecture page](https://lorem-dev.github.io/doppel/development/architecture/).
@@ -99,10 +115,15 @@ Prerequisites: a stable Rust toolchain via rustup, edition 2024 (see
 `Cargo.toml` for the pinned `rust-version`).
 
 ```bash
-cargo build --release
+make release                     # the dashboard, then the binary
 cp main.example.yaml main.yaml   # edit to taste; main.yaml is git-ignored
 ./target/release/doppel serve --config main.yaml
 ```
+
+`make help` lists every target: `make gate` runs the whole check suite,
+`make image-rebuild` builds the container image from scratch, `make docs-serve`
+serves the documentation. `cargo build --release` works too, and skips the
+dashboard -- which then answers 503 at the admin root and says so.
 
 `cargo run -- <args>` works the same way during development.
 

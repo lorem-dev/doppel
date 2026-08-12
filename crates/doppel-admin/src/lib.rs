@@ -2,6 +2,7 @@
 
 pub mod access;
 pub mod body;
+pub mod dashboard;
 pub mod openapi;
 pub mod proxies;
 pub mod response;
@@ -19,12 +20,23 @@ pub use state::AdminState;
 /// A router rather than a server: `serve` owns the listener and the shutdown
 /// signal, and the tests drive this directly without binding a port.
 pub fn router(state: AdminState) -> axum::Router {
-    axum::Router::new()
+    // Read from the startup configuration, not the reloaded one: routes are
+    // built once, so turning the dashboard on or off takes a restart -- the same
+    // rule `admin.enable` already follows, and `main.example.yaml` says so.
+    let dashboard = state.startup().admin.is_dashboard_enabled();
+
+    let mut router = axum::Router::new()
         .merge(proxies::routes())
         .merge(templates::routes())
         .merge(status::routes())
         .merge(rights::routes())
-        .merge(openapi::routes())
+        .merge(openapi::routes());
+
+    if dashboard {
+        router = router.merge(dashboard::routes());
+    }
+
+    router
         // Without these two, a typo'd path answers 404 with an empty body and
         // a wrong method answers 405 with one. The contract is that every
         // error carries the envelope, and the paths a client is most likely

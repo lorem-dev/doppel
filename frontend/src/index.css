@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* Class-based dark mode rather than the media query alone: the theme control
+   offers light, dark and system, so the choice has to be expressible as a class
+   on <html> that overrides what the operating system says. `system` is the
+   absence of both classes plus a matchMedia listener. */
+@custom-variant dark (&:where(.dark, .dark *));

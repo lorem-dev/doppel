@@ -27,6 +27,28 @@ changes things. `regenerate-config-schema` is the one exception, and only
 because the thing it writes is generated: if it produces a diff, that diff is a
 commit of its own before the release, not part of the release commit.
 
+## Then check the dashboard
+
+`run-tests-and-linters` covers the frontend gate, but a release has two questions
+of its own, because the dashboard is embedded at compile time and a binary without
+it still builds:
+
+```bash
+make e2e          # the browser suite, which the frontend gate leaves out
+```
+
+Then confirm the release will not ship a page-less binary. The workflow greps each
+archive's binary for the configuration element before publishing -- read that step
+and check it is still there, since it is the only thing standing between a missing
+artifact and a release whose root answers 503:
+
+```bash
+grep -n "carries the dashboard" .github/workflows/release.yml
+```
+
+The dashboard's own version is not bumped and must not be: `frontend/package.json`
+has no `version` field, and the page reports the binary's.
+
 ## Then check the version
 
 ```bash

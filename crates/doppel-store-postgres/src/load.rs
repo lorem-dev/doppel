@@ -55,7 +55,7 @@ impl PostgresStore {
         // The stored document omits `proxies`, which is a `#[serde(default)]`
         // field, so this yields a configuration with an empty proxy list and the
         // rows below fill it in.
-        let mut config: Config = document(&row, "settings")?;
+        let mut config: Config = document(&row, "settings", "settings")?;
         config.proxies = self.proxies(&mut tx).await?;
 
         // The stored revision has to agree with the content it labels. They
@@ -95,7 +95,8 @@ impl PostgresStore {
             // it could not read (`missing field 'max'`) but not the row, and
             // "some proxy is malformed" is not a report anybody can act on.
             let keyed: String = row.try_get("name").map_err(query_failed)?;
-            let proxy: ProxyConfig = document(row, &format!("proxies[{keyed}].document"))?;
+            let proxy: ProxyConfig =
+                document(row, "document", &format!("proxies[{keyed}].document"))?;
 
             // The name is both a column and a field of the document, because the
             // column is the primary key and the field is what the configuration
@@ -120,11 +121,15 @@ impl PostgresStore {
 
 /// A stored JSON document, parsed through the configuration's own types.
 ///
-/// `label` is what the violation is reported under and is not always the column
-/// name -- a proxy's document is reported as `proxies[alpha].document`, because
-/// serde says which field it could not read but nothing about which row held it.
-fn document<T: serde::de::DeserializeOwned>(row: &PgRow, label: &str) -> Result<T, StoreError> {
-    let column = label.rsplit('.').next().unwrap_or(label);
+/// `column` is where to read it; `label` is what a failure is reported under, and
+/// the two are not the same thing -- a proxy's document lives in `document` and is
+/// reported as `proxies[alpha].document`, because serde names the field it could
+/// not read but nothing about which row held it.
+fn document<T: serde::de::DeserializeOwned>(
+    row: &PgRow,
+    column: &str,
+    label: &str,
+) -> Result<T, StoreError> {
     let value: serde_json::Value = row.try_get(column).map_err(query_failed)?;
     serde_json::from_value(value).map_err(|err| corrupt(label, &err.to_string()))
 }
