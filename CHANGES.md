@@ -10,6 +10,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ### Added
 
+- `server.external_url` and `DOPPEL_EXTERNAL_URL`: the address clients reach
+  Doppel at, used when rewriting an upstream's redirects.
 - A browser dashboard on the admin listener's root, compiled into the binary:
   proxy CRUD, mock templates, status and reload. `admin.dashboard`, `admin.title`.
 - `GET /api/v1/access` reports the calling token's own rights, so a client can
@@ -23,6 +25,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
   looks for; under `/api/v1/` the dashboard answered scrapes with HTML.
 - The admin listener accepts a trailing slash on every path. The proxy listener
   still relays one verbatim.
+- A rewritten `Location` names Doppel's host instead of being relative, and now
+  covers a redirect to the upstream's own host outside the proxied path.
 
 - The PostgreSQL store keeps the configuration as JSON, so a new field no longer
   needs a migration. Migration 0005 backfills it.

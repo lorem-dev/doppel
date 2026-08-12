@@ -1345,6 +1345,34 @@ server:
   port: 8080
 ```
 
+### `server.external_url` { #server-external_url }
+
+Where clients reach this Doppel, when that is not `host:port`.
+
+Behind a container port mapping, a load balancer or an ingress, the
+address Doppel bound is not the address a client used -- and a rewritten
+`Location` has to name the second. Doppel cannot infer it: `Host` is a
+claim by the caller, and building a redirect out of it hands the caller
+the redirect.
+
+Absent, `host` and `port` are used, with a wildcard bind (`0.0.0.0`, `::`)
+read as loopback -- which is right for a laptop or a pod reached at its
+own address, and wrong behind a port mapping or an ingress, where the
+client used neither. Doppel logs the address it settled on at startup.
+
+`DOPPEL_EXTERNAL_URL` overrides it. Part of `server`, so a change takes a
+restart like the rest of that section.
+
+| | |
+|---|---|
+| Type | string |
+| Required | no |
+
+```yaml
+server:
+  external_url: https://doppel.example.com/
+```
+
 ### `server.host` { #server-host }
 
 An IP address, not a hostname: a name would have to be resolved,

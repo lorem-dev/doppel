@@ -170,6 +170,13 @@
       },
       "type": "object"
     },
+    "ExternalUrl": {
+      "description": "An absolute http or https url naming where clients reach this Doppel, with no query string or fragment.",
+      "examples": [
+        "https://doppel.example.com/"
+      ],
+      "type": "string"
+    },
     "HeaderName": {
       "description": "An HTTP header name: a non-empty RFC 9110 token.",
       "examples": [
@@ -749,6 +756,17 @@
       "additionalProperties": false,
       "description": "No `workers` here. It sizes the tokio runtime, and a database-backed\nstore cannot be opened before that runtime exists -- so the value has to\nbe known before the configuration is read, which puts it on the same side\nof the boundary as the connection settings. It is `--workers` /\n`DOPPEL_WORKERS`.",
       "properties": {
+        "external_url": {
+          "description": "Where clients reach this Doppel, when that is not `host:port`.\n\nBehind a container port mapping, a load balancer or an ingress, the\naddress Doppel bound is not the address a client used -- and a rewritten\n`Location` has to name the second. Doppel cannot infer it: `Host` is a\nclaim by the caller, and building a redirect out of it hands the caller\nthe redirect.\n\nAbsent, `host` and `port` are used, with a wildcard bind (`0.0.0.0`, `::`)\nread as loopback -- which is right for a laptop or a pod reached at its\nown address, and wrong behind a port mapping or an ingress, where the\nclient used neither. Doppel logs the address it settled on at startup.\n\n`DOPPEL_EXTERNAL_URL` overrides it. Part of `server`, so a change takes a\nrestart like the rest of that section.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/ExternalUrl"
+            }
+          ]
+        },
         "host": {
           "description": "An IP address, not a hostname: a name would have to be resolved,\nand which address it resolves to is not the configuration's to\ndecide. `utoipa` has no schema for `IpAddr`, so it is described\nhere as the string it is written as.",
           "examples": [

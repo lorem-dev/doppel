@@ -144,6 +144,10 @@ Configuration path, store selection and similar are set with flags or their
 `DOPPEL_*` environment equivalents; run any command with `--help` for the
 full list.
 
+`DOPPEL_EXTERNAL_URL` names the address clients reach Doppel at, for rewriting an
+upstream's redirects. Needed behind a port mapping or an ingress; otherwise
+`server.host:server.port` is used.
+
 ## A minimal configuration
 
 ```yaml

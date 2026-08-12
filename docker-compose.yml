@@ -85,6 +85,9 @@ services:
       - "127.0.0.1:58080:8080"
       - "127.0.0.1:58081:8081"
 
+    environment:
+      DOPPEL_EXTERNAL_URL: "http://127.0.0.1:58080/"
+
     volumes:
       # Your own configuration, not the reference one:
       #

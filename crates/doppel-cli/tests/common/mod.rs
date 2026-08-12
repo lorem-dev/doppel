@@ -77,11 +77,22 @@ pub fn upstream() -> Upstream {
             let Ok(mut stream) = stream else { continue };
             let request = read_request_head(&mut stream);
             let path = request.split_whitespace().nth(1).unwrap_or("/").to_owned();
-            let body = format!("upstream saw {path}");
-            let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                body.len()
-            );
+            // One route that is not an echo: a redirect to the upstream's own
+            // authority, which is what makes a client leave Doppel unless the
+            // `Location` is rewritten. Real services answer these constantly --
+            // a trailing slash, a canonical host, a login page.
+            let response = if path == "/redirect-self" {
+                format!(
+                    "HTTP/1.1 302 Found\r\nlocation: http://127.0.0.1:{port}/moved\r\n\
+                     content-length: 0\r\nconnection: close\r\n\r\n"
+                )
+            } else {
+                let body = format!("upstream saw {path}");
+                format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                )
+            };
             let _ = stream.write_all(response.as_bytes());
         }
     });
@@ -349,6 +360,27 @@ impl Server {
         let response = reqwest::blocking::get(url).unwrap();
         let status = response.status().as_u16();
         (status, response.text().unwrap())
+    }
+
+    /// A GET that does not follow a redirect, and reports the `Location`.
+    ///
+    /// `reqwest::blocking::get` follows up to ten by default, which would send
+    /// the test wherever the header points and hide the header itself -- the
+    /// thing under test.
+    pub fn get_unfollowed(&self, path: &str) -> (u16, Option<String>) {
+        let url = format!("http://127.0.0.1:{}{path}", self.port);
+        let response = reqwest::blocking::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap()
+            .get(url)
+            .send()
+            .unwrap();
+        let location = response
+            .headers()
+            .get("location")
+            .map(|value| value.to_str().unwrap().to_owned());
+        (response.status().as_u16(), location)
     }
 
     /// A GET carrying one header, for the suites that resolve a proxy by

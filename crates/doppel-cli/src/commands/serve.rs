@@ -77,6 +77,33 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
         }
     }
 
+    // Where clients reach this Doppel, for rewriting an upstream's redirects.
+    // The variable wins over the document, and a malformed one fails startup for
+    // the reason a malformed token variable does: an operator who set it and got
+    // no error believes redirects name that address.
+    let external_url = match doppel_core::config::external_url_from_env()
+        .map_err(|err| CliError::Failed(err.to_string()))?
+    {
+        Some(from_env) => {
+            tracing::info!(url = from_env.as_str(), "external url from the environment");
+            Some(from_env)
+        }
+        None => {
+            let derived = config.server.public_url();
+            if let Some(url) = &derived {
+                // Worth a line, because it is a guess: behind a port mapping or
+                // an ingress the client used neither this address nor this port,
+                // and this is where an operator sees which address their
+                // rewritten redirects will name.
+                tracing::info!(
+                    url = url.as_str(),
+                    "external url from server.host and server.port"
+                );
+            }
+            derived
+        }
+    };
+
     // After logging is up, so these reach wherever the operator is looking,
     // and only here: `doppel config validate` runs in CI loops, and a warning
     // repeated on every run is a warning nobody reads. Startup is also the
@@ -220,7 +247,8 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     });
 
     let proxy_task = tokio::spawn(serve_proxy(
-        ProxyState::new(Arc::clone(&holder)),
+        ProxyState::new(Arc::clone(&holder))
+            .with_external_url(external_url.map(doppel_core::config::ExternalUrl::into_url)),
         listener,
         async {
             let _ = proxy_rx.await;

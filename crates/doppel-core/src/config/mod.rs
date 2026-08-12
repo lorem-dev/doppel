@@ -30,7 +30,7 @@ pub use admin::{
     UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
-pub use env::{EnvTokens, EnvTokensError};
+pub use env::{EnvExternalUrlError, EnvTokens, EnvTokensError, external_url_from_env};
 pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{MAX_PROXY, Name, NameError, ProxyName};
@@ -47,7 +47,7 @@ pub use status::{HttpStatus, StatusError};
 pub use template::{TemplateName, TemplateNameError};
 pub use title::{AdminTitle, AdminTitleError};
 pub use token::{Token, TokenError};
-pub use url::{UpstreamUrl, UrlError};
+pub use url::{ExternalUrl, UpstreamUrl, UrlError};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]

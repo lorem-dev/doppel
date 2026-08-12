@@ -21,6 +21,15 @@ use crate::upstream::{error_response, forward};
 pub struct ProxyState {
     pub holder: Arc<RuntimeHolder>,
     pub sampler: Arc<dyn Sampler>,
+    /// Where clients reach this Doppel, from `server.external_url` or
+    /// `DOPPEL_EXTERNAL_URL`, when the deployment says.
+    ///
+    /// Resolved once at startup rather than read from the running configuration,
+    /// like the rest of `server`: the listeners are bound before the first
+    /// reload, and a reload that changes that section reports it as unapplied.
+    /// Behind an `Arc` because this struct is cloned per request and a `Url` is
+    /// a `String` behind the scenes.
+    pub external_url: Option<Arc<reqwest::Url>>,
 }
 
 impl ProxyState {
@@ -29,7 +38,15 @@ impl ProxyState {
         Self {
             holder,
             sampler: Arc::new(OsSampler),
+            external_url: None,
         }
+    }
+
+    /// The same state, told where clients reach this Doppel.
+    #[must_use]
+    pub fn with_external_url(mut self, external: Option<reqwest::Url>) -> Self {
+        self.external_url = external.map(Arc::new);
+        self
     }
 }
 
@@ -290,6 +307,7 @@ async fn handle(
         Some(peer.ip()),
         &runtime.resolve_headers,
         &request_id,
+        state.external_url.as_deref(),
     )
     .await;
     let latency_ms = pad_to_target(faults.latency, attempt.elapsed(), &proxy.name).await;
@@ -599,6 +617,7 @@ proxies:
         ProxyState {
             holder: Arc::new(RuntimeHolder::new(runtime)),
             sampler: Arc::new(crate::fault::SequenceSampler::new(samples)),
+            external_url: None,
         }
     }
 
