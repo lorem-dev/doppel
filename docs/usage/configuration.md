@@ -68,6 +68,7 @@ server:
 |---|---|---|---|
 | `host` | IP address | required | Must parse as an IP, not a hostname |
 | `port` | 1..65535 | required | Must differ from `admin.port` |
+| `external_url` | absolute URL | `host:port` | Where clients reach Doppel, for rewriting a redirect or a body. `DOPPEL_EXTERNAL_URL` overrides it. See [Doppel's own address](proxying.md#doppels-own-address) |
 
 Worker threads are **not** configured here. They size the tokio runtime, and a
 database-backed store cannot be opened before that runtime exists -- so the
@@ -318,7 +319,8 @@ proxies:
 | `loss` | see below | none | |
 | `latency` | see below | none | |
 | `replace` | 0.0..1.0 | 1.0 | Probability a matching mock actually answers |
-| `rewrite_redirects` | boolean | `true` | Point a redirect back at Doppel when its target is under this proxy's base. See [Redirects](proxying.md#redirects) |
+| `rewrite_redirects` | boolean | `true` | Point a redirect back at Doppel when its target is on the upstream's host. See [Redirects](proxying.md#redirects) |
+| `rewrite_urls` | boolean | `true` | Replace the upstream's own address with Doppel's in the text bodies it relays. Exact host only. See [Urls in a body](proxying.md#urls-in-a-body) |
 | `mocks` | list | none | See [Mocks and templating](mocks.md) |
 
 ### `resolve`

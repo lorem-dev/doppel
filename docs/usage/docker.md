@@ -42,6 +42,13 @@ docker run --rm \
 Two mounts, and the second is not optional if you use templates at all --
 see [Templates](#templates) below.
 
+Publishing a port other than the one Doppel binds needs one more thing:
+`DOPPEL_EXTERNAL_URL`. Doppel rewrites an upstream's redirects and the addresses
+in the bodies it relays to point at itself, and a port mapping is invisible from
+inside the container -- so `-p 58080:8080` without
+`-e DOPPEL_EXTERNAL_URL=http://127.0.0.1:58080/` produces redirects naming a port
+nobody published. See [Doppel's own address](proxying.md#doppels-own-address).
+
 **Mount the directory, not the file.** `-v "$PWD/main.yaml:/etc/doppel/main.yaml"`
 looks tidier and breaks every write: a save puts the new configuration in a
 temporary file and renames it over the old one, and nothing can rename over a mount

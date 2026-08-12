@@ -1,65 +1,53 @@
 # Two things, deliberately not started together.
 #
-# **The database**, for local work and for the PostgreSQL integration tests.
-# This is what comes up by default:
+# **The database**, for local work and for the PostgreSQL integration tests, is
+# what comes up by default:
 #
 #   docker compose up -d --wait
 #   export DOPPEL_TEST_DATABASE_URL=postgres://doppel:doppel@127.0.0.1:55432/doppel
 #   cargo test
 #
-# Without that variable the PostgreSQL tests print a skip line and pass, which
-# keeps `cargo test` green on a machine with no database. The
-# `run-tests-and-linters` skill brings this file up itself, so "skipped" does
-# not quietly become "never verified".
+# Without that variable those tests print a skip line and pass, which keeps
+# `cargo test` green on a machine with no database. The `run-tests-and-linters`
+# skill brings this file up itself, so "skipped" does not quietly become "never
+# verified".
 #
 # **Doppel itself**, behind a profile, for trying the two together:
 #
 #   mkdir -p config && cp main.example.yaml config/main.yaml
 #   docker compose --profile doppel up -d --wait
 #
-# `make frontend` beforehand is optional and only faster: the image builds the
-# dashboard itself when `frontend/dist` is not there.
+# `make frontend` first is optional and only faster; the image builds the
+# dashboard itself when `frontend/dist` is absent. The copy is not optional: a
+# bind mount whose source is missing makes Docker create an empty *directory*
+# there, and Doppel then reports it cannot read /etc/doppel/main.yaml.
 #
-# The copy is not optional and its absence is a confusing failure rather than a
-# clear one: a bind mount whose source does not exist makes Docker create an empty
-# *directory* at that path, and Doppel then reports that it cannot read
-# /etc/doppel/main.yaml.
-#
-# A directory is mounted rather than the file, and that is not a preference. A
-# single-file bind mount makes the file itself a mount point, and a save writes a
-# new file and renames it over the old one -- which no kernel will do over a mount
-# point. Every read worked and every write from the dashboard failed with
-# "Resource busy (os error 16)".
-#
-# The profile is what keeps the two apart. A service carrying one is not
-# started by a bare `docker compose up`, so the test workflow above is
-# unaffected -- and it has to stay that way: running the proxy during a test
-# run would put a second process on the ports and the templates directory the
-# integration tests bind and write themselves.
+# The profile is what keeps the two apart, and it has to: running the proxy
+# during a test run would put a second process on the ports and the templates
+# directory the integration tests bind and write themselves.
 
 services:
   postgres:
-    # Pinned to a minor version. `postgres:latest` would let a major upgrade
-    # arrive between two runs of the same test suite, which is a way to spend
-    # an afternoon on a failure nobody introduced.
+    # Pinned to a minor. `postgres:latest` would let a major upgrade arrive
+    # between two runs of one suite -- an afternoon spent on a failure nobody
+    # introduced.
     image: postgres:17.6-alpine
     environment:
       POSTGRES_USER: doppel
       POSTGRES_PASSWORD: doppel
       POSTGRES_DB: doppel
     ports:
-      # Deliberately not 5432. A developer with a database already running
-      # would otherwise get a port conflict, or worse, silently talk to their
-      # own database and have these tests create and drop schemas in it.
+      # Not 5432: a developer with their own database would get a port conflict,
+      # or worse, silently let these tests create and drop schemas in it.
       - "127.0.0.1:55432:5432"
     # No volume. A test database that survives a restart accumulates state the
-    # tests did not create, and the first symptom is a failure that only
-    # reproduces on one machine.
+    # tests did not create, and the first symptom is a failure that reproduces
+    # on one machine only.
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
       # `cargo test` starting before the server accepts connections is the
-      # obvious flake, so the check is here rather than as a sleep in a script.
+      # obvious flake, so the check is here rather than a sleep in a script.
       test: ["CMD-SHELL", "pg_isready -U doppel -d doppel"]
       interval: 1s
       timeout: 3s
@@ -69,23 +57,23 @@ services:
     # Not started by a bare `docker compose up`. See the header.
     profiles: ["doppel"]
 
-    # Built rather than pulled: there is no published image before the first
-    # release, and a local build is what you want anyway when trying a change.
-    #
-    # Nothing has to be staged first. The Dockerfile uses a binary from `dist/`
-    # when one is there and compiles its own otherwise, so `docker compose build`
-    # works from a checkout -- it does need the dashboard built, which
-    # `make frontend` does.
+    # Built rather than pulled: a local build is what you want when trying a
+    # change, and nothing has to be staged first -- the Dockerfile uses a binary
+    # from `dist/` when one is there and compiles its own otherwise.
     build:
       context: .
 
     ports:
-      # Offset like the database's, and for the same reason: a developer
-      # already running Doppel from `cargo run` would otherwise collide.
+      # Offset like the database's: a developer already running Doppel from
+      # `cargo run` would otherwise collide.
       - "127.0.0.1:58080:8080"
       - "127.0.0.1:58081:8081"
 
     environment:
+      # Where a client reaches the proxy, which is not what Doppel can see: it
+      # binds 8080 inside the container and the port mapping above publishes
+      # 58080. Without this, a rewritten redirect or a rewritten body would name
+      # the container's own port and send the client somewhere it cannot go.
       DOPPEL_EXTERNAL_URL: "http://127.0.0.1:58080/"
 
     volumes:
@@ -93,22 +81,19 @@ services:
       #
       #   mkdir -p config && cp main.example.yaml config/main.yaml
       #
-      # `config/` is git-ignored, so editing what is in it -- a port, an upstream, a
-      # token -- leaves no diff to explain and nothing to accidentally commit.
-      # Mounting `main.example.yaml` directly, which this used to do, meant every
-      # experiment showed up as a change to a file the documentation quotes.
+      # `config/` is git-ignored, so editing a port, an upstream or a token
+      # leaves no diff to explain. Mounting `main.example.yaml` directly, which
+      # this used to do, made every experiment a change to a file the
+      # documentation quotes.
       #
-      # The directory, not the file: see the note at the top of this file. Writes
-      # from the admin API replace the configuration by renaming a new file over it,
-      # and a file that is itself a mount point cannot be replaced.
-      #
-      # Read-only: this container has no business editing a file on your working
-      # tree, and `config push` and the admin API write through the store rather
-      # than through this mount.
+      # The directory, not the file, and not a preference: a single-file bind
+      # mount makes the file a mount point, and a save writes a new file and
+      # renames it over the old one, which no kernel will do over a mount point.
+      # Every read worked and every write from the dashboard failed with
+      # "Resource busy (os error 16)".
       - ./config:/etc/doppel:rw
-      # Templates. A named volume rather than a bind mount, and not optional:
-      # templates uploaded through the admin API are written here at runtime,
-      # and without a volume they vanish with the container.
+      # Templates, and not optional: uploads through the admin API are written
+      # here at runtime and would vanish with the container.
       - doppel-templates:/var/lib/doppel/templates
 
     depends_on:
@@ -116,27 +101,23 @@ services:
         condition: service_healthy
 
     healthcheck:
-      # `/api/v1/status` on the admin listener: it needs no token by default, answers
-      # only once the runtime is compiled and both listeners are bound, and
-      # reports the revision actually in force -- which is what "ready" means
-      # here, rather than "the process started".
+      # `/api/v1/status` needs no token, answers only once the runtime is
+      # compiled and both listeners are bound, and reports the revision in force
+      # -- which is what "ready" means here rather than "the process started".
+      # The port is the one inside the container.
       #
-      # `-f` is the flag that matters: without it curl exits 0 on a 500, and
-      # the healthcheck would report a container healthy for answering at all
-      # rather than for answering correctly.
-      #
-      # The port is the one inside the container, not the published one.
+      # `-f` is the flag that matters: without it curl exits 0 on a 500, and the
+      # check would report a container healthy for answering at all.
       #
       # This assumes `admin.enable` is true, as `main.example.yaml` has it. A
-      # configuration that turns the admin listener off has nothing to probe
-      # and would sit unhealthy while serving perfectly well; drop the
-      # healthcheck in that case rather than pointing it at the proxy port,
-      # where every path either reaches an upstream or is a mock.
+      # configuration that turns the admin listener off has nothing to probe;
+      # drop the healthcheck rather than pointing it at the proxy port, where
+      # every path either reaches an upstream or is a mock.
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/api/v1/status"]
       interval: 5s
       timeout: 3s
-      # Startup is well under a second; this is slack for a cold container on
-      # a loaded machine, not an expectation.
+      # Startup is well under a second; this is slack for a cold container on a
+      # loaded machine, not an expectation.
       start_period: 5s
       retries: 5
 

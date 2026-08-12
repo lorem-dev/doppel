@@ -10,44 +10,44 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ### Added
 
-- `rewrite_urls` (default on): the upstream's own address is replaced by Doppel's
-  inside text bodies it relays, so a page or a JSON document cannot send a client
-  past every fault and mock. Exact host only.
-- Metrics that exist before anything happens: `doppel_build_info`,
-  `doppel_dashboard_info`, `doppel_proxy_last_error_timestamp_seconds` and
-  `doppel_proxy_mocks`, the last following the configuration in force.
-- `doppel_admin_request_duration_seconds`, the admin API's own latency, labelled
-  by route template so path and query parameters cannot multiply series.
-- `server.external_url` and `DOPPEL_EXTERNAL_URL`: the address clients reach
-  Doppel at, used when rewriting an upstream's redirects.
 - A browser dashboard on the admin listener's root, compiled into the binary:
-  proxy CRUD, mock templates, status and reload. `admin.dashboard`, `admin.title`.
+  proxy CRUD, status and reload. `admin.dashboard`, `admin.title`.
 - `GET /api/v1/access` reports the calling token's own rights, so a client can
-  disable an action instead of offering it and being refused.
+  disable an action rather than offer it and be refused.
+- `GET /api/v1/schema` serves the configuration's JSON Schema, which is what the
+  dashboard checks a field against as it is typed.
+- `server.external_url` and `DOPPEL_EXTERNAL_URL`: where clients reach Doppel,
+  used when rewriting a redirect or a body. Defaults to `host:port`.
+- `rewrite_urls` (default on): the upstream's own address is replaced by Doppel's
+  in the text bodies it relays. Exact host only.
+- Metrics that exist before anything happens: `doppel_build_info`,
+  `doppel_dashboard_info`, `doppel_proxy_last_error_timestamp_seconds`,
+  `doppel_proxy_mocks`.
+- `doppel_admin_request_duration_seconds`, labelled by route template so a path
+  parameter cannot multiply series.
 - A Makefile: `make help` lists every target, `make gate` runs the whole check
   suite.
 
 ### Changed
 
-- The Prometheus exposition is `GET /metrics` again, the path every scraper
-  looks for; under `/api/v1/` the dashboard answered scrapes with HTML.
+- **Breaking:** `GET /status` is now `GET /api/v1/status`. `/metrics`,
+  `/openapi.json` and `/swagger-ui/` are where they were.
+- A write through the admin API is in force when it answers: no reload needed.
+- A rewritten `Location` names Doppel's own host, and now covers a redirect to
+  the upstream's host outside the proxied path.
 - `doppel_proxy_request_duration_seconds` carries `replace`, `loss` and
   `upstream_error`, and its buckets reach 60s for injected latency.
-- The admin listener accepts a trailing slash on every path. The proxy listener
-  still relays one verbatim.
-- The admin listener compresses its responses, `br` or `gzip`, so the dashboard
-  is 74 KB on the wire instead of 140 KB, and `index.html` is minified.
-- The Swagger UI is `/swagger-ui/` and the OpenAPI document `/openapi.json`,
-  both outside `/api/`: a page and a description, not resources of the API.
-- A write through the admin API is in force when it answers: it promotes the
-  stored configuration before replying, so no reload is needed.
-- A rewritten `Location` names Doppel's host instead of being relative, and now
-  covers a redirect to the upstream's own host outside the proxied path.
-
+- The admin listener compresses what it sends and accepts a trailing slash on
+  every path. The proxy listener relays both as they came.
 - The PostgreSQL store keeps the configuration as JSON, so a new field no longer
   needs a migration. Migration 0005 backfills it.
-- **Breaking:** every admin endpoint now lives under `/api/`. `/status` and
-  `/metrics` moved to `/api/v1/`, the OpenAPI document and Swagger UI to `/api/`.
+- Template files are managed through the admin API only; the dashboard shows
+  which file a mock uses and will not edit it.
+
+### Fixed
+
+- A configuration mounted as a single file could not be saved to. Mount the
+  directory; the error now says so.
 
 ## 0.4.1 -- 2026-08-11
 
