@@ -14,7 +14,7 @@
      a version that exists. The version checked in is the last one released;
      the tags table stays illustrative, like the documentation's. -->
 
-![Doppel](https://raw.githubusercontent.com/lorem-dev/doppel/main/docs/assets/icon-128.png)
+![Doppel](https://raw.githubusercontent.com/lorem-dev/doppel/main/assets/icon-128.png)
 
 # Doppel
 

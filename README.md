@@ -1,5 +1,5 @@
 <p align="center">
-    <img src="/docs/assets/icon.svg" width="64" alt="Doppel Logo">
+    <img src="/assets/icon.svg" width="64" alt="Doppel Logo">
 </p>
 
 <h1 align="center">$$Doppel{\color{lightblue}ganger}$$</h1>

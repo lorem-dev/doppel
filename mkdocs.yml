@@ -7,9 +7,15 @@ site_url: https://lorem-dev.github.io/doppel/
 repo_url: https://github.com/lorem-dev/doppel
 edit_uri: ""
 
+# Stages `assets/` into `docs/assets/` before the build. The icons live at the
+# repository root because the frontend build needs the same favicon, and mkdocs
+# serves only what is under `docs/`. See scripts/mkdocs_assets.py.
+hooks:
+  - scripts/mkdocs_assets.py
+
 theme:
   name: material
-  # Rendered from `docs/assets/icon.svg` at 512x512, which is oversized for
+  # Rendered from `assets/icon.svg` at 512x512, which is oversized for
   # both uses on purpose: the header renders it around 24px and a favicon is
   # smaller still, but browsers pick this up on retina displays and mkdocs
   # copies it verbatim rather than resampling.

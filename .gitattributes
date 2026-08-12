@@ -1,0 +1,27 @@
+# Line endings are normalised on commit, so a checkout on Windows does not turn
+# every file into a diff, and the ASCII-only rule in AGENTS.md is not quietly
+# broken by a stray CR.
+* text=auto eol=lf
+
+# The icons are binary. git-lfs keeps them out of the packfile, and the `-text`
+# marker stops git from ever trying to reconcile two versions line by line.
+#
+# Any workflow that reads these files must check out with `lfs: true`. Without
+# it the working tree holds a pointer file, and the documentation build then
+# ships a few lines of text where an image was expected -- which fails as a
+# broken image rather than as a missing file, so it is worth stating here.
+*.png filter=lfs diff=lfs merge=lfs -text
+*.ico filter=lfs diff=lfs merge=lfs -text
+
+# One exemption, and it is not a matter of taste. DOCKERHUB.md points Docker
+# Hub's overview image at
+# raw.githubusercontent.com/lorem-dev/doppel/main/assets/icon-128.png, and that
+# endpoint serves the LFS *pointer* rather than the bytes -- verified on
+# 2026-08-11, 130 bytes of ASCII beginning "version
+# https://git-lfs.github.com/spec/v1". Tracked through LFS, the overview would
+# render a broken image, and nothing in this repository would fail to say so.
+# This file is small enough that a plain blob costs nothing.
+assets/icon-128.png -filter -diff -merge text=auto
+
+# An SVG is XML, and a readable diff is worth more than treating it as opaque.
+*.svg text

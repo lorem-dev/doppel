@@ -12,6 +12,20 @@ main.yaml
 # mkdocs build output
 /site
 
+# Staged into the docs tree from assets/ by scripts/mkdocs_assets.py on every
+# build. Committing the copy would be two files claiming to be the same icon.
+/docs/assets
+
+# Frontend build and tooling output. `dist` is what the admin crate's build
+# script embeds, so it is generated on the way to a binary and never committed;
+# `public/favicon.ico` is copied in from assets/ by the prebuild script.
+/frontend/node_modules
+/frontend/dist
+/frontend/coverage
+/frontend/playwright-report
+/frontend/test-results
+/frontend/public/favicon.ico
+
 # Python tooling for mkdocs
 .venv
 __pycache__/

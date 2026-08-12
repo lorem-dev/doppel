@@ -1,5 +1,7 @@
 # Doppel
 
+![Doppel](assets/icon-128.png)
+
 Doppel is a doppelganger for your backend: an HTTP proxy that stands in front
 of a real service, or in place of one that is not there.
 
