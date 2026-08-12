@@ -14,6 +14,14 @@ import { join, resolve } from 'node:path'
 export interface Doppel {
   /** Where the admin listener, and therefore the dashboard, answers. */
   baseURL: string
+  /**
+   * Where proxied traffic goes.
+   *
+   * Only the metrics spec needs it, and it needs it for a real reason: a process
+   * that has served no request has no series to expose, so an exposition test
+   * with no traffic behind it asserts nothing.
+   */
+  proxyURL: string
   stop: () => void
 }
 
@@ -87,7 +95,7 @@ export async function startDoppel(yaml: string): Promise<Doppel> {
     try {
       const response = await fetch(`${baseURL}/api/v1/status`)
       if (response.ok) {
-        return { baseURL, stop }
+        return { baseURL, proxyURL: `http://127.0.0.1:${proxyPort}`, stop }
       }
     } catch {
       // Not up yet.

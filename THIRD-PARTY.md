@@ -9,13 +9,15 @@ Generated from the resolved dependency graph by `scripts/third_party.py`. Do
 not edit by hand -- run the script.
 
 
-384 packages: 372 from crates.io, 12 from npm.
+391 packages: 379 from crates.io, 12 from npm.
 
 | Package | Ecosystem | Version | Licence |
 |---|---|---|---|
 | [addr2line](https://github.com/gimli-rs/addr2line) | cargo | 0.25.1 | Apache-2.0 OR MIT |
 | [adler2](https://github.com/oyvindln/adler2) | cargo | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
 | [aho-corasick](https://github.com/BurntSushi/aho-corasick) | cargo | 1.1.4 | Unlicense OR MIT |
+| [alloc-no-stdlib](https://github.com/dropbox/rust-alloc-no-stdlib) | cargo | 2.0.4 | BSD-3-Clause |
+| [alloc-stdlib](https://github.com/dropbox/rust-alloc-no-stdlib) | cargo | 0.2.4 | BSD-3-Clause |
 | [allocator-api2](https://github.com/zakarumych/allocator-api2) | cargo | 0.2.21 | MIT OR Apache-2.0 |
 | [android_system_properties](https://github.com/nical/android_system_properties) | cargo | 0.1.5 | MIT/Apache-2.0 |
 | [anstream](https://github.com/rust-cli/anstyle.git) | cargo | 1.0.0 | MIT OR Apache-2.0 |
@@ -26,6 +28,7 @@ not edit by hand -- run the script.
 | [anyhow](https://github.com/dtolnay/anyhow) | cargo | 1.0.104 | MIT OR Apache-2.0 |
 | [arbitrary](https://github.com/rust-fuzz/arbitrary/) | cargo | 1.4.2 | MIT OR Apache-2.0 |
 | [arc-swap](https://github.com/vorner/arc-swap) | cargo | 1.9.2 | MIT OR Apache-2.0 |
+| [async-compression](https://github.com/Nullus157/async-compression) | cargo | 0.4.43 | MIT OR Apache-2.0 |
 | [async-trait](https://github.com/dtolnay/async-trait) | cargo | 0.1.91 | MIT OR Apache-2.0 |
 | [atoi](https://github.com/pacman82/atoi-rs) | cargo | 2.0.0 | MIT |
 | [atomic-waker](https://github.com/smol-rs/atomic-waker) | cargo | 1.1.2 | Apache-2.0 OR MIT |
@@ -40,6 +43,8 @@ not edit by hand -- run the script.
 | [block-buffer](https://github.com/RustCrypto/utils) | cargo | 0.10.4 | MIT OR Apache-2.0 |
 | [block-buffer](https://github.com/RustCrypto/utils) | cargo | 0.12.1 | MIT OR Apache-2.0 |
 | [block2](https://github.com/madsmtm/objc2) | cargo | 0.6.2 | MIT |
+| [brotli](https://github.com/dropbox/rust-brotli) | cargo | 8.0.4 | BSD-3-Clause AND MIT |
+| [brotli-decompressor](https://github.com/dropbox/rust-brotli-decompressor) | cargo | 5.0.3 | BSD-3-Clause/MIT |
 | [bumpalo](https://github.com/fitzgen/bumpalo) | cargo | 3.20.3 | MIT OR Apache-2.0 |
 | [byteorder](https://github.com/BurntSushi/byteorder) | cargo | 1.5.0 | Unlicense OR MIT |
 | [bytes](https://github.com/tokio-rs/bytes) | cargo | 1.12.1 | MIT |
@@ -55,6 +60,8 @@ not edit by hand -- run the script.
 | [cmov](https://github.com/RustCrypto/utils) | cargo | 0.5.4 | Apache-2.0 OR MIT |
 | [colorchoice](https://github.com/rust-cli/anstyle.git) | cargo | 1.0.5 | MIT OR Apache-2.0 |
 | [combine](https://github.com/Marwes/combine) | cargo | 4.6.7 | MIT |
+| [compression-codecs](https://github.com/Nullus157/async-compression) | cargo | 0.4.38 | MIT OR Apache-2.0 |
+| [compression-core](https://github.com/Nullus157/async-compression) | cargo | 0.4.32 | MIT OR Apache-2.0 |
 | [const-oid](https://github.com/RustCrypto/formats) | cargo | 0.10.2 | Apache-2.0 OR MIT |
 | [core-foundation](https://github.com/servo/core-foundation-rs) | cargo | 0.10.1 | MIT OR Apache-2.0 |
 | [core-foundation-sys](https://github.com/servo/core-foundation-rs) | cargo | 0.8.7 | MIT OR Apache-2.0 |

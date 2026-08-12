@@ -190,10 +190,11 @@ test('the header links to Swagger UI, and it answers', async ({ page }) => {
   await page.getByRole('button', { name: 'Continue without a token' }).click()
 
   const link = page.getByRole('link', { name: /API/ })
-  await expect(link).toHaveAttribute('href', '/api/swagger-ui/')
-  // A real link rather than a client-side route, so the target has to answer: it is
-  // served by the server, under the prefix react-router must not claim.
-  const served = await page.request.get(`${doppel.baseURL}/api/swagger-ui/`)
+  await expect(link).toHaveAttribute('href', '/swagger-ui/')
+  // A real link rather than a client-side route, so the target has to answer. It is
+  // outside `/api/` because it is a page rather than an endpoint, and react-router
+  // must not claim it either -- an explicit route wins over the page's fallback.
+  const served = await page.request.get(`${doppel.baseURL}/swagger-ui/`)
   expect(served.status()).toBe(200)
   expect(await served.text()).toContain('swagger')
 })

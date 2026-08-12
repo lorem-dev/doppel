@@ -82,20 +82,22 @@ impl Modify for TokenScheme {
     }
 }
 
-/// `/api/openapi.json` and `/api/swagger-ui`.
+/// `/openapi.json` and `/swagger-ui`.
 ///
-/// Under `/api/`, like every other route the API owns: everything outside that
-/// prefix belongs to the dashboard, which is what lets a page be reloaded without
-/// colliding with an endpoint. Unversioned, because the document describes every
-/// version it knows about rather than being a resource of one.
+/// Both outside `/api/`, and unversioned. Neither is a resource of the API: the
+/// document *describes* every version this binary knows, and the UI is a page
+/// served to a browser. `/api/` exists to keep endpoints from colliding with the
+/// dashboard's pages, and these two are on the pages' side of that line -- which
+/// is also where every tool looks for them, `/openapi.json` being the
+/// conventional path the way `/metrics` is.
 ///
 /// The Swagger UI assets are vendored into the binary rather than fetched by
 /// the build script, which is the crate's default. A build that reaches the
 /// network cannot run in an offline or egress-restricted environment, and the
 /// artifact would depend on a remote host still serving the same file.
 pub fn routes() -> Router<AdminState> {
-    utoipa_swagger_ui::SwaggerUi::new("/api/swagger-ui")
-        .url("/api/openapi.json", ApiDoc::openapi())
+    utoipa_swagger_ui::SwaggerUi::new("/swagger-ui")
+        .url("/openapi.json", ApiDoc::openapi())
         .into()
 }
 

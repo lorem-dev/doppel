@@ -19,7 +19,7 @@ const TABS = [
  * not try to resolve as one of its own routes. In a new tab, because it is a
  * different application and going there should not throw away a half-filled form.
  */
-const SWAGGER = '/api/swagger-ui/'
+const SWAGGER = '/swagger-ui/'
 
 /**
  * The title, the tabs, and the two controls that are always available.

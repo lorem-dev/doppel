@@ -151,7 +151,7 @@ admin:
 
 `enable` defaults to `true`. Set it to `false` to run the proxy with no admin
 application at all: the port is never bound, so it cannot collide with
-anything, and `/api/v1/status`, `/metrics`, `/api/openapi.json` and the whole API are
+anything, and `/api/v1/status`, `/metrics`, `/openapi.json` and the whole API are
 gone with it. The proxy listener and the control socket are untouched, which
 makes `doppel config reload` the only remaining way in.
 

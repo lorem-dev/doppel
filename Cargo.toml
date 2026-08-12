@@ -67,9 +67,13 @@ tokio = { version = "1", features = [
     "time",
 ] }
 tower = "0.5"
-# Already in the graph through utoipa-swagger-ui, and only `normalize-path` is
-# taken from it: one trailing slash is not worth a hand-written middleware.
-tower-http = { version = "0.6", default-features = false, features = ["normalize-path"] }
+# Already in the graph through utoipa-swagger-ui. Two features are taken from it:
+# response compression for the admin listener, which is the reason a dashboard
+# does not have to ship 140 KB uncompressed.
+tower-http = { version = "0.6", default-features = false, features = [
+  "compression-gzip",
+  "compression-br",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 

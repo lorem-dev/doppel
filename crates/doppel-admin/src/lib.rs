@@ -12,8 +12,10 @@ pub mod state;
 pub mod status;
 pub mod templates;
 
+use axum::extract::Request;
 use tower::Layer as _;
-use tower_http::normalize_path::{NormalizePath, NormalizePathLayer};
+use tower::util::{MapRequest, MapRequestLayer};
+use tower_http::compression::CompressionLayer;
 
 pub use access::{Action, Caller, authorize, caller_from_headers};
 pub use response::ApiError;
@@ -82,6 +84,10 @@ async fn method_not_allowed(method: axum::http::Method, uri: axum::http::Uri) ->
     .into()
 }
 
+/// The admin service: the routes, compressed, with a trailing slash trimmed
+/// before routing.
+pub type App = MapRequest<axum::Router, fn(Request) -> Request>;
+
 /// The router with a trailing slash trimmed before routing.
 ///
 /// `/metrics/` and `/api/v1/status/` answer as `/metrics` and `/api/v1/status`
@@ -96,9 +102,67 @@ async fn method_not_allowed(method: axum::http::Method, uri: axum::http::Uri) ->
 /// The proxy listener deliberately gets none of this. A proxied path is relayed
 /// byte for byte -- `/orders/` and `/orders` are two resources upstream, and one
 /// of this project's own mocks matches `^/api/v1/resource/9/$`.
+/// Compression, and where it applies.
+///
+/// The dashboard is 140 KB of JavaScript and CSS uncompressed and 74 KB gzipped,
+/// and every visitor was paying the difference: the assets were embedded as bytes
+/// and served as bytes. The Swagger UI's own stylesheet is another 150 KB. Both
+/// are text, both are served by this listener, and every browser asks for them
+/// compressed.
+///
+/// `br` and `gzip`, negotiated from `Accept-Encoding` -- brotli first when the
+/// client takes both, because it is smaller on text and every browser that speaks
+/// it says so. A client that asks for neither gets the bytes as they are.
+///
+/// On this listener only. The proxy listener relays what the upstream sent,
+/// byte for byte and encoding included: a client under test asking for
+/// `identity` and getting gzip because a proxy decided to help is a bug in the
+/// thing it is testing against.
 #[must_use]
-pub fn app(state: AdminState) -> NormalizePath<axum::Router> {
-    NormalizePathLayer::trim_trailing_slash().layer(router(state))
+pub fn app(state: AdminState) -> App {
+    // Compression on the router rather than around it: `axum::serve` wants a
+    // service whose body is axum's own, and `Router::layer` is what converts the
+    // compressed body back into one. Running after routing costs nothing here --
+    // a response is compressed whatever matched it.
+    MapRequestLayer::new(trim_trailing_slash as fn(Request) -> Request)
+        .layer(router(state).layer(CompressionLayer::new().br(true).gzip(true)))
+}
+
+/// `/metrics/` becomes `/metrics`, and two paths are left exactly as they came.
+///
+/// `/` is not a trailing slash to be trimmed; trimming it would leave an empty
+/// path that matches nothing.
+///
+/// The Swagger UI is the other one, and it is not a matter of taste:
+/// `utoipa-swagger-ui` answers the bare `/swagger-ui` with `303 See Other` to
+/// `/swagger-ui/`, so trimming the slash off turns the pair into a redirect that
+/// arrives back where it started -- measured as exactly that, `303` with
+/// `location: /swagger-ui/`, on a request for `/swagger-ui/`. Its own assets are
+/// resolved relative to that path too, which is the second reason the subtree is
+/// left alone.
+///
+/// Hand-written rather than `tower-http`'s `NormalizePathLayer`, which trims
+/// unconditionally and has no way to exempt a subtree. It was that layer, and
+/// this is what it broke.
+fn trim_trailing_slash(mut request: Request) -> Request {
+    let uri = request.uri();
+    let path = uri.path();
+    if path == "/" || !path.ends_with('/') || path.starts_with("/swagger-ui") {
+        return request;
+    }
+
+    let trimmed = path.trim_end_matches('/');
+    let rebuilt = match uri.query() {
+        Some(query) => format!("{trimmed}?{query}"),
+        None => trimmed.to_owned(),
+    };
+    // A path that came in parseable stays parseable with fewer bytes on the end;
+    // if it somehow does not, the request goes through untouched rather than
+    // being answered with a 400 nobody can act on.
+    if let Ok(uri) = rebuilt.parse() {
+        *request.uri_mut() = uri;
+    }
+    request
 }
 
 /// Bind nothing, serve until `shutdown` resolves.

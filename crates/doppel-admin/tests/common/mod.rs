@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, Response, StatusCode};
 use doppel_admin::AdminState;
@@ -180,7 +179,7 @@ impl Harness {
         self.store = wrap(inner);
     }
 
-    pub fn router(&self) -> tower_http::normalize_path::NormalizePath<Router> {
+    pub fn router(&self) -> doppel_admin::App {
         doppel_admin::app(AdminState::new(
             Arc::clone(&self.store),
             Arc::clone(&self.holder),
@@ -270,7 +269,7 @@ impl Call {
         self
     }
 
-    pub async fn send(self, router: tower_http::normalize_path::NormalizePath<Router>) -> Reply {
+    pub async fn send(self, router: doppel_admin::App) -> Reply {
         let mut builder = Request::builder().method(self.method).uri(&self.uri);
         if let Some(token) = self.token {
             builder = builder.header("X-Proxy-Authorization", format!("Bearer {token}"));
