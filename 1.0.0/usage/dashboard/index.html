@@ -1,0 +1,1564 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A doppelganger for your backend -- an HTTP proxy that forwards, degrades, or replaces it.">
+      
+      
+      
+        <link rel="canonical" href="https://lorem-dev.github.io/doppel/1.0.0/usage/dashboard/">
+      
+      
+        <link rel="prev" href="../admin-api/">
+      
+      
+        <link rel="next" href="../storage/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/icon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>The dashboard - Doppel</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/theme.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#the-dashboard" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Doppel" class="md-header__button md-logo" aria-label="Doppel" data-md-component="logo">
+      
+  <img src="../../assets/icon.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Doppel
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              The dashboard
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/lorem-dev/doppel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Doppel" class="md-nav__button md-logo" aria-label="Doppel" data-md-component="logo">
+      
+  <img src="../../assets/icon.png" alt="logo">
+
+    </a>
+    Doppel
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/lorem-dev/doppel" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_1" >
+        
+          
+          <label class="md-nav__link" for="__nav_1" id="__nav_1_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_1_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_1">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Overview
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What Doppel is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../overview/concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Usage
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../docker/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Running in Docker
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../proxying/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxying to an upstream
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faults/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Injecting faults
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mocks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Mocking endpoints
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../multiple-backends/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several backends behind one port
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../runtime-changes/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changing configuration while it runs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../admin-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The admin API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The dashboard
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#turning-it-on-and-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turning it on and off
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-use-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can use it
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who can use it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-token-in-the-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The token in the browser
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-pages-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the pages do
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What the pages do">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#editing-a-proxy-as-yaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing a proxy as YAML
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-indexed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not indexed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-the-root-answers-503" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the root answers 503
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../storage/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Storing configuration in PostgreSQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../observability/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Observability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../parameters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Every parameter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Troubleshooting
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Working on Doppel
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../development/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#turning-it-on-and-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turning it on and off
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-use-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can use it
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Who can use it">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-token-in-the-browser" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The token in the browser
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-pages-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the pages do
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What the pages do">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#editing-a-proxy-as-yaml" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing a proxy as YAML
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#not-indexed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not indexed
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-the-root-answers-503" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When the root answers 503
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="the-dashboard">The dashboard<a class="headerlink" href="#the-dashboard" title="Permanent link">&para;</a></h1>
+<p><img alt="The proxy list: each proxy with its upstream, how it is resolved, the faults on it and how many mocks it has" src="../../screenshots/screenshot-proxies.webp" /></p>
+<p>The admin listener serves a browser dashboard from its own root. It lists the
+proxies, edits them, shows what the process is doing, and reloads the configuration --
+most of what the admin API does, without curl. Template files are the exception, and
+deliberately: see <a href="#what-the-pages-do">below</a>.</p>
+<p>It is on by default. Open the admin port in a browser:</p>
+<div class="highlight"><pre><span></span><code>http://127.0.0.1:8081/
+</code></pre></div>
+<p>The whole thing is compiled into the binary. There is nothing to deploy, no
+directory to serve, and no version of the page that can disagree with the version
+of Doppel serving it.</p>
+<p>It is served compressed: the listener negotiates <code>br</code> and <code>gzip</code> from
+<code>Accept-Encoding</code>, so the 140 KB of JavaScript and CSS the page is made of goes
+out as 74 KB or less, and <code>index.html</code> is minified on the way into the binary.
+The proxy listener is deliberately left out of that -- a client under test has to
+see the encoding its upstream chose.</p>
+<p>Every URL the dashboard shows is a real one. <code>/proxies/alpha</code> can be bookmarked,
+reloaded and shared, because everything outside <code>/api/</code> and <code>/static/</code> is answered
+with the page -- which is also why the API lives under <code>/api/</code> in the first place:
+<code>/status</code> used to be an endpoint <em>and</em> a page, and a reload got the JSON.</p>
+<hr />
+<h2 id="turning-it-on-and-off">Turning it on and off<a class="headerlink" href="#turning-it-on-and-off" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">dashboard</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">      </span><span class="c1"># the default</span>
+<span class="w">  </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Doppel&quot;</span><span class="w">      </span><span class="c1"># the default</span>
+</code></pre></div>
+<p><code>dashboard: false</code> leaves <code>/</code>, <code>/static/*</code> and <code>/robots.txt</code> unrouted -- they
+answer 404 like any other unknown path -- and changes nothing about the JSON API.
+Use it when the admin port is reachable from somewhere a browser page has no
+business being. To turn off the admin API entirely, that is <code>admin.enable</code>, not
+this.</p>
+<p>Both fields take effect on restart, because the routes are built once at startup.</p>
+<p><code>title</code> is what the header shows and what the browser tab is called. It is worth
+setting when several Doppels are open at once:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;billing-api</span><span class="nv"> </span><span class="s">(staging)&quot;</span>
+</code></pre></div>
+<p>At most 64 characters, no control characters, and any language you like -- it is a
+heading, not an identifier.</p>
+<p>Leave <code>title</code> out and the header shows the project's wordmark instead of a default
+string. Set it, and the header shows exactly what you wrote: the browser tab takes
+the same text either way.</p>
+<hr />
+<h2 id="who-can-use-it">Who can use it<a class="headerlink" href="#who-can-use-it" title="Permanent link">&para;</a></h2>
+<p>The dashboard is a client of the admin API and is bound by exactly the same
+<code>access</code> rules. It has no privileges of its own, and there is no dashboard
+password: the token is the one from <code>admin.tokens</code>.</p>
+<p>What follows from that is worth stating plainly, because it surprises people:</p>
+<p><strong>The page works without a token.</strong> If <code>access.list</code> and <code>access.read</code> are
+<code>public</code>, an anonymous visitor sees the proxy list and can open a proxy. The token
+dialog opens once, and it has a "Continue without a token" button -- declining
+leaves a working page rather than a wall.</p>
+<p><strong>A refusal offers the two things that fix it.</strong> "Read of <code>alpha</code> requires access
+<code>read</code>" is about the token, and a page reads once when it opens -- so the banner
+carries <strong>Enter token</strong> and <strong>Refresh</strong>. Refreshing is a button rather than something
+the page does when a token arrives: a form holds a half-typed document, and replacing
+that because someone signed in elsewhere would lose work.</p>
+<p><img alt="The token dialog over a refusal: the banner naming the access list needs and carrying Enter token and Refresh, and the dialog offering Continue without a token beside Use this token" src="../../screenshots/screenshot-signin.webp" /></p>
+<p><strong>Actions the caller may not perform are visible but disabled</strong>, with the reason
+in the tooltip. The page asks the server what the caller may do
+(<code>GET /api/v1/access</code>) rather than guessing, so a disabled button means the server
+would have refused. A missing button reads as a broken page; a disabled one
+explains itself.</p>
+<p><strong>Signing out returns to the anonymous view.</strong> It does not lock the page.</p>
+<h3 id="the-token-in-the-browser">The token in the browser<a class="headerlink" href="#the-token-in-the-browser" title="Permanent link">&para;</a></h3>
+<p>Entering a token stores it in <code>localStorage</code> for one hour, then the page forgets
+it and asks again. Two things that is not:</p>
+<ul>
+<li><strong>Not a session.</strong> The token does not expire on the server. Forgetting it here
+  only means this browser stops presenting it. Revoking a token is a
+  configuration change -- edit <code>admin.tokens</code> and reload.</li>
+<li><strong>Not a security boundary.</strong> Anything running in the page can read
+  <code>localStorage</code>. The hour exists so an unattended browser stops holding a working
+  admin token indefinitely, which is a smaller and more honest claim.</li>
+</ul>
+<p>On a <code>public: true</code> deployment the page never mentions tokens at all.</p>
+<hr />
+<h2 id="what-the-pages-do">What the pages do<a class="headerlink" href="#what-the-pages-do" title="Permanent link">&para;</a></h2>
+<p><strong>Proxies</strong> lists every proxy with its upstream, how it is resolved, the faults
+configured on it and how many mocks it has. The list refetches itself once a
+minute -- so a change made by another operator, by <code>doppel config push</code>, or by a
+reload appears without anyone pressing anything. It pauses while the tab is
+hidden.</p>
+<p>Editing opens a form over the whole proxy document: the upstream, timeouts, body
+limits, resolution, injected headers, the three fault settings, per-proxy access
+overrides, and the mocks with their matching rules and responses.</p>
+<p><img alt="Editing a proxy: name, type and upstream always on screen, an (i) beside each label, Save and Cancel pinned to the bottom" src="../../screenshots/screenshot-proxy-edit.webp" /></p>
+<p>Every field carries an (i) to its section of <a href="../parameters/">Every
+parameter</a> -- the type, the bounds, an example in place -- and the
+link is versioned, so it describes the Doppel serving the page rather than whatever
+has been released since.</p>
+<p>A field is checked as it is typed: a name with a space in it, a timeout of 5000, a
+loss rate of 45, a selector without its leading dot. Those bounds are read from
+<a href="../admin-api/#the-configuration-schema"><code>GET /api/v1/schema</code></a> at load, so they are
+the server's own rules rather than a second copy in the page -- and what needs more
+than one field to judge is still the server's answer on save, reported against the
+field it is about.</p>
+<p>A proxy has thirteen fields and any number of mocks, and most edits touch one of
+them -- so the name, the type and the upstream are always on screen and everything
+else is a folded section that says what is inside it: <code>Faults none</code>,
+<code>Access overrides inherited</code>, <code>Mocks 3</code>. Save and Cancel sit in a bar pinned to the
+bottom of the window, so they are reachable whatever is open.</p>
+<p>On a <code>public: true</code> deployment the <code>Access overrides</code> section is not there at all.
+Nothing in a proxy's <code>access</code> block decides anything while the admin API is
+unauthenticated -- every action answers as public regardless, which the process
+also says among its startup advisories -- so four fields that change no outcome
+would be the page disagreeing with the binary serving it. A proxy whose document
+still holds overrides says so in one line instead, because the YAML mode shows an
+<code>access</code> block the form otherwise has no section for.</p>
+<p>The name can be edited like any other field. Renaming moves the proxy's template
+files with it, and the page says which happened -- "Renamed alpha to billing-api"
+rather than "Updated". Clients selecting that proxy by <code>X-Proxy-Name</code> have to use the
+new name from then on, which is the one thing a rename cannot do for you.</p>
+<p><strong>A save that removes something asks first</strong>, and names what: <code>the mock
+\</code>one-widget`<code>,</code>the injected header `X-Trace`<code>,</code>`filter` from variables from the
+query of `one-widget``. The form has a Remove button beside every entry and no undo,
+so the question belongs on the button that makes those removals real rather than on
+each one along the way -- taking one mock out and putting another in is a single edit.
+A save that only changes values does not ask: a changed field is visible in the field
+it is in.</p>
+<p>Deleting a proxy asks too, and says what goes with it: its template files.</p>
+<p>Saving sends the revision the form was loaded at, so a proxy someone else changed
+in the meantime is refused rather than overwritten -- the page says so and asks you
+to reload.</p>
+<h3 id="editing-a-proxy-as-yaml">Editing a proxy as YAML<a class="headerlink" href="#editing-a-proxy-as-yaml" title="Permanent link">&para;</a></h3>
+<p><strong>Edit as YAML</strong> swaps the form for the whole proxy document, in the shape
+<code>main.yaml</code> has it:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alpha</span>
+<span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http</span>
+<span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://alpha.example.com/api/</span>
+<span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span>
+<span class="nt">mocks</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">one-widget</span>
+<span class="w">    </span><span class="nt">request</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GET</span>
+<span class="w">      </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">^/widgets/(?P&lt;id&gt;\d+)$</span>
+<span class="w">    </span><span class="nt">response</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<span class="w">      </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;id&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">id</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
+</code></pre></div>
+<p><img alt="The same proxy as YAML: one coloured editor over the whole document, with Reformat and a documentation link above it" src="../../screenshots/screenshot-proxy-edit-yaml.webp" /></p>
+<p>The form is better for changing one field; this is better for everything else --
+pasting a proxy from a colleague, reordering mocks, copying a block out of a
+configuration file. Tab indents inside the document, <strong>Reformat</strong> tidies it, and
+saving tidies it too, so a refused save leaves readable YAML on screen.</p>
+<p>It is checked against the running Doppel's own schema as you type, and Save is
+refused while it does not match: a field the schema does not know is named, and so
+is a value out of range. What needs more than one field to judge is still the
+server's answer.</p>
+<p>Two things it does not do. It does not keep comments -- the document is stored as
+data, so there is nowhere to put them -- and it edits one proxy rather than the
+whole configuration. For the whole file, edit <code>main.yaml</code> and reload.</p>
+<p><strong>Template files are not managed here.</strong> The dashboard had a section for them and it
+was the wrong shape: a file store inside a form over a document, with a Save of its
+own that did not wait for the form's, and a rule the page could not enforce -- the
+server refuses an upload no saved mock declares. They stay in the
+<a href="../admin-api/#templates">admin API</a>, which is where <code>doppel config push</code> and any
+script already write them.</p>
+<p>What the form does with a mock that answers with a template file: it shows which file,
+in a field it will not let you edit, and lets you move that mock onto a text or JSON
+body instead. A mock that has no template cannot be given one from here -- the answer
+choices are Text body and JSON body. Switching away from a template is undoable while
+the page is open, because the name cannot be typed back in.</p>
+<p><strong>Status</strong> shows uptime, the configuration revision in effect and the resolution
+state of each proxy, and carries the reload button. Saving in the form needs no
+reload -- a write through the API is in force when it answers -- so the button is
+for a configuration changed behind the dashboard: <code>main.yaml</code> edited by hand,
+<code>doppel config push</code>, another instance. Reload re-reads the store and reports what
+it applied, including the sections that need a restart instead.</p>
+<p><strong>API</strong> is not a page of the dashboard but a link to the Swagger UI the same
+listener serves, at <code>/swagger-ui/</code>. It opens in a new tab, because it is a
+different application and going there should not throw away a half-filled form.</p>
+<hr />
+<h2 id="theme">Theme<a class="headerlink" href="#theme" title="Permanent link">&para;</a></h2>
+<p>Light, dark, or whatever the operating system says. The default is the last of
+those, and the choice is remembered per browser.</p>
+<hr />
+<h2 id="not-indexed">Not indexed<a class="headerlink" href="#not-indexed" title="Permanent link">&para;</a></h2>
+<p>The dashboard refuses search engines three ways, because crawlers fail
+differently: an <code>X-Robots-Tag: noindex, nofollow, noarchive</code> header on every
+response including the errors, a <code>robots</code> meta element in the page for a crawler
+that reads markup and ignores headers, and <code>robots.txt</code> disallowing everything.</p>
+<p>The page also carries a content security policy that permits scripts, styles and
+connections from this origin only, and forbids framing. No <code>unsafe-inline</code>
+anywhere: the configuration reaches the page as the contents of a JSON element
+rather than as an inline script.</p>
+<p>One inline stylesheet is allowed, and by its hash rather than by opening the
+policy -- the code editor's own, which every editor on the page renders. Blocking it
+changed nothing visible and reported a violation to the console for each editor,
+which is a poor way to treat the place an operator looks for their own problems. A
+test recomputes that hash from the installed library, so an upgrade that changes the
+stylesheet fails a build rather than filling a console.</p>
+<hr />
+<h2 id="when-the-root-answers-503">When the root answers 503<a class="headerlink" href="#when-the-root-answers-503" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;status&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;error&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;code&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;DASHBOARD_NOT_BUILT&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;this binary was built without the dashboard&#39;s static assets ...&quot;</span>
+<span class="p">}</span>
+</code></pre></div>
+<p>The binary was compiled without <code>frontend/dist</code>. Released binaries and the
+published image always carry the dashboard -- the release refuses to publish one
+that does not, and <code>docker build</code> builds the assets itself when they are absent --
+so this is a binary built from source without building the frontend first:</p>
+<div class="highlight"><pre><span></span><code>npm<span class="w"> </span>--prefix<span class="w"> </span>frontend<span class="w"> </span>ci
+npm<span class="w"> </span>--prefix<span class="w"> </span>frontend<span class="w"> </span>run<span class="w"> </span>build
+cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>-p<span class="w"> </span>doppel-cli
+</code></pre></div>
+<p>That order matters: the assets are embedded at compile time, so rebuilding them
+without rebuilding the binary changes nothing about what it serves.</p>
+<p>If Node is not available and the JSON API is enough, <code>admin.dashboard: false</code>
+stops the route being served at all, which is a clearer answer than a 503.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.sections", "navigation.top", "content.code.copy", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

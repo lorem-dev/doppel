@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<title>doppel favicon</title>
+<!-- The small size variant of assets/icon.svg, and the source of
+     assets/favicon.ico. The full icon is two overlapping documents; at 16
+     and 32 pixels that composition collapses into an unreadable smudge, so
+     the favicon keeps the background and the code glyph and drops the
+     cards. Nothing here is a new shape: the gradients and the glyph come
+     from icon.svg unchanged, only scaled. AGENTS.md carries the command
+     that rebuilds the .ico from this file. -->
+<defs>
+
+<linearGradient id="rim" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+  <stop offset="0.45" stop-color="#FFFFFF" stop-opacity="0.10"/>
+  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.28"/>
+</linearGradient>
+<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.26"/>
+  <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.04"/>
+  <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+</linearGradient>
+<radialGradient id="vig" cx="0.5" cy="0.42" r="0.78">
+  <stop offset="0.45" stop-color="#000000" stop-opacity="0"/>
+  <stop offset="1" stop-color="#000000" stop-opacity="0.44"/>
+</radialGradient>
+
+<linearGradient id="bg" x1="0.15" y1="0" x2="0.85" y2="1">
+  <stop offset="0" stop-color="#155546"/><stop offset="0.55" stop-color="#0B3039"/>
+  <stop offset="1" stop-color="#071926"/>
+</linearGradient>
+<radialGradient id="halo" cx="0.34" cy="0.42" r="0.46">
+  <stop offset="0" stop-color="#43DCFF" stop-opacity="0.52"/>
+  <stop offset="1" stop-color="#43DCFF" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="steel" x1="0" y1="0" x2="0.4" y2="1">
+  <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.5" stop-color="#DEF3EB"/>
+  <stop offset="1" stop-color="#9CC4B9"/>
+</linearGradient>
+<linearGradient id="ghost" x1="0" y1="0" x2="0.3" y2="1">
+  <stop offset="0" stop-color="#96F2FF" stop-opacity="0.58"/>
+  <stop offset="1" stop-color="#4C97FF" stop-opacity="0.16"/>
+</linearGradient>
+
+<clipPath id="clip"><path d="M1024.00,512.00 L1023.93,620.65 L1023.70,657.91 L1023.33,685.34 L1022.80,707.85 L1022.13,727.26 L1021.31,744.51 L1020.33,760.11 L1019.21,774.43 L1017.93,787.68 L1016.50,800.06 L1014.92,811.67 L1013.18,822.63 L1011.29,833.00 L1009.24,842.84 L1007.04,852.22 L1004.67,861.16 L1002.15,869.70 L999.46,877.87 L996.62,885.71 L993.60,893.22 L990.42,900.42 L987.07,907.34 L983.54,913.99 L979.85,920.38 L975.97,926.52 L971.91,932.42 L967.67,938.09 L963.24,943.54 L958.62,948.77 L953.80,953.80 L948.77,958.62 L943.54,963.24 L938.09,967.67 L932.42,971.91 L926.52,975.97 L920.38,979.85 L913.99,983.54 L907.34,987.07 L900.42,990.42 L893.22,993.60 L885.71,996.62 L877.87,999.46 L869.70,1002.15 L861.16,1004.67 L852.22,1007.04 L842.84,1009.24 L833.00,1011.29 L822.63,1013.18 L811.67,1014.92 L800.06,1016.50 L787.68,1017.93 L774.43,1019.21 L760.11,1020.33 L744.51,1021.31 L727.26,1022.13 L707.85,1022.80 L685.34,1023.33 L657.91,1023.70 L620.65,1023.93 L512.00,1024.00 L403.35,1023.93 L366.09,1023.70 L338.66,1023.33 L316.15,1022.80 L296.74,1022.13 L279.49,1021.31 L263.89,1020.33 L249.57,1019.21 L236.32,1017.93 L223.94,1016.50 L212.33,1014.92 L201.37,1013.18 L191.00,1011.29 L181.16,1009.24 L171.78,1007.04 L162.84,1004.67 L154.30,1002.15 L146.13,999.46 L138.29,996.62 L130.78,993.60 L123.58,990.42 L116.66,987.07 L110.01,983.54 L103.62,979.85 L97.48,975.97 L91.58,971.91 L85.91,967.67 L80.46,963.24 L75.23,958.62 L70.20,953.80 L65.38,948.77 L60.76,943.54 L56.33,938.09 L52.09,932.42 L48.03,926.52 L44.15,920.38 L40.46,913.99 L36.93,907.34 L33.58,900.42 L30.40,893.22 L27.38,885.71 L24.54,877.87 L21.85,869.70 L19.33,861.16 L16.96,852.22 L14.76,842.84 L12.71,833.00 L10.82,822.63 L9.08,811.67 L7.50,800.06 L6.07,787.68 L4.79,774.43 L3.67,760.11 L2.69,744.51 L1.87,727.26 L1.20,707.85 L0.67,685.34 L0.30,657.91 L0.07,620.65 L0.00,512.00 L0.07,403.35 L0.30,366.09 L0.67,338.66 L1.20,316.15 L1.87,296.74 L2.69,279.49 L3.67,263.89 L4.79,249.57 L6.07,236.32 L7.50,223.94 L9.08,212.33 L10.82,201.37 L12.71,191.00 L14.76,181.16 L16.96,171.78 L19.33,162.84 L21.85,154.30 L24.54,146.13 L27.38,138.29 L30.40,130.78 L33.58,123.58 L36.93,116.66 L40.46,110.01 L44.15,103.62 L48.03,97.48 L52.09,91.58 L56.33,85.91 L60.76,80.46 L65.38,75.23 L70.20,70.20 L75.23,65.38 L80.46,60.76 L85.91,56.33 L91.58,52.09 L97.48,48.03 L103.62,44.15 L110.01,40.46 L116.66,36.93 L123.58,33.58 L130.78,30.40 L138.29,27.38 L146.13,24.54 L154.30,21.85 L162.84,19.33 L171.78,16.96 L181.16,14.76 L191.00,12.71 L201.37,10.82 L212.33,9.08 L223.94,7.50 L236.32,6.07 L249.57,4.79 L263.89,3.67 L279.49,2.69 L296.74,1.87 L316.15,1.20 L338.66,0.67 L366.09,0.30 L403.35,0.07 L512.00,0.00 L620.65,0.07 L657.91,0.30 L685.34,0.67 L707.85,1.20 L727.26,1.87 L744.51,2.69 L760.11,3.67 L774.43,4.79 L787.68,6.07 L800.06,7.50 L811.67,9.08 L822.63,10.82 L833.00,12.71 L842.84,14.76 L852.22,16.96 L861.16,19.33 L869.70,21.85 L877.87,24.54 L885.71,27.38 L893.22,30.40 L900.42,33.58 L907.34,36.93 L913.99,40.46 L920.38,44.15 L926.52,48.03 L932.42,52.09 L938.09,56.33 L943.54,60.76 L948.77,65.38 L953.80,70.20 L958.62,75.23 L963.24,80.46 L967.67,85.91 L971.91,91.58 L975.97,97.48 L979.85,103.62 L983.54,110.01 L987.07,116.66 L990.42,123.58 L993.60,130.78 L996.62,138.29 L999.46,146.13 L1002.15,154.30 L1004.67,162.84 L1007.04,171.78 L1009.24,181.16 L1011.29,191.00 L1013.18,201.37 L1014.92,212.33 L1016.50,223.94 L1017.93,236.32 L1019.21,249.57 L1020.33,263.89 L1021.31,279.49 L1022.13,296.74 L1022.80,316.15 L1023.33,338.66 L1023.70,366.09 L1023.93,403.35 Z"/></clipPath>
+</defs>
+<g clip-path="url(#clip)">
+<rect width="1024" height="1024" fill="url(#bg)"/><rect width="1024" height="1024" fill="url(#halo)"/>
+<g transform="translate(512,512) scale(7.6)" fill="none" stroke="#5BEFC4" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="-26,-19 -45,0 -26,19"/><line x1="-9" y1="23" x2="9" y2="-23"/><polyline points="26,-19 45,0 26,19"/></g>
+<rect width="1024" height="1024" fill="url(#gloss)"/><rect width="1024" height="1024" fill="url(#vig)"/>
+</g>
+</svg>

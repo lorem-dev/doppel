@@ -1,0 +1,58 @@
+/* Theme colours taken from docs/assets/icon.svg.
+ *
+ * Every value below appears in the icon, or is a darkened version of one that
+ * does. The two that are darkened are darkened for a reason: the icon's cyan
+ * and mint read beautifully on its near-black frame and are close to invisible
+ * on white -- #43DCFF is 1.63:1 against white, where 4.5:1 is the readable
+ * floor.
+ *
+ * Contrast ratios below were measured, not estimated.
+ */
+
+:root,
+[data-md-color-scheme="default"] {
+  /* The icon's frame. White header text sits on it at 14.04:1. */
+  --md-primary-fg-color: #0b3039;
+  --md-primary-fg-color--light: #23484f;
+  --md-primary-fg-color--dark: #071926;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #f2feff;
+
+  /* The icon's cyan, darkened to 5.36:1 on white. The icon's own #43DCFF
+   * would be unreadable here. */
+  --md-accent-fg-color: #0e7490;
+  --md-accent-fg-color--transparent: #0e749014;
+
+  /* Body links follow the primary colour by default, which here is nearly
+   * black -- indistinguishable from the text around them. Point them at the
+   * accent instead. */
+  --md-typeset-a-color: #0e7490;
+}
+
+[data-md-color-scheme="slate"] {
+  /* The same frame colour: it is dark enough to read as a header against the
+   * slate body without a second hue entering the palette. */
+  --md-primary-fg-color: #0b3039;
+  --md-primary-fg-color--light: #23484f;
+  --md-primary-fg-color--dark: #071926;
+
+  /* On a dark background the icon's own cyan needs no adjustment -- 9.90:1
+   * against Material's slate. */
+  --md-accent-fg-color: #43dcff;
+  --md-accent-fg-color--transparent: #43dcff1f;
+  --md-typeset-a-color: #43dcff;
+}
+
+/* Inline code, which is dense and frequent in this documentation. The default
+ * pairs a red-ish foreground with a grey background; the icon has no red in
+ * it, and the pairing fights the rest of the palette on every page.
+ */
+[data-md-color-scheme="default"] {
+  --md-code-bg-color: #f2feff;
+  --md-code-fg-color: #155546;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-code-bg-color: #0d2027;
+  --md-code-fg-color: #cff8ff;
+}
