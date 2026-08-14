@@ -146,6 +146,37 @@ An absent section or an empty DSN disables it and is not an error. A
 malformed DSN fails startup rather than producing a client that silently
 drops everything -- with the key masked in the message.
 
+### The DSN from the environment
+
+```bash
+DOPPEL_SENTRY_DSN="https://key@sentry.example.com/1"
+```
+
+A DSN carries the key that authorises sending events, which makes it the one
+Sentry setting that is a credential -- and a deployment that provisions
+credentials through the environment should not have to write this one into a
+document the admin API returns and the store keeps.
+
+The variable wins over `sentry.dsn`, the same way `DOPPEL_ADMIN_TOKENS` wins over
+`admin.tokens`: it is how a deployment overrides a document it may not be able to
+edit. Startup says which source it used, so the answer is one line away rather
+than a guess:
+
+```json
+{"level":"INFO","fields":{"message":"sentry reporting enabled",
+ "dsn":"https://<redacted>@sentry.example.com/1","source":"DOPPEL_SENTRY_DSN"}}
+```
+
+**An empty variable is not a way to turn reporting off.** It counts as unset and
+leaves `sentry.dsn` in force, deliberately: `DOPPEL_SENTRY_DSN=${SENTRY_DSN}` with
+nothing behind `SENTRY_DSN` is a compose file that means nothing by it, and
+silently disabling error reporting is the worse reading. To turn it off, write
+`dsn: ""` or remove the section.
+
+Doppel reads its own name, not the conventional `SENTRY_DSN`. A variable that is
+in the environment for the service beside this one should not make this one start
+reporting to it.
+
 A build without the feature that is given a DSN warns at startup and carries
 on. It does not pretend to report, and it does not refuse to run: reporting is
 optional by design, so turning a missing integration into an outage would be

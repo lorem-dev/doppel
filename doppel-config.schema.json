@@ -747,7 +747,7 @@
       "additionalProperties": false,
       "properties": {
         "dsn": {
-          "description": "The Sentry DSN to report to. Empty disables reporting, so a deployment\ncan blank it without removing the section.",
+          "description": "The Sentry DSN to report to. Empty disables reporting, so a deployment\ncan blank it without removing the section.\n\n`DOPPEL_SENTRY_DSN` overrides it. A DSN carries the key that authorises\nsending events, so a deployment that keeps credentials in the environment\ncan leave this field out entirely; an empty variable counts as unset and\nleaves this value in force.",
           "examples": [
             "https://key@o0.ingest.sentry.io/0"
           ],
