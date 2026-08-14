@@ -8,6 +8,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+## 1.1.0 -- 2026-08-14
+
 ### Added
 
 - Nine system variables in every mock template: `proxy_name`, `mock_name`,
