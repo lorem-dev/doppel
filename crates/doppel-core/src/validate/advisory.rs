@@ -89,6 +89,41 @@ pub fn startup_advisories(config: &Config) -> Vec<String> {
         }
     }
 
+    // A mock that extracts something Doppel already binds. The extraction still
+    // happens -- a header read, a selector walk -- and its result is then
+    // overwritten by the system value, so the work is wasted and the template does
+    // not mean what its author thinks.
+    for proxy in &config.proxies {
+        for mock in &proxy.mocks {
+            let declared = mock
+                .request
+                .headers
+                .keys()
+                .chain(mock.request.query.keys())
+                .chain(mock.request.body.keys());
+            let mut shadowed: Vec<&str> = declared
+                .map(String::as_str)
+                .filter(|name| crate::template::is_reserved(name))
+                .collect();
+            shadowed.sort_unstable();
+            shadowed.dedup();
+            if !shadowed.is_empty() {
+                out.push(format!(
+                    "mock `{}` of proxy `{}` extracts {} into a name Doppel binds \
+                     itself; the system value wins, so the extraction is read and \
+                     thrown away. See the system variables in the documentation",
+                    mock.name,
+                    proxy.name,
+                    shadowed
+                        .iter()
+                        .map(|name| format!("`{name}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
+    }
+
     for proxy in &config.proxies {
         if proxy.url.has_credentials() {
             out.push(format!(
@@ -231,6 +266,46 @@ proxies:
         let notes = startup_advisories(&config(8080, 8081));
         assert!(
             !notes.iter().any(|note| note.contains("public")),
+            "{notes:?}"
+        );
+    }
+
+    /// A mock that extracts into a name Doppel binds itself. The extraction is
+    /// read and then overwritten, so the work is wasted and the template does not
+    /// mean what its author thinks.
+    #[test]
+    fn a_mock_that_shadows_a_system_variable_is_named() {
+        let text = raw(8080, 8081).replace(
+            "    url: \"https://example.com/\"",
+            "    url: \"https://example.com/\"\n    mocks:\n      - name: m1\n        \
+             request:\n          method: GET\n          url: ^/x$\n          headers:\n            \
+             proxy_name: X-Whatever\n            trace_id: X-Trace-Id\n        response:\n          \
+             status: 200\n          body: \"ok\"",
+        );
+        let notes = startup_advisories(&load_from_str(&text).unwrap());
+
+        let note = notes
+            .iter()
+            .find(|note| note.contains("binds itself"))
+            .unwrap_or_else(|| panic!("{notes:?}"));
+        assert!(note.contains("`m1`"), "{note}");
+        assert!(note.contains("`proxy_name`"), "{note}");
+        // And only the reserved one: `trace_id` is the operator's own name and
+        // nothing is wrong with it.
+        assert!(!note.contains("trace_id"), "{note}");
+    }
+
+    #[test]
+    fn a_mock_that_extracts_its_own_names_says_nothing() {
+        let text = raw(8080, 8081).replace(
+            "    url: \"https://example.com/\"",
+            "    url: \"https://example.com/\"\n    mocks:\n      - name: m1\n        \
+             request:\n          method: GET\n          url: ^/x$\n          headers:\n            \
+             trace_id: X-Trace-Id\n        response:\n          status: 200\n          body: \"ok\"",
+        );
+        let notes = startup_advisories(&load_from_str(&text).unwrap());
+        assert!(
+            !notes.iter().any(|note| note.contains("binds itself")),
             "{notes:?}"
         );
     }

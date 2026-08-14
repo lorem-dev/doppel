@@ -237,6 +237,36 @@ rather than assumed.
 A path is kept as a prefix: `https://gw.example.com/doppel/` is a Doppel reached
 under a prefix, and its rewritten locations carry it.
 
+### When one address is not enough
+
+`external_url` may be a template over the
+[system variables](mocks.md#system-variables), rendered per request:
+
+```yaml
+server:
+  # Whatever this client asked for.
+  external_url: "http://{{ host }}/"
+  # Or a name per proxy, behind a wildcard.
+  external_url: "https://{{ proxy_name }}.gw.example.com/"
+```
+
+A value containing `{{` is a template; anything else is parsed as a url when the
+configuration is read, as before. The scheme has to be literal -- `http://` or
+`https://` -- because a value that does not start with one cannot become a usable
+url however it renders, and that is worth failing at startup.
+
+!!! warning "`{{ host }}` is the caller's claim"
+    `Host` arrives from the client. A deployment that builds a redirect out of it
+    is choosing to let a caller decide where its own redirects point, which is
+    fine when something in front validates the host and is not when nothing does.
+    That is why Doppel does not do this by default: it is one line to opt in, and
+    the line is where the decision belongs.
+
+A template that fails to render, or renders to something that is not a url, means
+**no rewriting for that request** -- the upstream's own `Location` is relayed
+instead. A cosmetic feature is not worth a `500`, and the reason is logged at
+debug rather than per redirect at warn.
+
 Set `rewrite_redirects: false` to relay the header byte for byte. That is what a
 client being tested *for its redirect handling* needs; it is not what a client
 being tested against a degraded backend needs.

@@ -262,8 +262,7 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     });
 
     let proxy_task = tokio::spawn(serve_proxy(
-        ProxyState::new(Arc::clone(&holder))
-            .with_external_url(external_url.map(doppel_core::config::ExternalUrl::into_url)),
+        ProxyState::new(Arc::clone(&holder)).with_external_url(external_url),
         listener,
         async {
             let _ = proxy_rx.await;

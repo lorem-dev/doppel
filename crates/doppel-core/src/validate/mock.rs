@@ -131,7 +131,7 @@ proxies:
           method: GET
           url: /api/(?P<id>\d+)/
           headers:
-            requestId: X-Request-ID
+            request_id: X-Request-ID
           query:
             filter: .filter
           body:
@@ -216,7 +216,7 @@ proxies:
     #[test]
     fn v19_capture_groups_must_not_collide_with_declared_variables() {
         let text = good().replace(
-            "            requestId: X-Request-ID",
+            "            request_id: X-Request-ID",
             "            id: X-Request-ID",
         );
         assert_violation(
@@ -310,7 +310,7 @@ proxies:
     #[test]
     fn a_declared_header_source_that_is_not_a_header_name_fails_at_load() {
         // This was V24, now the value type of the `headers` map.
-        let text = good().replace("requestId: X-Request-ID", "requestId: \"X Request ID\"");
+        let text = good().replace("request_id: X-Request-ID", "request_id: \"X Request ID\"");
         let err = load_from_str(&text).unwrap_err().to_string();
         assert!(err.contains("not a valid header name"), "{err}");
     }

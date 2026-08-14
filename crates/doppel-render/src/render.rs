@@ -264,12 +264,12 @@ mod tests {
         let vars = Variables::new();
 
         let err = renderer
-            .render_str("{{ resourceItems | length }}", &vars)
+            .render_str("{{ resource_items | length }}", &vars)
             .unwrap_err();
 
         assert_eq!(err.code, ErrorCode::TemplateRenderError);
         assert!(
-            err.message.contains("resourceItems"),
+            err.message.contains("resource_items"),
             "message did not identify the undefined variable behind the filter: {}",
             err.message
         );
