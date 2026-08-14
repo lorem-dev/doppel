@@ -270,3 +270,58 @@ jobs:
           name: playwright-report
           path: frontend/playwright-report
           retention-days: 7
+
+  # The image, built and thrown away.
+  #
+  # It used to be built only by `release.yml`, on a tag -- so a change that broke
+  # the Dockerfile was found by the release that was supposed to publish it, at
+  # the one moment when the fix costs a second tag. This job answers the same
+  # question earlier and for free.
+  #
+  # Three deliberate limits:
+  #
+  # * **Nothing is pushed and nothing logs in.** The question is whether the
+  #   image builds, not whether this branch can publish; a job that needed
+  #   credentials could not run on a fork.
+  # * **One platform, the runner's own.** The other architecture means QEMU,
+  #   which turns a two-minute compile into most of an hour -- see the Dockerfile
+  #   header. The release builds each natively and stages the binaries, which is
+  #   a different path and is checked by the release.
+  # * **From source, with nothing staged.** That is the branch a developer hits
+  #   with `docker build .` on a checkout: the compile *and* the dashboard build
+  #   happen inside the image. The release never runs it, so nothing else does.
+  image:
+    name: Image builds
+    # A push to main, and a pull request aiming at it -- which is what a release
+    # goes through, and the point is to know before the tag rather than after.
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && github.base_ref == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          # `assets/favicon.ico` is an LFS object and the frontend's prebuild step
+          # copies it into `public/`. Without this the build stage gets a pointer
+          # file, and vite ships a hundred bytes of ASCII as the favicon.
+          lfs: true
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v4
+
+      # Cached because otherwise every push to main pays for a release-profile
+      # compile of the whole workspace inside the image.
+      - name: Build the image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          # Not loaded into the daemon either: nothing here runs it, and a load
+          # is a copy of a 30 MB image nobody reads.
+          load: false
+          tags: doppel:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
