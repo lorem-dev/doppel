@@ -137,6 +137,10 @@ Optional, behind the `sentry` cargo feature and off in a default build:
 cargo build --release --features sentry
 ```
 
+Neither the released binaries nor the published image carry it: a default build
+should not ship a TLS stack and an HTTP client it never uses. Reporting to Sentry
+means building your own, which is the trade this flag is.
+
 ```yaml
 sentry:
   dsn: "https://key@sentry.example.com/1"
