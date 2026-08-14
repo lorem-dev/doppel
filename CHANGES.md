@@ -8,6 +8,22 @@ release promotes it to a version heading; the `bump-version` skill does that.
 
 ## Development
 
+### Added
+
+- Nine system variables in every mock template: `proxy_name`, `mock_name`,
+  `doppel_version`, `request_id`, `method`, `path`, `host`, `peer_ip`, `real_ip`.
+- `real_ip` reads `X-Real-IP`, then the leftmost `X-Forwarded-For`, then the
+  connection's own address. `peer_ip` is always the connection's.
+- `server.external_url` may be a template over those variables, rendered per
+  request: `http://{{ host }}/` answers each client with its own address.
+
+### Changed
+
+- Variable names in `main.example.yaml` and the documentation are `snake_case`.
+  Your own names are unaffected; Jinja accepts either.
+- A mock that extracts into a system variable's name is named at startup: the
+  system value wins, so the extraction is read and thrown away.
+
 ## 1.0.0 -- 2026-08-13
 
 ### Added

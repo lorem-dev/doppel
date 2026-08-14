@@ -141,7 +141,7 @@ test('a path pattern is left to the server, dialect and all', async ({ page }) =
   await open(page, 'Mocks')
   await page.getByRole('button', { name: 'Add a mock' }).click()
 
-  await page.getByLabel('Path pattern').fill('/api/v1/resource/(?P<resourceId>\\d+)/')
+  await page.getByLabel('Path pattern').fill('/api/v1/resource/(?P<resource_id>\\d+)/')
   // No complaint anywhere on the form: the field's own hint still says what a path
   // pattern is, and nothing has been reported as wrong.
   await expect(page.getByRole('alert')).toHaveCount(0)

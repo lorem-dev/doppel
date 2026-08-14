@@ -678,10 +678,12 @@ proxies:
             let rt = compile_reference();
             let proxy1 = rt.proxy_by_name("proxy1").unwrap();
 
-            // mock4 declares `requestId: X-Request-ID`.
+            // mock4 declares `trace_id: X-Trace-Id`. Deliberately not a system
+            // variable's name: the reference configuration stopped extracting one
+            // when Doppel began binding them itself.
             assert_eq!(
                 mock(proxy1, "mock4").header_vars,
-                vec![("requestId".to_owned(), "x-request-id".to_owned())]
+                vec![("trace_id".to_owned(), "x-trace-id".to_owned())]
             );
         }
 
@@ -696,7 +698,7 @@ proxies:
                 crate::config::Selector::parse(".filter").unwrap()
             )));
             assert!(mock(proxy1, "mock2").body_vars.contains(&(
-                "resourceItems".to_owned(),
+                "resource_items".to_owned(),
                 crate::config::Selector::parse(".content.items").unwrap()
             )));
         }

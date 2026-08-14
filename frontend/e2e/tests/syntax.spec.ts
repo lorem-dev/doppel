@@ -70,7 +70,7 @@ test('a path pattern is coloured, and sits at the height of a control', async ({
   await page.getByRole('button', { name: 'Add a mock' }).click()
 
   const pattern = page.getByLabel('Path pattern')
-  await pattern.fill('^/api/v1/resource/(?P<resourceId>\\d+)/$')
+  await pattern.fill('^/api/v1/resource/(?P<resource_id>\\d+)/$')
 
   const colours = await tokenColours(page)
   // Groups, classes, quantifiers and anchors are four different things, and prism's
@@ -103,7 +103,7 @@ test('the whole document is coloured in the YAML editor', async ({ page }) => {
 test('a Jinja expression is coloured everywhere one is allowed', async ({ page }) => {
   // Four fields render through Jinja: a mock's text body, its JSON body, a response
   // header, and a template file. The braces used to be plain in all of them, which made
-  // `{{ requestId }}` look like part of the text it is not.
+  // `{{ request_id }}` look like part of the text it is not.
   await signIn(page)
   await page.getByRole('button', { name: 'Add a proxy' }).click()
   await page.locator('summary').filter({ hasText: 'Mocks' }).first().click()
@@ -112,7 +112,7 @@ test('a Jinja expression is coloured everywhere one is allowed', async ({ page }
   // A header value: one line, and a template rather than a string.
   await page.getByRole('button', { name: 'Add Response headers' }).click()
   await page.getByLabel('Response headers header name 1').fill('X-Request-ID')
-  await page.getByLabel('Response headers template 1').fill('rid-{{ requestId }}')
+  await page.getByLabel('Response headers template 1').fill('rid-{{ request_id }}')
   const header = await tokenColours(page)
   expect(header.size).toBeGreaterThan(1)
 
@@ -124,7 +124,7 @@ test('a Jinja expression is coloured everywhere one is allowed', async ({ page }
   // browser rather than only in a unit test -- an expression inside a string is the
   // case prism resolves in favour of the string unless it is asked not to.
   await page.getByLabel('mock-1 response source').selectOption('json')
-  await page.getByLabel(/mock-1 json/).fill('{"id": "{{ resourceId }}", "n": 1}')
+  await page.getByLabel(/mock-1 json/).fill('{"id": "{{ resource_id }}", "n": 1}')
   const both = await paintedRgbAll(page, 'pre .token', 'color')
   const json = await paintedRgbAll(page, 'pre .token.property', 'color')
   const jinja = await paintedRgbAll(page, 'pre .token.jinja2 .token.variable', 'color')

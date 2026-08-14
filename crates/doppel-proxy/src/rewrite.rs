@@ -26,6 +26,8 @@
 use axum::body::Body;
 use axum::http::{HeaderMap, HeaderValue, header};
 use bytes::Bytes;
+use doppel_core::config::ExternalUrl;
+use doppel_render::{Renderer, SystemVars};
 use futures_util::{StreamExt, TryStreamExt};
 
 /// The content types worth searching for a URL.
@@ -44,6 +46,41 @@ const TEXTUAL: &[&str] = &[
     "application/graphql",
     "application/ld+json",
 ];
+
+/// The address to rewrite to for this request.
+///
+/// A fixed url is itself. A template is rendered against the system variables
+/// and parsed, which is where `http://{{ host }}/` becomes the address this
+/// client asked for.
+///
+/// A template that renders to something unusable means no rewriting for this
+/// request rather than a failed one: the rewrite is there to keep a client from
+/// wandering off, and answering `500` because a `Location` could not be improved
+/// is a worse outcome than relaying the upstream's own. Logged at debug, because
+/// it is per request and a broken template would otherwise print once per
+/// redirect for as long as it takes somebody to notice.
+#[must_use]
+pub fn resolve_external(
+    configured: Option<&ExternalUrl>,
+    system: &SystemVars,
+) -> Option<reqwest::Url> {
+    match configured? {
+        ExternalUrl::Fixed(url) => Some(url.clone()),
+        ExternalUrl::Template(template) => {
+            let rendered = Renderer::new()
+                .render_str(template, &system.as_variables())
+                .inspect_err(|err| {
+                    tracing::debug!(template, %err, "external_url did not render");
+                })
+                .ok()?;
+            reqwest::Url::parse(&rendered)
+                .inspect_err(|err| {
+                    tracing::debug!(template, rendered, %err, "external_url is not a url");
+                })
+                .ok()
+        }
+    }
+}
 
 /// Whether a body with these headers is one to rewrite.
 #[must_use]

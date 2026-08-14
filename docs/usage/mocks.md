@@ -47,21 +47,22 @@ that gets forwarded.
 
 ## Variables
 
-Four sources, all optional.
+Five sources. Four are yours and optional; the fifth is Doppel's and always
+there.
 
 **Path captures.** Named groups in the pattern become variables:
 
 ```yaml
-          url: /api/v1/resource/(?P<resourceId>\d+)/
+          url: /api/v1/resource/(?P<resource_id>\d+)/
 ```
 
-binds `resourceId`.
+binds `resource_id`.
 
 **Headers.** A map of variable name to header name:
 
 ```yaml
           headers:
-            requestId: X-Request-ID
+            trace_id: X-Trace-Id
 ```
 
 **Query and body.** A map of variable name to a selector -- a leading dot and
@@ -71,7 +72,7 @@ dot-separated keys:
           query:
             filter: .filter
           body:
-            itemCount: .content.items
+            item_count: .content.items
 ```
 
 Selectors address object keys. A selector that lands on an array yields the
@@ -80,6 +81,55 @@ not supported.
 
 A variable name may not collide with a capture group name; that is rejected at
 load.
+
+Names are `snake_case` throughout this documentation and in
+`main.example.yaml`. Jinja accepts any identifier, so `itemCount` works -- but
+Doppel's own variables are `snake_case`, and one convention per context reads as
+one source.
+
+## System variables
+
+Doppel binds nine variables into every template it renders, whether or not the
+mock asked for anything:
+
+| Variable | Is |
+|---|---|
+| `proxy_name` | The proxy that resolved. Empty for a request that resolved to none |
+| `mock_name` | The mock answering. Empty when the request is being forwarded |
+| `doppel_version` | The version of the binary serving the request |
+| `request_id` | The id echoed in `X-Request-ID`, minted when the client sent none |
+| `method` | The request method |
+| `path` | The request path, without the query string |
+| `host` | The `Host` the client asked for. Empty when it sent none |
+| `peer_ip` | The address the connection came from |
+| `real_ip` | Who the request is *said* to be from: `X-Real-IP`, else the leftmost `X-Forwarded-For` entry, else `peer_ip` |
+
+```yaml
+        response:
+          status: 200
+          json: '{"served_by": "{{ proxy_name }} {{ doppel_version }}", "caller": "{{ real_ip }}"}'
+          headers:
+            X-Request-ID: "{{ request_id }}"
+```
+
+**`peer_ip` and `real_ip` are not the same claim.** `peer_ip` is the socket's own
+address and nobody can fake it. `real_ip` is what a proxy in front says, out of
+headers a client can also send -- useful for a mock that reports who called it,
+and not something to make a decision on unless you know what sits in front.
+
+**They are reserved.** They are bound after your extractions, so a mock that
+extracts into `proxy_name` finds Doppel's value in its template rather than its
+own. The extraction still happens and its result is thrown away, which is why
+startup says so:
+
+```
+mock `m1` of proxy `alpha` extracts `proxy_name` into a name Doppel binds
+itself; the system value wins, so the extraction is read and thrown away
+```
+
+Being always present, they also never need `| default('')` -- an absent one is an
+empty string rather than an undefined variable, which is the one place Doppel's
+own variables are gentler than yours.
 
 ## Rendering
 
@@ -101,13 +151,13 @@ An undefined variable is an error, not an empty string.
 
 ```yaml
           headers:
-            requestId: X-Request-ID
+            request_id: X-Request-ID
         response:
-          json: '{"seen": "{{ requestId }}"}'
+          json: '{"seen": "{{ request_id }}"}'
 ```
 
 A request without `X-Request-ID` fails this mock with
-`TEMPLATE_RENDER_ERROR`, because `requestId` is undefined. That is deliberate:
+`TEMPLATE_RENDER_ERROR`, because `request_id` is undefined. That is deliberate:
 a mock that silently renders `"seen": ""` because a variable was mistyped is
 worse than one that refuses. The error message names the expression that
 failed.
@@ -115,7 +165,7 @@ failed.
 If a variable should be optional, say so:
 
 ```yaml
-          json: '{"seen": "{{ requestId | default('''') }}"}'
+          json: '{"seen": "{{ request_id | default('''') }}"}'
 ```
 
 ## Serving some of the time

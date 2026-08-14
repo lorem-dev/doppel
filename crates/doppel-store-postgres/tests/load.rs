@@ -69,7 +69,7 @@ proxies:
           method: GET
           url: /widgets/(?P<id>\d+)/
           headers:
-            requestId: X-Request-ID
+            request_id: X-Request-ID
           query:
             filter: .filter
           body:

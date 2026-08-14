@@ -68,7 +68,7 @@ server:
 |---|---|---|---|
 | `host` | IP address | required | Must parse as an IP, not a hostname |
 | `port` | 1..65535 | required | Must differ from `admin.port` |
-| `external_url` | absolute URL | `host:port` | Where clients reach Doppel, for rewriting a redirect or a body. `DOPPEL_EXTERNAL_URL` overrides it. See [Doppel's own address](proxying.md#doppels-own-address) |
+| `external_url` | absolute URL, or a template | `host:port` | Where clients reach Doppel, for rewriting a redirect or a body. May be a template over the [system variables](mocks.md#system-variables), e.g. `http://{{ host }}/`. `DOPPEL_EXTERNAL_URL` overrides it. See [Doppel's own address](proxying.md#doppels-own-address) |
 
 Worker threads are **not** configured here. They size the tokio runtime, and a
 database-backed store cannot be opened before that runtime exists -- so the

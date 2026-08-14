@@ -20,6 +20,17 @@ impl Variables {
         self.0.insert(name.to_owned(), value);
     }
 
+    /// One bound value, for a caller that needs to read back what it bound.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&serde_json::Value> {
+        self.0.get(name)
+    }
+
+    /// Every name bound, in order. `BTreeMap`, so the order is the names'.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.0.keys().map(String::as_str)
+    }
+
     /// A minijinja context built from the bound variables, for the renderer
     /// to pass to `Environment::render_str`/`render`.
     #[must_use]
