@@ -1344,6 +1344,11 @@ sentry:
 The Sentry DSN to report to. Empty disables reporting, so a deployment
 can blank it without removing the section.
 
+`DOPPEL_SENTRY_DSN` overrides it. A DSN carries the key that authorises
+sending events, so a deployment that keeps credentials in the environment
+can leave this field out entirely; an empty variable counts as unset and
+leaves this value in force.
+
 | | |
 |---|---|
 | Type | string |

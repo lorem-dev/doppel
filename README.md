@@ -148,6 +148,9 @@ full list.
 upstream's redirects. Needed behind a port mapping or an ingress; otherwise
 `server.host:server.port` is used.
 
+`DOPPEL_ADMIN_TOKENS` and `DOPPEL_SENTRY_DSN` keep the two credentials out of the
+configuration file. Both override what the document says.
+
 ## A minimal configuration
 
 ```yaml

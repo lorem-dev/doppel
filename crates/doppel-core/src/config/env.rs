@@ -1,5 +1,5 @@
-//! Configuration supplied by the environment: the admin tokens, and the
-//! external url.
+//! Configuration supplied by the environment: the admin tokens, the external
+//! url, and the Sentry DSN.
 //!
 //! A deployment that provisions its secrets through the environment should
 //! not have to write them into the configuration document to use them. These
@@ -34,6 +34,38 @@ pub const EXTERNAL_URL_VAR: &str = "DOPPEL_EXTERNAL_URL";
 #[error("{EXTERNAL_URL_VAR} is not usable: {reason}")]
 pub struct EnvExternalUrlError {
     pub reason: UrlError,
+}
+
+/// The variable that provides `sentry.dsn`, or replaces it.
+pub const SENTRY_DSN_VAR: &str = "DOPPEL_SENTRY_DSN";
+
+/// `DOPPEL_SENTRY_DSN`, or `None` when it is unset or empty.
+///
+/// A DSN carries the key that authorises sending events, which is why this
+/// exists: it is the one Sentry setting that is a credential, and a deployment
+/// that provisions credentials through the environment should not have to write
+/// this one into a document the admin API returns and the store keeps.
+///
+/// Not validated here. A malformed value fails startup where the client is
+/// built, which is the one place that knows what a DSN has to parse as -- and it
+/// reports the value with its credential redacted, which this module has no way
+/// to do.
+///
+/// Empty counts as unset, like the two variables above, and that direction is
+/// deliberate: `DOPPEL_SENTRY_DSN=${SENTRY_DSN}` with nothing behind `SENTRY_DSN`
+/// leaves a configured DSN in force rather than silently turning reporting off.
+/// Turning it off is `dsn: ""` in the document, or no `sentry` section at all.
+///
+/// Doppel reads its own name and not the conventional `SENTRY_DSN`. A variable
+/// that is in the environment for the service beside this one should not make
+/// this one start reporting to it.
+#[must_use]
+pub fn sentry_dsn_from_env() -> Option<String> {
+    match std::env::var(SENTRY_DSN_VAR) {
+        Ok(raw) if raw.trim().is_empty() => None,
+        Ok(raw) => Some(raw.trim().to_owned()),
+        Err(_) => None,
+    }
 }
 
 /// `DOPPEL_EXTERNAL_URL`, or `None` when it is unset or empty.

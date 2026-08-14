@@ -45,8 +45,16 @@ pub async fn serve(store: Arc<dyn ConfigStore>, config: Config) -> Result<(), Cl
     //
     // Bound to a name, not `_`: the guard flushes and stops reporting when
     // dropped, and `let _ = ...` would drop it here.
-    let _sentry = doppel_telemetry::sentry::init(config.sentry.as_ref())
-        .map_err(|err| CliError::Failed(err.to_string()))?;
+    //
+    // `DOPPEL_SENTRY_DSN` is read here rather than merged into the document, for
+    // the reason the admin tokens are not: the revision is a hash of the
+    // configuration's content, and folding the environment into it would make two
+    // instances reading one stored document disagree about the revision.
+    let _sentry = doppel_telemetry::sentry::init(
+        config.sentry.as_ref(),
+        doppel_core::config::sentry_dsn_from_env().as_deref(),
+    )
+    .map_err(|err| CliError::Failed(err.to_string()))?;
 
     // Checked before anything binds, and a bad value fails startup. A
     // malformed token variable that was logged and skipped would leave an

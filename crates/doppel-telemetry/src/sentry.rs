@@ -45,21 +45,56 @@ impl std::fmt::Debug for Sentry {
     }
 }
 
-/// The DSN, if the configuration names a non-empty one.
+/// Where a DSN came from, for the line that says reporting is on.
 ///
-/// An absent section and a section with an empty or whitespace-only DSN mean
-/// the same thing. Treating `dsn: ""` as a value would try to initialise
-/// Sentry against nothing and fail startup for what is plainly a way of
+/// Worth logging: "sentry reporting enabled" with a redacted DSN does not tell an
+/// operator whether the document or the environment won, and that is exactly what
+/// they need to know when it is the wrong one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DsnSource {
+    Document,
+    Environment,
+}
+
+impl DsnSource {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Document => "sentry.dsn",
+            Self::Environment => "DOPPEL_SENTRY_DSN",
+        }
+    }
+}
+
+/// The DSN to use, and where it came from.
+///
+/// The environment wins. A DSN is a credential, and a deployment that provisions
+/// credentials through the environment is overriding a document it may not even
+/// be able to edit -- the same precedence `DOPPEL_ADMIN_TOKENS` has over
+/// `admin.tokens`.
+///
+/// An absent section, a section with an empty or whitespace-only DSN, and an unset
+/// variable all mean the same thing. Treating `dsn: ""` as a value would try to
+/// initialise Sentry against nothing and fail startup for what is plainly a way of
 /// writing "off".
-fn configured_dsn(config: Option<&SentryConfig>) -> Option<&str> {
+fn resolve_dsn<'a>(
+    config: Option<&'a SentryConfig>,
+    from_env: Option<&'a str>,
+) -> Option<(&'a str, DsnSource)> {
+    if let Some(dsn) = from_env.map(str::trim).filter(|dsn| !dsn.is_empty()) {
+        return Some((dsn, DsnSource::Environment));
+    }
     config
         .map(|sentry| sentry.dsn.trim())
         .filter(|dsn| !dsn.is_empty())
+        .map(|dsn| (dsn, DsnSource::Document))
 }
 
 #[cfg(feature = "sentry")]
-pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
-    let Some(dsn) = configured_dsn(config) else {
+pub fn init(
+    config: Option<&SentryConfig>,
+    from_env: Option<&str>,
+) -> Result<Sentry, TelemetryError> {
+    let Some((dsn, source)) = resolve_dsn(config, from_env) else {
         return Ok(Sentry {
             status: SentryStatus::Disabled,
             _guard: None,
@@ -85,7 +120,11 @@ pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
     options.release = ::sentry::release_name!();
     let guard = ::sentry::init(options);
 
-    tracing::info!(dsn = %redact_credentials(dsn), "sentry reporting enabled");
+    tracing::info!(
+        dsn = %redact_credentials(dsn),
+        source = source.as_str(),
+        "sentry reporting enabled"
+    );
     Ok(Sentry {
         status: SentryStatus::Enabled,
         _guard: Some(guard),
@@ -93,8 +132,11 @@ pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
 }
 
 #[cfg(not(feature = "sentry"))]
-pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
-    let status = if let Some(dsn) = configured_dsn(config) {
+pub fn init(
+    config: Option<&SentryConfig>,
+    from_env: Option<&str>,
+) -> Result<Sentry, TelemetryError> {
+    let status = if let Some((dsn, source)) = resolve_dsn(config, from_env) {
         // Loud rather than silent. The operator asked for reporting and will
         // not get it; a knob that reads as honoured and is not is the defect
         // this project already removed once, in `admin.workers`. Not fatal,
@@ -102,8 +144,9 @@ pub fn init(config: Option<&SentryConfig>) -> Result<Sentry, TelemetryError> {
         // turn an observability gap into an outage.
         tracing::warn!(
             dsn = %redact_credentials(dsn),
-            "sentry.dsn is configured but this binary was built without the `sentry` feature; \
-             nothing will be reported"
+            source = source.as_str(),
+            "a sentry dsn is configured but this binary was built without the `sentry` \
+             feature; nothing will be reported"
         );
         SentryStatus::Unsupported
     } else {
@@ -124,14 +167,14 @@ mod tests {
 
     #[test]
     fn no_sentry_section_is_disabled_and_not_an_error() {
-        assert_eq!(init(None).unwrap().status, SentryStatus::Disabled);
+        assert_eq!(init(None, None).unwrap().status, SentryStatus::Disabled);
     }
 
     #[test]
     fn an_empty_dsn_is_the_documented_way_to_turn_it_off() {
         for dsn in ["", "   ", "\t"] {
             assert_eq!(
-                init(Some(&config(dsn))).unwrap().status,
+                init(Some(&config(dsn)), None).unwrap().status,
                 SentryStatus::Disabled,
                 "{dsn:?} should read as off"
             );
@@ -139,10 +182,66 @@ mod tests {
     }
 
     #[test]
+    fn the_environment_provides_a_dsn_when_the_document_has_none() {
+        // The case this exists for: a deployment that provisions credentials
+        // through the environment and a configuration that names none.
+        let (dsn, source) = resolve_dsn(None, Some("https://key@sentry.example.com/1"))
+            .expect("the variable is a dsn");
+
+        assert_eq!(dsn, "https://key@sentry.example.com/1");
+        assert_eq!(source, DsnSource::Environment);
+    }
+
+    #[test]
+    fn the_environment_wins_over_the_document() {
+        // The same precedence `DOPPEL_ADMIN_TOKENS` has: a deployment overriding
+        // a document it may not be able to edit.
+        let document = config("https://from-document@sentry.example.com/1");
+        let (dsn, source) = resolve_dsn(
+            Some(&document),
+            Some("https://from-environment@sentry.example.com/2"),
+        )
+        .expect("a dsn is resolved");
+
+        assert_eq!(dsn, "https://from-environment@sentry.example.com/2");
+        assert_eq!(source, DsnSource::Environment);
+    }
+
+    #[test]
+    fn an_empty_variable_leaves_the_document_in_force() {
+        // Deliberately this direction. `DOPPEL_SENTRY_DSN=${SENTRY_DSN}` with
+        // nothing behind `SENTRY_DSN` is a compose file that means nothing by it,
+        // and silently turning error reporting off is the worse reading.
+        let document = config("https://key@sentry.example.com/1");
+        for empty in ["", "   "] {
+            let (dsn, source) =
+                resolve_dsn(Some(&document), Some(empty)).expect("the document still names one");
+
+            assert_eq!(dsn, "https://key@sentry.example.com/1", "{empty:?}");
+            assert_eq!(source, DsnSource::Document, "{empty:?}");
+        }
+    }
+
+    #[test]
+    fn a_dsn_from_the_environment_is_trimmed_like_one_from_the_document() {
+        let (dsn, _) = resolve_dsn(None, Some("  https://key@sentry.example.com/1  "))
+            .expect("whitespace is not part of a dsn");
+        assert_eq!(dsn, "https://key@sentry.example.com/1");
+    }
+
+    #[test]
+    fn the_source_is_named_the_way_an_operator_would_look_for_it() {
+        // It goes in a log line, so it has to be the thing they would grep for
+        // rather than a word this module invented.
+        assert_eq!(DsnSource::Document.as_str(), "sentry.dsn");
+        assert_eq!(DsnSource::Environment.as_str(), "DOPPEL_SENTRY_DSN");
+    }
+
+    #[test]
     fn the_debug_of_the_guard_carries_no_dsn() {
         // `serve` may log its state, and a `Debug` that printed the DSN would
         // put the key in the log the first time anyone did.
-        let sentry = init(Some(&config("https://key@sentry.example.com/1"))).unwrap();
+        let sentry = init(Some(&config("https://key@sentry.example.com/1")), None).unwrap();
         let rendered = format!("{sentry:?}");
         assert!(!rendered.contains("key"), "{rendered}");
         assert!(!rendered.contains("sentry.example.com"), "{rendered}");
@@ -154,7 +253,7 @@ mod tests {
         // Reported rather than accepted: `sentry::init` takes an unparseable
         // value and hands back a client that drops everything, so the only
         // signal an operator would get is silence.
-        let err = init(Some(&config("https://s3cr3tkey@/missing-project")))
+        let err = init(Some(&config("https://s3cr3tkey@/missing-project")), None)
             .expect_err("a DSN with no host must be refused");
         let message = err.to_string();
         assert!(!message.contains("s3cr3tkey"), "{message}");
@@ -163,8 +262,11 @@ mod tests {
     #[cfg(feature = "sentry")]
     #[test]
     fn a_wholly_unparseable_dsn_is_not_echoed_back() {
-        let err = init(Some(&config("this is not a dsn but it might be a secret")))
-            .expect_err("must be refused");
+        let err = init(
+            Some(&config("this is not a dsn but it might be a secret")),
+            None,
+        )
+        .expect_err("must be refused");
         let message = err.to_string();
         assert!(!message.contains("might be a secret"), "{message}");
         assert!(message.contains("<redacted>"), "{message}");
@@ -176,7 +278,7 @@ mod tests {
         // The distinction is the point: `Disabled` means the operator turned
         // it off, `Unsupported` means they asked and this build cannot.
         assert_eq!(
-            init(Some(&config("https://key@sentry.example.com/1")))
+            init(Some(&config("https://key@sentry.example.com/1")), None)
                 .unwrap()
                 .status,
             SentryStatus::Unsupported

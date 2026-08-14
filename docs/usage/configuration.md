@@ -120,6 +120,11 @@ sentry:
 
 Optional. An absent section or an empty DSN disables it.
 
+`DOPPEL_SENTRY_DSN` provides the DSN, or replaces the one written here -- a DSN is
+a credential, and the environment is where a deployment usually keeps one. An
+empty variable counts as unset and leaves this field in force. See
+[Sentry](observability.md#the-dsn-from-the-environment).
+
 ## `admin`
 
 The admin listener's address, its tokens, and who may do what.

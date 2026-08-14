@@ -16,6 +16,8 @@ release promotes it to a version heading; the `bump-version` skill does that.
   connection's own address. `peer_ip` is always the connection's.
 - `server.external_url` may be a template over those variables, rendered per
   request: `http://{{ host }}/` answers each client with its own address.
+- `DOPPEL_SENTRY_DSN` provides the Sentry DSN, or overrides `sentry.dsn`: a DSN is
+  a credential, and the environment is where a deployment keeps one.
 
 ### Changed
 
