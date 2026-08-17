@@ -55,7 +55,7 @@ export function KeyValueRows({
   /**
    * What the values are written in, when they are not plain strings.
    *
-   * A mock's response headers are Jinja templates -- `rid-{{ requestId }}` -- so the
+   * A mock's response headers are Jinja templates -- `rid-{{ request_id }}` -- so the
    * value gets a one-line editor with the braces coloured instead of an input. Every
    * other map here holds a header name or a selector, which are neither templates nor
    * anything else worth colouring.

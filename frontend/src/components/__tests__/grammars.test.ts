@@ -14,7 +14,7 @@ function tokens(html: string): string[] {
 
 describe('a template with no host language', () => {
   it('colours the expression and leaves the text alone', () => {
-    const html = colour('rid-{{ requestId }}', 'text')
+    const html = colour('rid-{{ request_id }}', 'text')
     expect(tokens(html)).toContain('jinja2 jinja2')
     expect(tokens(html)).toContain('variable')
     // The text around it is text: `rid-` is not a variable, and neither is a word that
@@ -42,7 +42,7 @@ describe('JSON with Jinja in it', () => {
     // The case that a single top-level jinja token silently missed: prism gives
     // overlapping greedy patterns to whichever starts first, and the quote starts
     // before the brace.
-    const html = colour('{"id": "{{ resourceId }}", "n": 1}', 'json')
+    const html = colour('{"id": "{{ resource_id }}", "n": 1}', 'json')
     const classes = tokens(html)
     expect(classes).toContain('property')
     expect(classes).toContain('number')

@@ -1581,4 +1581,76 @@ mod tests {
             "caller-chosen-id"
         );
     }
+    /// `server.external_url` as a template: the address a client asked for.
+    ///
+    /// This is the case the templating exists for. A deployment behind an ingress
+    /// that serves several hostnames cannot name one address in the configuration,
+    /// and `{{ host }}` answers each client with its own -- at the price of
+    /// building a redirect out of a header the caller controls, which is why it is
+    /// opt-in and says so in the documentation.
+    #[tokio::test]
+    async fn an_external_url_template_renders_the_host_the_client_asked_for() {
+        let base = upstream().await;
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+
+        let system = doppel_render::SystemVars {
+            host: "doppel.internal:9000".to_owned(),
+            proxy_name: "p1".to_owned(),
+            ..doppel_render::SystemVars::default()
+        };
+        let configured = doppel_core::config::ExternalUrl::parse("http://{{ host }}/").unwrap();
+        let external = crate::rewrite::resolve_external(Some(&configured), &system)
+            .expect("a template over a known host renders");
+
+        let (response, _) = forward(
+            &client,
+            &proxy(&base),
+            request(Method::GET, "/redirect/self"),
+            None,
+            &[],
+            TEST_REQUEST_ID,
+            Some(&external),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            location_of(response).await,
+            "http://doppel.internal:9000/moved?keep=1#frag"
+        );
+    }
+
+    /// A template that cannot render, or renders to something that is not a url,
+    /// means no rewriting -- not a failed request.
+    #[tokio::test]
+    async fn a_template_that_does_not_render_leaves_the_response_alone() {
+        let system = doppel_render::SystemVars::default();
+
+        // `host` is empty when the client sent none, so this renders to
+        // `http:///`, which is not a url.
+        let empty_host = doppel_core::config::ExternalUrl::parse("http://{{ host }}/").unwrap();
+        assert!(crate::rewrite::resolve_external(Some(&empty_host), &system).is_none());
+
+        // And a name no system variable has: strict rendering refuses it rather
+        // than substituting nothing.
+        let unknown = doppel_core::config::ExternalUrl::parse("http://{{ nowhere }}/").unwrap();
+        assert!(crate::rewrite::resolve_external(Some(&unknown), &system).is_none());
+    }
+
+    /// A fixed url is still a fixed url, and needs no renderer at all.
+    #[tokio::test]
+    async fn a_fixed_external_url_resolves_to_itself() {
+        let configured =
+            doppel_core::config::ExternalUrl::parse("https://doppel.example.com/").unwrap();
+        let resolved = crate::rewrite::resolve_external(
+            Some(&configured),
+            &doppel_render::SystemVars::default(),
+        )
+        .expect("a fixed url resolves");
+
+        assert_eq!(resolved.as_str(), "https://doppel.example.com/");
+    }
 }

@@ -30,7 +30,10 @@ pub use admin::{
     UploadConfig,
 };
 pub use duration::{Seconds, SecondsError, TimeoutError, TimeoutSeconds};
-pub use env::{EnvExternalUrlError, EnvTokens, EnvTokensError, external_url_from_env};
+pub use env::{
+    EnvExternalUrlError, EnvTokens, EnvTokensError, SENTRY_DSN_VAR, external_url_from_env,
+    sentry_dsn_from_env,
+};
 pub use header::{HeaderName, HeaderNameError, HeaderValue, HeaderValueError};
 pub use mock::{MockConfig, MockProxyOverride, MockRequest, MockResponse};
 pub use name::{MAX_PROXY, Name, NameError, ProxyName};

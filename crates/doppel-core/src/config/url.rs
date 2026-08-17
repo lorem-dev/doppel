@@ -137,34 +137,90 @@ impl utoipa::ToSchema for UpstreamUrl {}
 /// Held to the same rules as an upstream base, and used the same way: a path is
 /// a prefix, so `https://gw.example.com/doppel/` is a Doppel reached under a
 /// prefix and rewritten locations keep it.
+///
+/// It may also be a template over the system variables, rendered per request --
+/// `http://{{ host }}/` answers each client with the address it asked for, and
+/// `https://{{ proxy_name }}.gw.example.com/` gives each proxy its own name
+/// behind a wildcard. That is opt-in for a reason: `host` is a claim by the
+/// caller, so a deployment that builds a redirect out of it is choosing to.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ExternalUrl(reqwest::Url);
+pub enum ExternalUrl {
+    /// A url, parsed and checked when the configuration was read.
+    Fixed(reqwest::Url),
+    /// A template, kept as text: what it renders to depends on the request, so
+    /// the rules a fixed url is held to are checked on the result instead. A
+    /// rendered value that does not parse means no rewriting for that request --
+    /// not a failed one.
+    Template(String),
+}
+
+/// Whether a configured value is a template rather than a url.
+///
+/// `{{` is the only marker looked for. A path may legally contain a brace, and
+/// neither Jinja's statement (`{%`) nor its comment (`{#`) form makes sense in an
+/// address, so the test stays on the one form this feature is for.
+#[must_use]
+pub fn is_template(value: &str) -> bool {
+    value.contains("{{")
+}
 
 impl ExternalUrl {
     /// Check a string and keep it parsed, or say why not.
     pub fn parse(value: &str) -> Result<Self, UrlError> {
-        parse_base(value).map(Self)
+        if is_template(value) {
+            return Self::parse_template(value);
+        }
+        parse_base(value).map(Self::Fixed)
     }
 
+    /// A template, checked as far as one can be before it renders.
+    ///
+    /// The scheme has to be there literally: everything after it may be
+    /// substituted, but a value that does not begin `http://` or `https://`
+    /// cannot become a usable url however it renders, and catching that at
+    /// startup beats finding out on the first redirect.
+    fn parse_template(value: &str) -> Result<Self, UrlError> {
+        let scheme = value.split("://").next().unwrap_or_default();
+        if !matches!(scheme, "http" | "https") {
+            return Err(UrlError::BadScheme(scheme.to_owned()));
+        }
+        if value.contains('?') || value.contains('#') {
+            return Err(UrlError::HasQueryOrFragment);
+        }
+        Ok(Self::Template(value.to_owned()))
+    }
+
+    /// The url, when this is one rather than a template.
     #[must_use]
-    pub fn into_url(self) -> reqwest::Url {
-        self.0
+    pub fn as_url(&self) -> Option<&reqwest::Url> {
+        match self {
+            Self::Fixed(url) => Some(url),
+            Self::Template(_) => None,
+        }
     }
 
+    /// The template, when this is one.
     #[must_use]
-    pub fn as_url(&self) -> &reqwest::Url {
-        &self.0
+    pub fn template(&self) -> Option<&str> {
+        match self {
+            Self::Fixed(_) => None,
+            Self::Template(text) => Some(text),
+        }
     }
 
+    /// What the operator wrote: a normalised url, or the template verbatim.
     #[must_use]
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        match self {
+            Self::Fixed(url) => url.as_str(),
+            Self::Template(text) => text,
+        }
     }
 }
 
 impl fmt::Display for ExternalUrl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(self.0.as_str())
+        f.write_str(self.as_str())
     }
 }
 
@@ -177,10 +233,12 @@ impl FromStr for ExternalUrl {
 }
 
 impl Serialize for ExternalUrl {
-    /// The parsed form, for the reason `UpstreamUrl` serializes that way: the
-    /// revision is computed over what this writes.
+    /// What the operator wrote. A fixed url comes back normalised, for the reason
+    /// `UpstreamUrl` does -- the revision is computed over this -- and a template
+    /// comes back verbatim, because there is nothing to normalise and rewriting it
+    /// would change the revision of a document nobody edited.
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_str(self.0.as_str())
+        s.serialize_str(self.as_str())
     }
 }
 

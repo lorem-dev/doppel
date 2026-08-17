@@ -178,16 +178,28 @@ docker run --rm -p 58080:8080 -p 58081:8081 \
 Without it a rewritten redirect names port 8080, which is not published, and the
 client follows it nowhere. Doppel logs the address it settled on at startup.
 
-## Tokens
+## Credentials
 
-`DOPPEL_ADMIN_TOKENS` keeps secrets out of the configuration file that gets
-mounted in:
+Two of them, and neither has to go into the configuration file that gets mounted
+in:
 
 ```bash
 docker run --rm \
   -e DOPPEL_ADMIN_TOKENS='{"ci":{"token":"...","group":"admin"}}' \
+  -e DOPPEL_SENTRY_DSN='https://key@sentry.example.com/1' \
   ...
 ```
+
+Both override what the document says. `DOPPEL_SENTRY_DSN` also means a
+`sentry` section is not needed at all -- and an empty value counts as unset, so a
+variable that failed to interpolate leaves a configured DSN in force rather than
+silently turning error reporting off.
+
+Sentry reporting needs a build with the `sentry` cargo feature, and neither the
+published image nor the released binaries carry it -- it is off by default so a
+default build does not ship a TLS stack and an HTTP client it never uses. A DSN
+given to a build without it warns at startup and is not reported; nothing else
+changes. Build your own with `--features sentry` if you need it.
 
 ## Reloading
 

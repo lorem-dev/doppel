@@ -10,6 +10,7 @@ pub mod redact;
 pub mod reload;
 pub mod runtime;
 pub mod store;
+pub mod template;
 pub mod validate;
 
 pub use config::{Config, ConfigError};

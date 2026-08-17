@@ -86,7 +86,7 @@ fn mock2_renders_from_the_request_body_and_query() {
     assert_eq!(parsed["description"], "first");
     assert_eq!(
         parsed["items"], 3,
-        "`resourceItems | length` must count the array"
+        "`resource_items | length` must count the array"
     );
 }
 
@@ -112,13 +112,13 @@ fn the_literal_42_path_is_mocked_rather_than_proxied() {
 #[test]
 fn mock4_binds_a_path_capture_into_the_body_and_headers() {
     let (_up, server) = server();
-    // `mock4` extracts `requestId` from `X-Request-ID` and renders it into a
-    // response header. Rendering is strict, so that request header is not
-    // optional -- the reference config says as much where the mock is defined.
+    // `mock4` extracts `trace_id` from `X-Trace-Id` and renders it into a response
+    // header. Rendering is strict, so that request header is not optional -- the
+    // reference config says as much where the mock is defined.
     let url = format!("http://127.0.0.1:{}/api/v1/resource/7/", server.port());
     let response = reqwest::blocking::Client::new()
         .get(url)
-        .header("x-request-id", "abc-123")
+        .header("x-trace-id", "abc-123")
         .send()
         .unwrap();
     assert_eq!(response.status().as_u16(), 200);
@@ -127,11 +127,36 @@ fn mock4_binds_a_path_capture_into_the_body_and_headers() {
         "7",
         "the capture must render into the response header too"
     );
+    assert_eq!(
+        response.headers().get("x-trace-id").unwrap(),
+        "abc-123",
+        "the extracted header must render back out"
+    );
+    // A system variable Doppel binds itself, with no extraction anywhere in the
+    // reference configuration: the id it echoes is the one the client sent.
+    let echoed = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
     let parsed: serde_json::Value = serde_json::from_str(&response.text().unwrap()).unwrap();
     assert_eq!(
         parsed["id"], "7",
-        "the resourceId capture must reach the body"
+        "the resource_id capture must reach the body"
     );
+    // `proxy_name` and `doppel_version`, rendered from nothing the configuration
+    // declared.
+    let served_by = parsed["served_by"].as_str().unwrap_or_default();
+    assert!(
+        served_by.starts_with("proxy1 "),
+        "the proxy's own name must render, got {served_by:?}"
+    );
+    assert!(
+        served_by.ends_with(env!("CARGO_PKG_VERSION")),
+        "the running version must render, got {served_by:?}"
+    );
+    assert!(!echoed.is_empty(), "a request id must always be echoed");
 }
 
 #[test]
@@ -146,7 +171,7 @@ fn mock4_without_the_header_it_extracts_fails_loudly() {
     let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(parsed["code"], "TEMPLATE_RENDER_ERROR");
     assert!(
-        parsed["message"].as_str().unwrap().contains("requestId"),
+        parsed["message"].as_str().unwrap().contains("trace_id"),
         "the message must name the variable, got {}",
         parsed["message"]
     );
@@ -166,7 +191,7 @@ fn mock6_renders_a_template_file() {
     server.write_template(
         "proxy1",
         "put.json.j2",
-        r#"{"updated": "{{ resourceId }}", "name": "{{ resourceName }}"}"#,
+        r#"{"updated": "{{ resource_id }}", "name": "{{ resource_name }}"}"#,
     );
     let (status, body) = server.request(
         "PUT",

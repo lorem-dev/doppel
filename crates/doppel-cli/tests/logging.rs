@@ -180,3 +180,71 @@ fn a_dsn_without_the_feature_is_reported_rather_than_ignored() {
     );
     assert!(!both.contains("s3cr3tsentrykey"), "{both}");
 }
+
+/// The DSN from the environment, through the built binary.
+///
+/// The unit tests decide precedence; this is the half only a process can answer:
+/// that the variable is read at all, that the startup line says which source won,
+/// and that the key does not travel any further from the environment than it does
+/// from the document.
+#[test]
+fn a_dsn_from_the_environment_is_read_and_its_source_named() {
+    let up = upstream();
+    // No `sentry` section in the document at all -- the case a deployment that
+    // provisions credentials through the environment actually has.
+    let server = Server::start_with_env(up.port, config, &[("DOPPEL_SENTRY_DSN", SENTRY_DSN)]);
+    server.get("/anything");
+
+    send_sigterm(server.pid());
+    let (_status, stdout, stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
+
+    let both = format!("{stdout}{stderr}");
+    assert!(
+        !both.contains("s3cr3tsentrykey"),
+        "the key leaked into the logs: {both}"
+    );
+    // Named the way an operator would grep for it, whether or not this build can
+    // report: with the feature the line says reporting is enabled, without it that
+    // nothing will be reported, and both carry the source.
+    assert!(
+        both.contains("DOPPEL_SENTRY_DSN"),
+        "startup must say which source the dsn came from: {both}"
+    );
+    assert!(
+        both.contains("sentry.invalid"),
+        "the host survives redaction, which is what makes the line useful: {both}"
+    );
+}
+
+/// An empty variable leaves the document's DSN alone.
+///
+/// The direction matters: `DOPPEL_SENTRY_DSN=${SENTRY_DSN}` with nothing behind
+/// `SENTRY_DSN` is a compose file that means nothing by it, and silently turning
+/// error reporting off is the worse reading of that.
+#[test]
+fn an_empty_variable_does_not_disable_a_configured_dsn() {
+    let up = upstream();
+    let server = Server::start_with_env(
+        up.port,
+        |ports, socket, templates| {
+            config(ports, socket, templates).replace(
+                "proxies:",
+                &format!("sentry:\n  dsn: \"{SENTRY_DSN}\"\nproxies:"),
+            )
+        },
+        &[("DOPPEL_SENTRY_DSN", "")],
+    );
+    server.get("/anything");
+
+    send_sigterm(server.pid());
+    let (_status, stdout, stderr) =
+        wait_after_signal(server.into_child(), "SIGTERM", SIGNAL_WAIT_DEADLINE);
+
+    let both = format!("{stdout}{stderr}");
+    assert!(
+        both.contains("sentry.dsn"),
+        "the document's dsn must still be the one in force: {both}"
+    );
+    assert!(!both.contains("s3cr3tsentrykey"), "{both}");
+}

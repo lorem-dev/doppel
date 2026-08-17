@@ -22,14 +22,16 @@ pub struct ProxyState {
     pub holder: Arc<RuntimeHolder>,
     pub sampler: Arc<dyn Sampler>,
     /// Where clients reach this Doppel, from `server.external_url` or
-    /// `DOPPEL_EXTERNAL_URL`, when the deployment says.
+    /// `DOPPEL_EXTERNAL_URL`, when the deployment says. A url or a template over
+    /// the system variables -- `crate::rewrite::resolve_external` decides which,
+    /// per request, because a template's answer depends on the request.
     ///
     /// Resolved once at startup rather than read from the running configuration,
     /// like the rest of `server`: the listeners are bound before the first
     /// reload, and a reload that changes that section reports it as unapplied.
     /// Behind an `Arc` because this struct is cloned per request and a `Url` is
     /// a `String` behind the scenes.
-    pub external_url: Option<Arc<reqwest::Url>>,
+    pub external_url: Option<Arc<doppel_core::config::ExternalUrl>>,
 }
 
 impl ProxyState {
@@ -44,7 +46,7 @@ impl ProxyState {
 
     /// The same state, told where clients reach this Doppel.
     #[must_use]
-    pub fn with_external_url(mut self, external: Option<reqwest::Url>) -> Self {
+    pub fn with_external_url(mut self, external: Option<doppel_core::config::ExternalUrl>) -> Self {
         self.external_url = external.map(Arc::new);
         self
     }
@@ -90,6 +92,14 @@ async fn handle(
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
 
+    // Everything Doppel itself contributes to a template, built once here: a
+    // mock's response renders against it, and so does `server.external_url` when
+    // that is a template -- which is why it is built before the proxy resolves
+    // rather than inside the mock branch. `proxy_name` and `mock_name` are filled
+    // in as they become known; a request that resolves to nothing renders nothing
+    // and keeps the empty ones.
+    let mut system = system_vars(&request, &request_id, &method, &path, peer);
+
     let proxy = match resolve(&runtime, request.headers()) {
         Ok(proxy) => proxy,
         Err(err) => {
@@ -134,6 +144,8 @@ async fn handle(
             return response;
         }
     };
+
+    system.proxy_name = proxy.name.clone();
 
     // Mock matching comes before fault injection, so `replace` means what it
     // says: the share of matching requests a mock answers. Deciding the faults
@@ -227,8 +239,16 @@ async fn handle(
             // Rendered first, then padded: the delay is a target for the whole
             // response, so whatever producing it cost comes out of the wait.
             let rendering = std::time::Instant::now();
-            let outcome =
-                serve_mock(&runtime.config.templates.dir, proxy, mock, vars, request).await;
+            system.mock_name = mock.name.clone();
+            let outcome = serve_mock(
+                &runtime.config.templates.dir,
+                proxy,
+                mock,
+                vars,
+                &system,
+                request,
+            )
+            .await;
             let (response, error_code) = match outcome {
                 Ok(response) => (response, None),
                 Err(err) => (error_response(&err), Some(err.code.as_str())),
@@ -329,7 +349,7 @@ async fn handle(
         Some(peer.ip()),
         &runtime.resolve_headers,
         &request_id,
-        state.external_url.as_deref(),
+        crate::rewrite::resolve_external(state.external_url.as_deref(), &system).as_ref(),
     )
     .await;
     let latency_ms = pad_to_target(faults.latency, attempt.elapsed(), &proxy.name).await;
@@ -490,6 +510,52 @@ pub fn request_id(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| format!("{:032x}", rand::random::<u128>()))
 }
 
+/// The system variables for this request.
+///
+/// `real_ip` is a claim and `peer_ip` is not, which is why both are here: a mock
+/// that reports who called it wants the first, and one that decides anything
+/// wants to know it is reading the second. `X-Real-IP` is read the way a proxy in
+/// front writes it -- see `SystemVars::resolve_real_ip` for the order.
+fn system_vars(
+    request: &Request,
+    request_id: &str,
+    method: &axum::http::Method,
+    path: &str,
+    peer: SocketAddr,
+) -> doppel_render::SystemVars {
+    let headers = request.headers();
+    let forwarded_for: Vec<&str> = headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .collect();
+    let real_ip = doppel_render::SystemVars::resolve_real_ip(
+        headers
+            .get("x-real-ip")
+            .and_then(|value| value.to_str().ok()),
+        &forwarded_for,
+        Some(peer.ip()),
+    );
+
+    doppel_render::SystemVars {
+        // Filled in by the caller as they become known: a request that resolves
+        // to no proxy still renders an error, and an empty name is the honest
+        // answer there.
+        proxy_name: String::new(),
+        mock_name: String::new(),
+        request_id: request_id.to_owned(),
+        method: method.as_str().to_owned(),
+        path: path.to_owned(),
+        host: headers
+            .get(axum::http::header::HOST)
+            .and_then(|value| value.to_str().ok())
+            .unwrap_or_default()
+            .to_owned(),
+        peer_ip: peer.ip().to_string(),
+        real_ip,
+    }
+}
+
 /// Set `X-Request-ID` on every response the client receives, not just a
 /// successfully forwarded one -- otherwise the id logged for a rejected or
 /// dropped request would never reach the client that could quote it back.
@@ -514,6 +580,7 @@ async fn serve_mock(
     proxy: &CompiledProxy,
     mock: &CompiledMock,
     mut vars: Variables,
+    system: &doppel_render::SystemVars,
     request: Request,
 ) -> Result<Response, Error> {
     crate::mock::bind_headers(mock, request.headers(), &mut vars);
@@ -538,6 +605,12 @@ async fn serve_mock(
         let root = doppel_render::parse_body(&bytes)?;
         crate::mock::bind_body(mock, &root, &mut vars);
     }
+
+    // Last, so a mock that extracts something called `proxy_name` finds the
+    // system value in its template rather than its own. `startup_advisories`
+    // names any mock that does this, because the extraction still costs a header
+    // read while its result goes unused.
+    system.bind(&mut vars);
 
     let renderer = Renderer::new();
     let body: Vec<u8> = match &mock.body {
@@ -2002,11 +2075,11 @@ proxies:
       - name: m1
         request:
           method: GET
-          url: /widgets/(?P<resourceId>[0-9]+)/
+          url: /widgets/(?P<resource_id>[0-9]+)/
         response:
           status: 200
           headers:
-            X-Resource-ID: "{{ resourceId }}"
+            X-Resource-ID: "{{ resource_id }}"
 "#;
             let response = send(state(&config_with(extra), vec![0.0]), get("/widgets/42/")).await;
             assert_eq!(response.status(), StatusCode::OK);
