@@ -80,3 +80,18 @@ Pushing the tag is what starts `.github/workflows/release.yml`, which builds
 the three targets, composes the release body from the CHANGES.md section this
 skill just wrote, and publishes. So a mistake here becomes a published release;
 that is the reason for the split.
+
+Print the check that goes with the tag command, to be run **on the branch being
+tagged, after pulling it**:
+
+```bash
+uv run scripts/check_release_tag.py v<version>
+```
+
+It says whether that checkout carries the version and the CHANGES.md section
+the tag claims. A final tag is cut from `main` after the release pull request
+is merged, and a tag on a `main` that has not been pulled builds and publishes
+the previous release under the new number -- `v1.1.0` was once pushed at a
+1.0.0 tree, and three image tags were published before anything noticed. The
+`verify` job in the release workflow now refuses that, but it refuses it after
+the tag exists; this catches it before.

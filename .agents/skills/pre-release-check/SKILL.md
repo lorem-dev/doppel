@@ -89,13 +89,19 @@ else this skill turns up.
 ## Then check the version
 
 ```bash
-grep -n '^version' Cargo.toml
+uv run scripts/check_release_tag.py v<version>
 git tag --list | tail -5
 ```
 
-The workspace version must be ahead of the newest release tag, and the
-CHANGES.md heading for it must exist with a date. If the version is unchanged
-since the last tag, the release has not been prepared -- stop and say so.
+The script is the same check the release workflow's `verify` job runs: this
+checkout's workspace version equals the version being released, and CHANGES.md
+has a non-empty section for it. It must also be ahead of the newest release tag
+-- if the version is unchanged since the last tag, the release has not been
+prepared, so stop and say so.
+
+Run it again on `main` after the release pull request is merged and pulled,
+immediately before cutting the tag. That is the check that would have caught
+`v1.1.0` being tagged on an unmerged `main` and published as a 1.0.0 build.
 
 ## Then dry-run the release scripts
 
