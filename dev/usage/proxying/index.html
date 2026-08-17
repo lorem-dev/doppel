@@ -651,6 +651,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Doppel&#39;s own address">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-one-address-is-not-enough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When one address is not enough
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1243,6 +1260,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Doppel&#39;s own address">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#when-one-address-is-not-enough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When one address is not enough
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1488,6 +1522,31 @@ which address it settled on at startup, so it is one line away from being checke
 rather than assumed.</p>
 <p>A path is kept as a prefix: <code>https://gw.example.com/doppel/</code> is a Doppel reached
 under a prefix, and its rewritten locations carry it.</p>
+<h3 id="when-one-address-is-not-enough">When one address is not enough<a class="headerlink" href="#when-one-address-is-not-enough" title="Permanent link">&para;</a></h3>
+<p><code>external_url</code> may be a template over the
+<a href="../mocks/#system-variables">system variables</a>, rendered per request:</p>
+<div class="highlight"><pre><span></span><code><span class="nt">server</span><span class="p">:</span>
+<span class="w">  </span><span class="c1"># Whatever this client asked for.</span>
+<span class="w">  </span><span class="nt">external_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;http://{{</span><span class="nv"> </span><span class="s">host</span><span class="nv"> </span><span class="s">}}/&quot;</span>
+<span class="w">  </span><span class="c1"># Or a name per proxy, behind a wildcard.</span>
+<span class="w">  </span><span class="nt">external_url</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://{{</span><span class="nv"> </span><span class="s">proxy_name</span><span class="nv"> </span><span class="s">}}.gw.example.com/&quot;</span>
+</code></pre></div>
+<p>A value containing <code>{{</code> is a template; anything else is parsed as a url when the
+configuration is read, as before. The scheme has to be literal -- <code>http://</code> or
+<code>https://</code> -- because a value that does not start with one cannot become a usable
+url however it renders, and that is worth failing at startup.</p>
+<div class="admonition warning">
+<p class="admonition-title"><code>{{ host }}</code> is the caller's claim</p>
+<p><code>Host</code> arrives from the client. A deployment that builds a redirect out of it
+is choosing to let a caller decide where its own redirects point, which is
+fine when something in front validates the host and is not when nothing does.
+That is why Doppel does not do this by default: it is one line to opt in, and
+the line is where the decision belongs.</p>
+</div>
+<p>A template that fails to render, or renders to something that is not a url, means
+<strong>no rewriting for that request</strong> -- the upstream's own <code>Location</code> is relayed
+instead. A cosmetic feature is not worth a <code>500</code>, and the reason is logged at
+debug rather than per redirect at warn.</p>
 <p>Set <code>rewrite_redirects: false</code> to relay the header byte for byte. That is what a
 client being tested <em>for its redirect handling</em> needs; it is not what a client
 being tested against a degraded backend needs.</p>
