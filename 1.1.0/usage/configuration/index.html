@@ -1867,9 +1867,9 @@ loaded.</p>
 </tr>
 <tr>
 <td><code>external_url</code></td>
-<td>absolute URL</td>
+<td>absolute URL, or a template</td>
 <td><code>host:port</code></td>
-<td>Where clients reach Doppel, for rewriting a redirect or a body. <code>DOPPEL_EXTERNAL_URL</code> overrides it. See <a href="../proxying/#doppels-own-address">Doppel's own address</a></td>
+<td>Where clients reach Doppel, for rewriting a redirect or a body. May be a template over the <a href="../mocks/#system-variables">system variables</a>, e.g. <code>http://{{ host }}/</code>. <code>DOPPEL_EXTERNAL_URL</code> overrides it. See <a href="../proxying/#doppels-own-address">Doppel's own address</a></td>
 </tr>
 </tbody>
 </table>
@@ -1906,6 +1906,10 @@ absent.</p>
 <span class="w">  </span><span class="nt">dsn</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://key@sentry.example.com/1&quot;</span>
 </code></pre></div>
 <p>Optional. An absent section or an empty DSN disables it.</p>
+<p><code>DOPPEL_SENTRY_DSN</code> provides the DSN, or replaces the one written here -- a DSN is
+a credential, and the environment is where a deployment usually keeps one. An
+empty variable counts as unset and leaves this field in force. See
+<a href="../observability/#the-dsn-from-the-environment">Sentry</a>.</p>
 <h2 id="admin"><code>admin</code><a class="headerlink" href="#admin" title="Permanent link">&para;</a></h2>
 <p>The admin listener's address, its tokens, and who may do what.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">admin</span><span class="p">:</span>

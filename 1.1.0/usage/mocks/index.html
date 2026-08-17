@@ -672,6 +672,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#system-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rendering" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1220,6 +1231,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#system-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System variables
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rendering" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1345,27 +1367,101 @@ match a pattern written <code>/a/b/</code>: whether those name the same resource
 upstream's business, and answering it here would also disagree with the path
 that gets forwarded.</p>
 <h2 id="variables">Variables<a class="headerlink" href="#variables" title="Permanent link">&para;</a></h2>
-<p>Four sources, all optional.</p>
+<p>Five sources. Four are yours and optional; the fifth is Doppel's and always
+there.</p>
 <p><strong>Path captures.</strong> Named groups in the pattern become variables:</p>
-<div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/api/v1/resource/(?P&lt;resourceId&gt;\d+)/</span>
+<div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/api/v1/resource/(?P&lt;resource_id&gt;\d+)/</span>
 </code></pre></div>
-<p>binds <code>resourceId</code>.</p>
+<p>binds <code>resource_id</code>.</p>
 <p><strong>Headers.</strong> A map of variable name to header name:</p>
 <div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">headers</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">requestId</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Request-ID</span>
+<span class="w">            </span><span class="nt">trace_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Trace-Id</span>
 </code></pre></div>
 <p><strong>Query and body.</strong> A map of variable name to a selector -- a leading dot and
 dot-separated keys:</p>
 <div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">query</span><span class="p">:</span>
 <span class="w">            </span><span class="nt">filter</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.filter</span>
 <span class="w">          </span><span class="nt">body</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">itemCount</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.content.items</span>
+<span class="w">            </span><span class="nt">item_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">.content.items</span>
 </code></pre></div>
 <p>Selectors address object keys. A selector that lands on an array yields the
 array, which templates can iterate or measure with <code>length</code>. Array indexing is
 not supported.</p>
 <p>A variable name may not collide with a capture group name; that is rejected at
 load.</p>
+<p>Names are <code>snake_case</code> throughout this documentation and in
+<code>main.example.yaml</code>. Jinja accepts any identifier, so <code>itemCount</code> works -- but
+Doppel's own variables are <code>snake_case</code>, and one convention per context reads as
+one source.</p>
+<h2 id="system-variables">System variables<a class="headerlink" href="#system-variables" title="Permanent link">&para;</a></h2>
+<p>Doppel binds nine variables into every template it renders, whether or not the
+mock asked for anything:</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>proxy_name</code></td>
+<td>The proxy that resolved. Empty for a request that resolved to none</td>
+</tr>
+<tr>
+<td><code>mock_name</code></td>
+<td>The mock answering. Empty when the request is being forwarded</td>
+</tr>
+<tr>
+<td><code>doppel_version</code></td>
+<td>The version of the binary serving the request</td>
+</tr>
+<tr>
+<td><code>request_id</code></td>
+<td>The id echoed in <code>X-Request-ID</code>, minted when the client sent none</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td>The request method</td>
+</tr>
+<tr>
+<td><code>path</code></td>
+<td>The request path, without the query string</td>
+</tr>
+<tr>
+<td><code>host</code></td>
+<td>The <code>Host</code> the client asked for. Empty when it sent none</td>
+</tr>
+<tr>
+<td><code>peer_ip</code></td>
+<td>The address the connection came from</td>
+</tr>
+<tr>
+<td><code>real_ip</code></td>
+<td>Who the request is <em>said</em> to be from: <code>X-Real-IP</code>, else the leftmost <code>X-Forwarded-For</code> entry, else <code>peer_ip</code></td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><span class="w">        </span><span class="nt">response</span><span class="p">:</span>
+<span class="w">          </span><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">200</span>
+<span class="w">          </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;served_by&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">proxy_name</span><span class="nv"> </span><span class="s">}}</span><span class="nv"> </span><span class="s">{{</span><span class="nv"> </span><span class="s">doppel_version</span><span class="nv"> </span><span class="s">}}&quot;,</span><span class="nv"> </span><span class="s">&quot;caller&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">real_ip</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
+<span class="w">          </span><span class="nt">headers</span><span class="p">:</span>
+<span class="w">            </span><span class="nt">X-Request-ID</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">request_id</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</code></pre></div>
+<p><strong><code>peer_ip</code> and <code>real_ip</code> are not the same claim.</strong> <code>peer_ip</code> is the socket's own
+address and nobody can fake it. <code>real_ip</code> is what a proxy in front says, out of
+headers a client can also send -- useful for a mock that reports who called it,
+and not something to make a decision on unless you know what sits in front.</p>
+<p><strong>They are reserved.</strong> They are bound after your extractions, so a mock that
+extracts into <code>proxy_name</code> finds Doppel's value in its template rather than its
+own. The extraction still happens and its result is thrown away, which is why
+startup says so:</p>
+<div class="highlight"><pre><span></span><code>mock `m1` of proxy `alpha` extracts `proxy_name` into a name Doppel binds
+itself; the system value wins, so the extraction is read and thrown away
+</code></pre></div>
+<p>Being always present, they also never need <code>| default('')</code> -- an absent one is an
+empty string rather than an undefined variable, which is the one place Doppel's
+own variables are gentler than yours.</p>
 <h2 id="rendering">Rendering<a class="headerlink" href="#rendering" title="Permanent link">&para;</a></h2>
 <p>Exactly one of three fields produces the body, or none at all for a status that
 forbids one:</p>
@@ -1381,17 +1477,17 @@ forbids one:</p>
 <h3 id="rendering-is-strict">Rendering is strict<a class="headerlink" href="#rendering-is-strict" title="Permanent link">&para;</a></h3>
 <p>An undefined variable is an error, not an empty string.</p>
 <div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">headers</span><span class="p">:</span>
-<span class="w">            </span><span class="nt">requestId</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Request-ID</span>
+<span class="w">            </span><span class="nt">request_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Request-ID</span>
 <span class="w">       </span><span class="w w-Error"> </span><span class="nt">response</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;seen&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">requestId</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
+<span class="w">          </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;seen&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">request_id</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
 </code></pre></div>
 <p>A request without <code>X-Request-ID</code> fails this mock with
-<code>TEMPLATE_RENDER_ERROR</code>, because <code>requestId</code> is undefined. That is deliberate:
+<code>TEMPLATE_RENDER_ERROR</code>, because <code>request_id</code> is undefined. That is deliberate:
 a mock that silently renders <code>"seen": ""</code> because a variable was mistyped is
 worse than one that refuses. The error message names the expression that
 failed.</p>
 <p>If a variable should be optional, say so:</p>
-<div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;seen&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">requestId</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">default(</span><span class="se">&#39;&#39;&#39;&#39;</span><span class="s">)</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
+<div class="highlight"><pre><span></span><code><span class="w">          </span><span class="nt">json</span><span class="p">:</span><span class="w"> </span><span class="s">&#39;{&quot;seen&quot;:</span><span class="nv"> </span><span class="s">&quot;{{</span><span class="nv"> </span><span class="s">request_id</span><span class="nv"> </span><span class="s">|</span><span class="nv"> </span><span class="s">default(</span><span class="se">&#39;&#39;&#39;&#39;</span><span class="s">)</span><span class="nv"> </span><span class="s">}}&quot;}&#39;</span>
 </code></pre></div>
 <h2 id="serving-some-of-the-time">Serving some of the time<a class="headerlink" href="#serving-some-of-the-time" title="Permanent link">&para;</a></h2>
 <p><code>replace</code> is the probability that a matching mock actually answers. It defaults

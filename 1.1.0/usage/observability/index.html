@@ -898,6 +898,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Sentry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-dsn-from-the-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The DSN from the environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1267,6 +1284,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Sentry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-dsn-from-the-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The DSN from the environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1487,12 +1521,37 @@ methods. Anything outside the recognised set is recorded as <code>OTHER</code>.<
 <p>Optional, behind the <code>sentry</code> cargo feature and off in a default build:</p>
 <div class="highlight"><pre><span></span><code>cargo<span class="w"> </span>build<span class="w"> </span>--release<span class="w"> </span>--features<span class="w"> </span>sentry
 </code></pre></div>
+<p>Neither the released binaries nor the published image carry it: a default build
+should not ship a TLS stack and an HTTP client it never uses. Reporting to Sentry
+means building your own, which is the trade this flag is.</p>
 <div class="highlight"><pre><span></span><code><span class="nt">sentry</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">dsn</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;https://key@sentry.example.com/1&quot;</span>
 </code></pre></div>
 <p>An absent section or an empty DSN disables it and is not an error. A
 malformed DSN fails startup rather than producing a client that silently
 drops everything -- with the key masked in the message.</p>
+<h3 id="the-dsn-from-the-environment">The DSN from the environment<a class="headerlink" href="#the-dsn-from-the-environment" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><span class="nv">DOPPEL_SENTRY_DSN</span><span class="o">=</span><span class="s2">&quot;https://key@sentry.example.com/1&quot;</span>
+</code></pre></div>
+<p>A DSN carries the key that authorises sending events, which makes it the one
+Sentry setting that is a credential -- and a deployment that provisions
+credentials through the environment should not have to write this one into a
+document the admin API returns and the store keeps.</p>
+<p>The variable wins over <code>sentry.dsn</code>, the same way <code>DOPPEL_ADMIN_TOKENS</code> wins over
+<code>admin.tokens</code>: it is how a deployment overrides a document it may not be able to
+edit. Startup says which source it used, so the answer is one line away rather
+than a guess:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span><span class="nt">&quot;level&quot;</span><span class="p">:</span><span class="s2">&quot;INFO&quot;</span><span class="p">,</span><span class="nt">&quot;fields&quot;</span><span class="p">:{</span><span class="nt">&quot;message&quot;</span><span class="p">:</span><span class="s2">&quot;sentry reporting enabled&quot;</span><span class="p">,</span>
+<span class="w"> </span><span class="nt">&quot;dsn&quot;</span><span class="p">:</span><span class="s2">&quot;https://&lt;redacted&gt;@sentry.example.com/1&quot;</span><span class="p">,</span><span class="nt">&quot;source&quot;</span><span class="p">:</span><span class="s2">&quot;DOPPEL_SENTRY_DSN&quot;</span><span class="p">}}</span>
+</code></pre></div>
+<p><strong>An empty variable is not a way to turn reporting off.</strong> It counts as unset and
+leaves <code>sentry.dsn</code> in force, deliberately: <code>DOPPEL_SENTRY_DSN=${SENTRY_DSN}</code> with
+nothing behind <code>SENTRY_DSN</code> is a compose file that means nothing by it, and
+silently disabling error reporting is the worse reading. To turn it off, write
+<code>dsn: ""</code> or remove the section.</p>
+<p>Doppel reads its own name, not the conventional <code>SENTRY_DSN</code>. A variable that is
+in the environment for the service beside this one should not make this one start
+reporting to it.</p>
 <p>A build without the feature that is given a DSN warns at startup and carries
 on. It does not pretend to report, and it does not refuse to run: reporting is
 optional by design, so turning a missing integration into an outage would be
