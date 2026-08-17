@@ -2,9 +2,10 @@
 # release whose body is the CHANGES.md section for the tag plus a download
 # list.
 #
-# Triggered by a version tag. Branch rules for where a tag may be cut from are
-# in CONTRIBUTING.md and are not enforced here -- a tag is the decision, and
-# this workflow carries it out.
+# Triggered by a version tag. The `verify` job checks the tag against the commit
+# it names -- version, CHANGES.md section, and the branch rule in CONTRIBUTING.md
+# -- and every other job descends from it, so nothing is built or published
+# until the tag is one this repository allows.
 #
 # A pre-release tag (`v1.2.3-rc.1`, anything with a `-` qualifier) builds and
 # publishes exactly like a final one, marked as a pre-release so it does not
@@ -30,10 +31,67 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A tag is a claim about a commit, and this is the only job that checks the
+  # claim before anything acts on it. Everything downstream treats the tag name
+  # as the truth: the image is tagged from it and pushed, and the Docker Hub
+  # overview is rewritten to name it. So a tag cut from a commit that does not
+  # carry the release -- the release pull request still open, the branch not
+  # pulled -- publishes a mislabelled image and only fails at the notes step,
+  # long after. That happened to `v1.1.0`.
+  #
+  # It costs seconds on a bare runner, and every other job descends from
+  # `frontend`, so gating that one gates all of them. A job added here that
+  # does not is a job outside the gate.
+  verify:
+    name: Check the tag against the tree
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # Full history: the branch check below asks whether this commit is an
+      # ancestor of `main`, and a shallow clone has no common history to
+      # answer that with. No `lfs`, nothing here reads an asset.
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v9.0.0
+
+      - name: The tag names this commit's version, and CHANGES.md describes it
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: uv run scripts/check_release_tag.py "$TAG"
+
+      # CONTRIBUTING.md and AGENTS.md both say a final tag may only be cut from
+      # `main` and that this workflow rejects one that is not -- so here it is.
+      # Reachability rather than "which branch is this", because a tag has no
+      # branch: what `main` promises is that the commit is on it.
+      #
+      # Release candidates are exempt by design. An RC exists to exercise this
+      # pipeline before the work reaches `main`, so requiring it to be there
+      # first would defeat the point.
+      - name: A final tag is on main
+        if: ${{ !contains(github.event.inputs.tag || github.ref_name, '-') }}
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "$TAG is not on main -- final tags are cut from main, after" \
+              "develop has merged there. A candidate would be ${TAG}-rc.1." >&2
+            exit 1
+          fi
+          echo "$TAG is on main"
+
   frontend:
     name: Build the dashboard
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: verify
 
     steps:
       # `lfs: true` for the favicon the build copies out of `assets/`.
